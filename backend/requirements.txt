@@ -1,0 +1,21 @@
+# Kylin SafeOps Agent — 后端依赖（D1–D2 最小集，按排期增长）
+# LoongArch 铁律：优先纯 Python；含 Rust/C 扩展者需提前在 VM 预编译 wheel 并记部署文档。
+
+# --- core / contracts (D2) ---
+pydantic>=2,<3        # 契约模型；注：pydantic-core 为 Rust 扩展 → LoongArch 需预编译 wheel
+
+# --- api / orchestration (D3+) ---
+fastapi
+uvicorn               # 纯 uvicorn，不加 [standard]（避 uvloop/httptools C 扩展上 LoongArch）
+
+# --- llm gateway (D2) ---
+httpx                 # OpenAI 兼容网关客户端（纯 Python）
+
+# --- MCP 协议层（决策1 已定：官方 SDK，pin v1.x；fastmcp 仅 third_party 参考、不进运行时）---
+mcp>=1,<2             # 编译型依赖仅 pydantic-core；anyio/httpx/starlette/sse-starlette 全纯 Python
+
+# --- dev / CI（版本与 .pre-commit-config.yaml 的 rev 对齐，消除复审重点② 漂移）---
+ruff==0.8.4           # == ruff-pre-commit rev v0.8.4
+mypy==1.13.0          # == mirrors-mypy rev v1.13.0
+pytest                # CI 经 pre-commit 的 system 钩调用；容忍 exit 5（无测试也绿）
+pre-commit            # 本地/CI 统一校验入口：pre-commit run --all-files

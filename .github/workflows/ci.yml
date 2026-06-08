@@ -1,0 +1,27 @@
+name: CI
+
+# 仅 x86（ubuntu）。LoongArch + 麒麟 V11 兼容性以真机另验，CI 不覆盖（见 README / 手册 §2.3）。
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+jobs:
+  lint-type-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"   # ≥3.10：契约 PEP 604 + 官方 mcp SDK 下限
+      - name: Install backend deps (+ pre-commit)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pre-commit
+      # 单一来源防漂移（复审重点②）：ruff/mypy 版本由 .pre-commit-config.yaml 的 pinned rev 决定，
+      # 与本地 pre-commit 完全一致。本步涵盖：
+      #   ruff(lint+format) · mypy(仅 contracts，启 pydantic.mypy) · pytest(容忍 exit 5 = 无测试也绿)
+      - name: Lint + type-check + test (via pinned pre-commit hooks)
+        run: pre-commit run --all-files --show-diff-on-failure

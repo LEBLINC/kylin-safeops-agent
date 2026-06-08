@@ -1,0 +1,35 @@
+Kylin SafeOps Agent
+Copyright 2026 Kylin SafeOps Agent Team.
+
+本产品的自研代码以 Apache License 2.0 授权（见 LICENSE）。著作权归团队所有；
+许可证不转移版权，仅规定对外授权方式。
+
+本产品包含 / 借鉴以下第三方开源项目（以各自 LICENSE 为准）。本文件为框架，随
+subtree 引入与借用落地逐条补全；标注"查证"者于交付前核实 SPDX 标识。
+
+== 运行时依赖（pip 安装，非 fork；列此以正名其性质） ==
+- modelcontextprotocol/python-sdk (pip 包名 mcp) — MIT — 官方 MCP Python SDK，
+    pin v1.x，作运行时依赖经 pip 安装，源码不进仓；外加自写薄 adapter。
+    （fastmcp 不采用；其源码仅留 third_party/ 作参考、不进运行时。）
+
+== 进仓 fork（源码保留于 third_party/，附原始许可证） ==
+- [待 Task 3 subtree 后启用] rhel-lightspeed/linux-mcp-server — Apache-2.0
+    位置：third_party/linux-mcp-server/
+    · 改造产物见 mcp_servers/os_ops/，文件头标注：
+      "adapted from rhel-lightspeed/linux-mcp-server (Apache-2.0), modified by team"
+    · 引入时已就地剔除其 GPL-3.0 组件（删 _vendor/、删 licenses/GPL-3.0.txt、
+      pyproject license-files 收敛为 ["LICENSE"]）。
+
+== 仅借设计 / 语料 / 范式（源码不进仓） ==
+- AperionAI/shield                              Apache-2.0  借 shieldset.yaml 规则结构 + golden.jsonl 语料（Rust）
+- Dicklesworthstone/destructive_command_guard  查证        借"代码 vs 数据"语义判断（Rust）
+- robusta-dev/holmesgpt                         Apache-2.0  借 RCA toolset YAML + 上下文预算逻辑
+- derisk-ai/OpenDerisk                          查证        借证据链可视化 / 多 Agent / 人在环范式
+- Tracer-Cloud/opensre                          查证        借对抗式 RCA / 合成事故 / red herring 测试设计
+- rhel-lightspeed/sysadmin-agents              Apache-2.0  借 NL→排障→调 MCP 编排范式（拆 Google ADK）
+- cortexd-labs/mcpd, neurond                    查证        借攻击面枚举 + policy/audit 形态（反向设计）
+- All-Hands-AI/OpenHands                        MIT(避 enterprise/)  借事件流 / 审批 UI 范式
+- langchain-ai/langgraph                        MIT         可选状态机编排
+- QwenLM/Qwen-Agent                             Apache-2.0  借工具调用范式（不启用 Code Interpreter）
+- block/goose                                   查证        借权限确认 / sandbox 交互范式（Rust）
+- k8sgpt-ai/k8sgpt                              查证        借 Analyzer 模式设计（Go）

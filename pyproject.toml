@@ -1,0 +1,17 @@
+# 工具配置统一落点（手册 §2.1 未列，但为标准位置；本文件冻结"仓库根 = 导入根"）。
+# 不声明构建后端 / 包元数据：本仓为应用 monorepo，依赖走 backend/requirements.txt。
+
+[tool.pytest.ini_options]
+pythonpath = ["."]              # 冻结 仓库根=导入根：backend.app.* 与 mcp_servers.os_ops 一致可导
+testpaths = ["backend/tests"]
+
+[tool.mypy]
+python_version = "3.10"         # 契约用 PEP 604 (str | None) → 需 ≥3.10；TODO(L): 核实麒麟 V11 Python 版本
+plugins = ["pydantic.mypy"]     # 否则 D2 contracts 的 pydantic v2 模型会误报 / 漏校
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"        # 同上：与 contracts 的 PEP 604 用法一致
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
