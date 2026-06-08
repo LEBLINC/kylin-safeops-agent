@@ -1,0 +1,341 @@
+"""Unit tests for linux_mcp_server.config module"""
+
+import logging
+
+from pathlib import Path
+
+import pytest
+
+from pydantic import SecretStr
+from pydantic import ValidationError
+
+from linux_mcp_server.config import Config
+
+
+class TestConfig:
+    """Test cases for Config class"""
+
+    def test_custom_values(self, mock_getuser):
+        """Test that Config accepts custom values"""
+
+        config = Config(
+            user="customuser",
+            log_dir=Path("/var/log/custom"),
+            log_level="DEBUG",
+            log_retention_days=30,
+            allowed_log_paths="/var/log:/tmp",
+            max_file_read_bytes=2 * 1024 * 1024,
+            ssh_key_path=Path("/home/user/.ssh/id_rsa"),
+            key_passphrase=SecretStr("secret"),
+            search_for_ssh_key=True,
+        )
+
+        assert config.user == "customuser"
+        assert config.log_dir == Path("/var/log/custom")
+        assert config.log_level == "DEBUG"
+        assert config.log_retention_days == 30
+        assert config.allowed_log_paths == "/var/log:/tmp"
+        assert config.max_file_read_bytes == 2 * 1024 * 1024
+        assert config.ssh_key_path == Path("/home/user/.ssh/id_rsa")
+        assert config.key_passphrase.get_secret_value() == "secret"
+        assert config.search_for_ssh_key is True
+
+    def test_env_var_override_log_level(self, mock_getuser, monkeypatch):
+        """Test that LINUX_MCP_LOG_LEVEL environment variable overrides default"""
+        monkeypatch.setenv("LINUX_MCP_LOG_LEVEL", "WARNING")
+
+        config = Config()
+
+        assert config.log_level == "WARNING"
+
+    def test_env_var_override_log_dir(self, mock_getuser, monkeypatch):
+        """Test that LINUX_MCP_LOG_DIR environment variable works"""
+        monkeypatch.setenv("LINUX_MCP_LOG_DIR", "/custom/log/dir")
+
+        config = Config()
+
+        assert config.log_dir == Path("/custom/log/dir")
+
+    def test_env_var_override_log_retention_days(self, mock_getuser, monkeypatch):
+        """Test that LINUX_MCP_LOG_RETENTION_DAYS environment variable works"""
+        monkeypatch.setenv("LINUX_MCP_LOG_RETENTION_DAYS", "45")
+
+        config = Config()
+
+        assert config.log_retention_days == 45
+
+    def test_env_var_override_user(self, mock_getuser, monkeypatch):
+        """Test that LINUX_MCP_USER environment variable overrides getpass.getuser()"""
+        monkeypatch.setenv("LINUX_MCP_USER", "envuser")
+
+        config = Config()
+
+        assert config.user == "envuser"
+
+    def test_env_var_override_ssh_key_path(self, mock_getuser, monkeypatch):
+        """Test that LINUX_MCP_SSH_KEY_PATH environment variable works"""
+        monkeypatch.setenv("LINUX_MCP_SSH_KEY_PATH", "/home/user/.ssh/custom_key")
+
+        config = Config()
+
+        assert config.ssh_key_path == Path("/home/user/.ssh/custom_key")
+
+    def test_env_var_override_key_passphrase(self, mock_getuser, monkeypatch):
+        """Test that LINUX_MCP_KEY_PASSPHRASE environment variable works"""
+        monkeypatch.setenv("LINUX_MCP_KEY_PASSPHRASE", "my_secret_passphrase")
+
+        config = Config()
+
+        assert config.key_passphrase.get_secret_value() == "my_secret_passphrase"
+
+    def test_env_var_override_search_for_ssh_key(self, mock_getuser, monkeypatch):
+        """Test that LINUX_MCP_SEARCH_FOR_SSH_KEY environment variable works"""
+        monkeypatch.setenv("LINUX_MCP_SEARCH_FOR_SSH_KEY", "true")
+
+        config = Config()
+
+        assert config.search_for_ssh_key is True
+
+    def test_env_var_override_allowed_log_paths(self, mock_getuser, monkeypatch):
+        """Test that LINUX_MCP_ALLOWED_LOG_PATHS environment variable works"""
+        monkeypatch.setenv("LINUX_MCP_ALLOWED_LOG_PATHS", "/var/log:/tmp:/home/logs")
+
+        config = Config()
+
+        assert config.allowed_log_paths == "/var/log:/tmp:/home/logs"
+
+    def test_env_var_override_max_file_read_bytes(self, mock_getuser, monkeypatch):
+        """Test that LINUX_MCP_MAX_FILE_READ_BYTES environment variable works"""
+        monkeypatch.setenv("LINUX_MCP_MAX_FILE_READ_BYTES", "524288")
+
+        config = Config()
+
+        assert config.max_file_read_bytes == 524288
+
+    def test_env_ignore_empty(self, mock_getuser, monkeypatch):
+        """Test that empty environment variables are ignored"""
+        monkeypatch.setenv("LINUX_MCP_LOG_LEVEL", "")
+
+        config = Config()
+
+        # Should use default value, not empty string
+        assert config.log_level == "INFO"
+
+    def test_normalize_log_level_lowercase(self, mock_getuser):
+        """Test that log_level validator converts lowercase to uppercase"""
+
+        config = Config(log_level="debug")
+
+        assert config.log_level == "DEBUG"
+
+    def test_normalize_log_level_uppercase(self, mock_getuser):
+        """Test that log_level validator keeps uppercase as is"""
+
+        config = Config(log_level="ERROR")
+
+        assert config.log_level == "ERROR"
+
+    def test_normalize_log_level_mixed_case(self, mock_getuser):
+        """Test that log_level validator converts mixed case to uppercase"""
+
+        config = Config(log_level="WaRnInG")
+
+        assert config.log_level == "WARNING"
+
+    def test_path_conversion_log_dir(self, mock_getuser):
+        """Test that log_dir is properly converted to Path object"""
+
+        config = Config(log_dir=Path("/var/log/test"))
+
+        assert isinstance(config.log_dir, Path)
+        assert str(config.log_dir) == "/var/log/test"
+
+    def test_path_conversion_ssh_key_path(self, mock_getuser):
+        """Test that ssh_key_path is properly converted to Path object"""
+
+        config = Config(ssh_key_path=Path("~/.ssh/id_rsa"))
+
+        assert isinstance(config.ssh_key_path, Path)
+        assert str(config.ssh_key_path) == "~/.ssh/id_rsa"
+
+    def test_log_retention_days_type(self, mock_getuser):
+        """Test that log_retention_days accepts integer"""
+
+        config = Config(log_retention_days=15)
+
+        assert isinstance(config.log_retention_days, int)
+        assert config.log_retention_days == 15
+
+    def test_search_for_ssh_key_type(self, mock_getuser):
+        """Test that search_for_ssh_key accepts boolean"""
+
+        config = Config(search_for_ssh_key=True)
+
+        assert isinstance(config.search_for_ssh_key, bool)
+        assert config.search_for_ssh_key is True
+
+    def test_max_file_read_bytes_type(self, mock_getuser):
+        """Test that max_file_read_bytes accepts integer"""
+
+        config = Config(max_file_read_bytes=2048)
+
+        assert isinstance(config.max_file_read_bytes, int)
+        assert config.max_file_read_bytes == 2048
+
+
+class TestEffectiveKnownHostsPath:
+    """Test cases for the effective_known_hosts_path property."""
+
+    def test_returns_custom_path_when_set(self, mocker):
+        """Test that effective_known_hosts_path returns the custom path when configured."""
+        custom_path = Path("/custom/known_hosts")
+
+        config = Config(known_hosts_path=custom_path)
+
+        assert config.effective_known_hosts_path == custom_path
+
+    def test_returns_default_when_not_set(self, mocker):
+        """Test that effective_known_hosts_path returns ~/.ssh/known_hosts when not configured."""
+        mocker.patch("pathlib.Path.home", return_value=Path("/home/testuser"))
+
+        config = Config(user="testuser")
+
+        assert config.effective_known_hosts_path == Path("/home/testuser/.ssh/known_hosts")
+
+
+class TestConfigEdgeCases:
+    """Test edge cases and error conditions"""
+
+    def test_none_values_for_optional_fields(self, mock_getuser):
+        """Test that optional fields can be None"""
+
+        config = Config(
+            allowed_log_paths=None,
+            ssh_key_path=None,
+        )
+
+        assert config.allowed_log_paths is None
+        assert config.ssh_key_path is None
+
+    def test_empty_string_log_level_validation(self, mock_getuser):
+        """Test log_level validator with empty string"""
+
+        config = Config(log_level="")
+
+        assert config.log_level == ""
+
+    @pytest.mark.parametrize("value", [0, -1])
+    def test_max_file_read_bytes_rejects_non_positive(self, mock_getuser, value):
+        """Test that max_file_read_bytes rejects zero and negative values"""
+
+        with pytest.raises(ValidationError, match="max_file_read_bytes"):
+            Config(max_file_read_bytes=value)
+
+    def test_special_characters_in_paths(self, mock_getuser):
+        """Test that paths with special characters are handled"""
+
+        config = Config(
+            log_dir=Path("/var/log/my-app/2024"),
+            ssh_key_path=Path("/home/user/.ssh/id_rsa_2024-key"),
+        )
+
+        assert str(config.log_dir) == "/var/log/my-app/2024"
+        assert str(config.ssh_key_path) == "/home/user/.ssh/id_rsa_2024-key"
+
+    def test_multiple_env_vars_together(self, mock_getuser, monkeypatch):
+        """Test multiple environment variables set at once"""
+        monkeypatch.setenv("LINUX_MCP_LOG_LEVEL", "ERROR")
+        monkeypatch.setenv("LINUX_MCP_LOG_RETENTION_DAYS", "60")
+        monkeypatch.setenv("LINUX_MCP_SEARCH_FOR_SSH_KEY", "1")
+
+        config = Config()
+
+        assert config.log_level == "ERROR"
+        assert config.log_retention_days == 60
+        assert config.search_for_ssh_key is True
+
+    def test_model_config_settings(self, mock_getuser):
+        """Test that model_config is properly set"""
+
+        config = Config()
+
+        assert hasattr(config, "model_config")
+        # Enforce that we have the prefix to maintain compatibility.
+        # Ignoring the error here is fine, as this will always exist for the config class.
+        assert config.model_config["env_prefix"] == "LINUX_MCP_"  # pyright: ignore[reportTypedDictNotRequiredAccess]
+
+
+class TestHandleDeprecatedAliases:
+    """Tests for the LINUX_MCP_GATEKEEPER_MODEL → LINUX_MCP_GATEKEEPER__MODEL deprecation."""
+
+    def test_migrates_deprecated_env_var(self, mock_getuser, monkeypatch, caplog):
+        """The old single-underscore env var is migrated to gatekeeper.model."""
+        monkeypatch.setenv("LINUX_MCP_GATEKEEPER_MODEL", "openai/gpt-4")
+        monkeypatch.delenv("LINUX_MCP_GATEKEEPER__MODEL", raising=False)
+
+        with caplog.at_level(logging.WARNING, logger="linux_mcp_server.config"):
+            config = Config()
+
+        assert config.gatekeeper.model == "openai/gpt-4"
+        assert "LINUX_MCP_GATEKEEPER_MODEL is deprecated" in caplog.text
+
+    def test_new_env_var_takes_precedence(self, mock_getuser, monkeypatch):
+        """When both old and new env vars are set, the new one wins."""
+        monkeypatch.setenv("LINUX_MCP_GATEKEEPER_MODEL", "old-model")
+        monkeypatch.setenv("LINUX_MCP_GATEKEEPER__MODEL", "new-model")
+
+        config = Config()
+
+        assert config.gatekeeper.model == "new-model"
+
+    def test_new_env_var_works_without_old(self, mock_getuser, monkeypatch):
+        """The new double-underscore env var works on its own."""
+        monkeypatch.delenv("LINUX_MCP_GATEKEEPER_MODEL", raising=False)
+        monkeypatch.setenv("LINUX_MCP_GATEKEEPER__MODEL", "openai/gpt-4")
+
+        config = Config()
+
+        assert config.gatekeeper.model == "openai/gpt-4"
+
+
+class TestGatekeeperConfig:
+    def test_template_kwargs(self, mock_getuser, monkeypatch):
+        """Test setting template_kwargs with a JSON object."""
+        monkeypatch.setenv(
+            "LINUX_MCP_GATEKEEPER__TEMPLATE_KWARGS", '{ "enable_thinking": true, "reasoning_effort": "low" }'
+        )
+
+        config = Config()
+        assert config.gatekeeper.template_kwargs == {"enable_thinking": True, "reasoning_effort": "low"}
+
+    def test_template_kwargs_one_by_one(self, mock_getuser, monkeypatch):
+        """Test setting template_kwargs, key-by-key"""
+
+        # This ends up with strings, which is not what we want, so we'll just document
+        # setting it as a JSON object
+        monkeypatch.setenv("LINUX_MCP_GATEKEEPER__TEMPLATE_KWARGS__ENABLE_THINKING", "true")
+        monkeypatch.setenv("LINUX_MCP_GATEKEEPER__TEMPLATE_KWARGS__REASONING_EFFORT", "low")
+        monkeypatch.setenv("LINUX_MCP_GATEKEEPER__TEMPLATE_KWARGS__UNSET", "")
+
+        config = Config()
+        assert config.gatekeeper.template_kwargs == {"enable_thinking": "true", "reasoning_effort": "low"}
+
+    def test_template_kwargs_unset(self, mock_getuser, monkeypatch):
+        """Test default value for template_kwargs"""
+        config = Config()
+        assert config.gatekeeper.template_kwargs == {}
+
+    def test_cost(self, monkeypatch):
+        monkeypatch.setenv("LINUX_MCP_GATEKEEPER__COST", "1e-6:4e-6")
+        config = Config()
+        assert config.gatekeeper.cost == (1e-6, 4e-6)
+
+    @pytest.mark.parametrize(
+        "value",
+        ["not_a_float", "not_a_float:not_a_float", "1e-6"],
+    )
+    def test_invalid_cost(self, monkeypatch, value):
+        monkeypatch.setenv("LINUX_MCP_GATEKEEPER__COST", value)
+
+        with pytest.raises(ValidationError, match=r"Cost must be formatted as '<float>:<float>'"):
+            Config()

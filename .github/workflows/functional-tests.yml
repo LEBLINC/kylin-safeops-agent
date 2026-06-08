@@ -1,0 +1,153 @@
+name: Functional Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request_target:
+    branches:
+      - main
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  check-authorization:
+    name: Check Authorization
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'issue_comment' ||
+      (github.event.issue.pull_request &&
+       (startsWith(github.event.comment.body, '/test-functional') ||
+        startsWith(github.event.comment.body, '/retest')))
+    outputs:
+      authorized: ${{ steps.check.outputs.authorized }}
+    steps:
+      - name: Check if user is authorized
+        id: check
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const user = context.actor;
+            const eventName = context.eventName;
+            let authorized = false;
+
+            if (eventName === 'push' || eventName === 'workflow_dispatch') {
+              authorized = true;
+            } else {
+              if (eventName === 'issue_comment') {
+                if (!context.payload.issue.pull_request) {
+                  core.setFailed('issue_comment event on a non-PR issue should have been filtered by job condition');
+                  return;
+                }
+                const body = context.payload.comment.body;
+                if (!/^\/(test-functional|retest)/.test(body)) {
+                  core.setFailed('issue_comment without trigger command should have been filtered by job condition');
+                  return;
+                }
+              }
+
+              try {
+                const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  username: user,
+                });
+
+                const role = permission.permission; // admin, write, maintain, read, none
+                if (['admin', 'write', 'maintain'].includes(role)) {
+                  authorized = true;
+                }
+              } catch (error) {
+                core.error(`Failed to check permissions for ${user}: ${error.message}`);
+              }
+            }
+
+            if (!authorized) {
+              core.setFailed(`User ${user} is not authorized. A maintainer with write access must trigger the tests.`);
+            } else {
+              core.info(`User ${user} authorized via ${eventName}`);
+              core.setOutput('authorized', 'true');
+            }
+
+  tf-functional-tests:
+    name: Functional Tests (Testing Farm)
+    needs: check-authorization
+    if: needs.check-authorization.outputs.authorized == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Determine PR Coordinates
+        id: prep
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            let gitUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}`;
+            let gitRef = context.sha;
+
+            let prNumber;
+            if (context.eventName === 'pull_request_target') {
+              prNumber = context.payload.pull_request.number;
+            } else if (context.eventName === 'issue_comment') {
+              prNumber = context.issue.number;
+            }
+
+            if (prNumber) {
+              const maxRetries = 5;
+              const delayMs = 30000; // 30 seconds
+              const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+              for (let i = 0; i < maxRetries; i++) {
+                const { data: pr } = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber
+                });
+
+                if (pr.mergeable === true) {
+                  core.info(`\u2705 PR is mergeable. Merge commit SHA: ${pr.merge_commit_sha}`);
+                  gitRef = pr.merge_commit_sha;
+                  break;
+                } else if (pr.mergeable === false) {
+                  core.setFailed(`\u274c PR #${prNumber} has merge conflicts. Cannot proceed.`);
+                  return;
+                } else if (pr.mergeable === null) {
+                  core.info(`\u23f3 GitHub is computing mergeability (status: null). Retrying in ${delayMs / 1000} seconds... (${i + 1}/${maxRetries})`);
+                  if (i === maxRetries - 1) {
+                    core.setFailed(`\U0001f6a8 Timeout: GitHub did not finish computing mergeability after ${maxRetries} attempts.`);
+                    return;
+                  }
+                  await sleep(delayMs);
+                }
+              }
+            }
+
+            core.exportVariable('GIT_URL', gitUrl);
+            core.exportVariable('GIT_REF', gitRef);
+      - name: Run TF request tests
+        id: tf-request
+        env:
+          TESTING_FARM_API_TOKEN: ${{ secrets.TESTING_FARM_API_TOKEN }}
+          ARCH: x86_64
+          COMPOSE: Fedora-43
+          PLAN: general
+        run: |
+          echo "Starting functional tests..."
+          # --skip-summary is needed because outside the Red Hat VPN, we
+          # don't have access to artifact storage.
+          podman run --rm \
+            -e TESTING_FARM_API_TOKEN="$TESTING_FARM_API_TOKEN" \
+            quay.io/testing-farm/cli testing-farm request \
+            --git-url "$GIT_URL" \
+            --git-ref "$GIT_REF" \
+            --arch "$ARCH" \
+            --compose "$COMPOSE" \
+            --tag "BusinessUnit=rhel_sst_lightspeed@downstream" \
+            --plan "$PLAN" \
+            --timeout 120 \
+            --skip-summary
