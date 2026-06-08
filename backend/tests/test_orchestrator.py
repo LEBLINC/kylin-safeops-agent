@@ -247,3 +247,16 @@ def test_tool_result_forced_untrusted() -> None:
     asyncio.run(orch.run([{"role": "user", "content": "x"}]))
     tr = [e for e in events.events if e.type == "tool_result"][0]
     assert tr.data["result"]["is_untrusted"] is True
+
+
+def test_audit_decision_key_only_holds_valid_decisions() -> None:
+    """审计 payload 的 decision 键只能出现契约3 Decision 值，不被阶段语义污染。"""
+    valid = {"allow", "deny", "confirm"}
+    for verdict in (_verdict("allow"), _verdict("deny"), _verdict("confirm", role="admin")):
+        _orch, audit, _events = _build(_llm_returning(_intent_json()), verdict)
+        asyncio.run(_orch.run([{"role": "user", "content": "x"}]))
+        if _orch.state is State.WAIT_APPROVAL:
+            asyncio.run(_orch.resume(approved=True))
+        for rec in audit.records:
+            if "decision" in rec.payload:
+                assert rec.payload["decision"] in valid

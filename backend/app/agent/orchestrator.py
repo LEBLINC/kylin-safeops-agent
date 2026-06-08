@@ -227,9 +227,11 @@ class Orchestrator:
         # VERIFIED：方案 B 在此判定成功/失败
         ok = result.exit_code == 0
         self._goto(State.VERIFIED)
-        self._append_audit({"decision": "verified", "observations": [result.exit_code]})
+        self._append_audit(
+            {"verify_result": "ok" if ok else "non_zero", "observations": [result.exit_code]}
+        )
         self._emit("verified", {"summary": "ok" if ok else "tool exited non-zero"})
 
         self._goto(State.FINISHED)
-        self._append_audit({"decision": "finished"})
+        self._append_audit({"verify_result": "ok" if ok else "non_zero"})
         return self.state
