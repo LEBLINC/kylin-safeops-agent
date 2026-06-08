@@ -17,10 +17,23 @@ from backend.app.contracts.audit import GENESIS_HASH, AuditRecord, compute_curr_
 from backend.app.contracts.intent import CandidateTool
 from backend.app.contracts.policy import PolicyVerdict
 from backend.app.contracts.stream import StreamEvent
+from backend.app.contracts.tool import ToolSpec
 from backend.app.contracts.untrusted import ToolResult
 from backend.app.llm.adapter import LLMAdapter
+from backend.app.mcp.gateway import MCPGateway
+from backend.app.mcp.registry import ToolRegistry
 
 # ---- fakes ---------------------------------------------------------------
+
+# 测试用工具：接受空 args（无 required、禁多余字段），供 gateway 三道闸放行。
+_TEST_SPEC = ToolSpec(
+    name="disk.usage",
+    description="磁盘占用（测试用只读工具）",
+    risk="R1",
+    input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+    requires_roles=["operator"],
+    reversible=True,
+)
 
 
 def _intent_json(*, need_observation: bool = False, tools: list[dict] | None = None) -> str:
@@ -96,17 +109,21 @@ def _verdict(decision, *, role=None, risk="R1") -> PolicyVerdict:  # noqa: ANN00
     )
 
 
+def _gateway(verdict: PolicyVerdict, executor: FakeExecutor) -> MCPGateway:
+    return MCPGateway(ToolRegistry([_TEST_SPEC]), FakePolicy(verdict), executor)
+
+
 def _build(llm, verdict, **exec_kw):  # noqa: ANN001
     audit, events = FakeAudit(), FakeEvents()
+    executor = FakeExecutor(**exec_kw)
     orch = Orchestrator(
         llm=llm,
-        policy=FakePolicy(verdict),
-        executor=FakeExecutor(**exec_kw),
+        gateway=_gateway(verdict, executor),
         audit=audit,
         events=events,
         trace_id="trace-test",
     )
-    return orch, audit, events
+    return orch, audit, events, executor
 
 
 # ---- helpers -------------------------------------------------------------
@@ -131,7 +148,7 @@ def test_most_restrictive_picks_deny() -> None:
 
 
 def test_allow_runs_full_chain_to_finished() -> None:
-    orch, audit, events = _build(_llm_returning(_intent_json()), _verdict("allow"))
+    orch, audit, events, _ex = _build(_llm_returning(_intent_json()), _verdict("allow"))
     end = asyncio.run(orch.run([{"role": "user", "content": "x"}], user_intent="clean"))
     assert end is State.FINISHED
     _assert_chain_intact(audit)
@@ -145,56 +162,109 @@ def test_allow_runs_full_chain_to_finished() -> None:
 
 
 def test_observation_branch_emits_observation() -> None:
-    orch, _audit, events = _build(
+    orch, _audit, events, ex = _build(
         _llm_returning(_intent_json(need_observation=True)), _verdict("allow")
     )
     asyncio.run(orch.run([{"role": "user", "content": "x"}]))
     assert "observation" in events.types()
+    # 观测经 gateway 调只读工具（allow），结果计入 observation 事件
+    obs = [e for e in events.events if e.type == "observation"][0]
+    assert len(obs.data["results"]) == 1
+    assert obs.data["results"][0]["is_untrusted"] is True
+
+
+def test_observation_skips_non_readonly_tools_defense_in_depth() -> None:
+    """防御纵深：即便策略误放行变更工具(R3)，观测阶段也绝不执行它。
+
+    观测仅跑只读(R0/R1)工具；变更工具留到 POLICY_CHECKED→执行路径。
+    无此过滤时该工具会在观测阶段被执行一次（执行器被调两次）。
+    """
+    change_spec = ToolSpec(
+        name="service.restart",
+        description="重启服务（变更类）",
+        risk="R3",
+        input_schema={
+            "type": "object",
+            "properties": {"service_name": {"type": "string", "minLength": 1}},
+            "required": ["service_name"],
+            "additionalProperties": False,
+        },
+        requires_roles=["admin"],
+        reversible=False,
+    )
+    intent = json.dumps(
+        {
+            "intent": "restart_svc",
+            "confidence": 0.9,
+            "need_observation": True,
+            "candidate_tools": [{"name": "service.restart", "args": {"service_name": "nginx"}}],
+            "risk_hint": "high",
+            "justification": "test",
+        }
+    )
+    audit, events = FakeAudit(), FakeEvents()
+    executor = FakeExecutor()
+    # 策略被误配为 allow（应为 confirm/deny）；防御纵深须挡住观测阶段执行
+    gateway = MCPGateway(ToolRegistry([change_spec]), FakePolicy(_verdict("allow")), executor)
+    orch = Orchestrator(llm=_llm_returning(intent), gateway=gateway, audit=audit, events=events)
+    asyncio.run(orch.run([{"role": "user", "content": "x"}]))
+
+    obs = [e for e in events.events if e.type == "observation"][0]
+    assert obs.data["results"] == []  # 变更工具未在观测阶段执行
+    # 执行器只在执行阶段被调一次（观测阶段被只读过滤挡下），而非两次
+    assert len(executor.calls) == 1
 
 
 def test_deny_goes_rejected_no_execution() -> None:
-    orch, audit, events = _build(_llm_returning(_intent_json()), _verdict("deny"))
+    orch, audit, events, ex = _build(_llm_returning(_intent_json()), _verdict("deny"))
     end = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
     assert end is State.REJECTED
-    assert orch._executor.calls == []  # type: ignore[attr-defined]
+    assert ex.calls == []
     assert "executing" not in events.types()
     _assert_chain_intact(audit)
 
 
 def test_empty_candidates_denied() -> None:
-    orch, _audit, _events = _build(_llm_returning(_intent_json(tools=[])), _verdict("allow"))
+    orch, _audit, _events, _ex = _build(_llm_returning(_intent_json(tools=[])), _verdict("allow"))
     end = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
     assert end is State.REJECTED  # 无候选合成 deny
 
 
 def test_confirm_pauses_then_resume_approved() -> None:
-    orch, audit, events = _build(_llm_returning(_intent_json()), _verdict("confirm", role="admin"))
+    orch, audit, events, ex = _build(
+        _llm_returning(_intent_json()), _verdict("confirm", role="admin")
+    )
     paused = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
     assert paused is State.WAIT_APPROVAL
     assert "await_approval" in events.types()
     end = asyncio.run(orch.resume(approved=True))
     assert end is State.FINISHED
+    assert len(ex.calls) == 1  # 审批后经 gateway(approved=True) 执行
     _assert_chain_intact(audit)
 
 
 def test_confirm_then_resume_rejected() -> None:
-    orch, audit, _events = _build(_llm_returning(_intent_json()), _verdict("confirm", role="admin"))
+    orch, audit, _events, ex = _build(
+        _llm_returning(_intent_json()), _verdict("confirm", role="admin")
+    )
     asyncio.run(orch.run([{"role": "user", "content": "x"}]))
     end = asyncio.run(orch.resume(approved=False))
     assert end is State.REJECTED
-    assert orch._executor.calls == []  # type: ignore[attr-defined]
+    assert ex.calls == []
     _assert_chain_intact(audit)
 
 
 def test_resume_outside_wait_approval_raises() -> None:
-    orch, _audit, _events = _build(_llm_returning(_intent_json()), _verdict("allow"))
+    orch, _audit, _events, _ex = _build(_llm_returning(_intent_json()), _verdict("allow"))
     with pytest.raises(RuntimeError):
         asyncio.run(orch.resume(approved=True))
 
 
 def test_execution_failure_walks_full_chain_via_exit_code() -> None:
     """方案 B：执行失败(exit_code!=0)仍走 EXECUTED→VERIFIED→FINISHED，由 VERIFIED 判定。"""
-    orch, audit, events = _build(_llm_returning(_intent_json()), _verdict("allow"), exit_code=1)
+    orch, audit, events, _ex = _build(
+        _llm_returning(_intent_json()), _verdict("allow"), exit_code=1
+    )
     end = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
     assert end is State.FINISHED
     verified = [e for e in events.events if e.type == "verified"][0]
@@ -203,7 +273,7 @@ def test_execution_failure_walks_full_chain_via_exit_code() -> None:
 
 
 def test_executor_exception_emits_error_and_stops() -> None:
-    orch, _audit, events = _build(
+    orch, _audit, events, _ex = _build(
         _llm_returning(_intent_json()), _verdict("allow"), raises=OSError("boom")
     )
     end = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
@@ -215,14 +285,14 @@ def test_llm_network_error_emits_error_and_stops() -> None:
     async def fn(messages):  # noqa: ANN001
         raise httpx.ConnectError("no route")
 
-    orch, _audit, events = _build(LLMAdapter(completion_fn=fn), _verdict("allow"))
+    orch, _audit, events, _ex = _build(LLMAdapter(completion_fn=fn), _verdict("allow"))
     end = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
     assert end is State.RECEIVED  # 规划即失败，停在初态
     assert "error" in events.types()
 
 
 def test_tool_result_forced_untrusted() -> None:
-    """结果闸：即使 Executor 返回 is_untrusted=False 也被强制改 True。"""
+    """结果闸：即使 Executor 返回 is_untrusted=False，gateway 也强制改 True。"""
 
     class SneakyExecutor:
         async def execute(self, tool: CandidateTool) -> ToolResult:
@@ -236,10 +306,12 @@ def test_tool_result_forced_untrusted() -> None:
             )
 
     audit, events = FakeAudit(), FakeEvents()
+    gateway = MCPGateway(
+        ToolRegistry([_TEST_SPEC]), FakePolicy(_verdict("allow")), SneakyExecutor()
+    )
     orch = Orchestrator(
         llm=_llm_returning(_intent_json()),
-        policy=FakePolicy(_verdict("allow")),
-        executor=SneakyExecutor(),
+        gateway=gateway,
         audit=audit,
         events=events,
         trace_id="t",
@@ -249,11 +321,29 @@ def test_tool_result_forced_untrusted() -> None:
     assert tr.data["result"]["is_untrusted"] is True
 
 
+def test_unregistered_tool_denied_by_gateway() -> None:
+    """gateway 闸1：未注册工具 → orchestrator 拿到 deny → REJECTED，不执行。"""
+    intent = _intent_json(tools=[{"name": "ghost.tool", "args": {}}])
+    orch, _audit, events, ex = _build(_llm_returning(intent), _verdict("allow"))
+    end = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
+    assert end is State.REJECTED
+    assert ex.calls == []
+
+
+def test_bad_args_denied_by_gateway_schema_gate() -> None:
+    """gateway 闸2：args 含未声明字段 → 结构校验失败 → deny → REJECTED。"""
+    intent = _intent_json(tools=[{"name": "disk.usage", "args": {"shell": "rm -rf /"}}])
+    orch, _audit, _events, ex = _build(_llm_returning(intent), _verdict("allow"))
+    end = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
+    assert end is State.REJECTED
+    assert ex.calls == []
+
+
 def test_audit_decision_key_only_holds_valid_decisions() -> None:
     """审计 payload 的 decision 键只能出现契约3 Decision 值，不被阶段语义污染。"""
     valid = {"allow", "deny", "confirm"}
     for verdict in (_verdict("allow"), _verdict("deny"), _verdict("confirm", role="admin")):
-        _orch, audit, _events = _build(_llm_returning(_intent_json()), verdict)
+        _orch, audit, _events, _ex = _build(_llm_returning(_intent_json()), verdict)
         asyncio.run(_orch.run([{"role": "user", "content": "x"}]))
         if _orch.state is State.WAIT_APPROVAL:
             asyncio.run(_orch.resume(approved=True))

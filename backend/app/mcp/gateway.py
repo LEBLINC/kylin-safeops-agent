@@ -12,14 +12,27 @@ tools/list 与 tools/call。tools/call 的执行**强制**经过三道闸，顺�
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
 
-from backend.app.agent.ports import Executor, PolicyEngine
 from backend.app.contracts.intent import CandidateTool
-from backend.app.contracts.policy import PolicyVerdict
+from backend.app.contracts.policy import PolicyEngine, PolicyVerdict
 from backend.app.contracts.tool import ToolSpec
 from backend.app.contracts.untrusted import ToolResult
 from backend.app.mcp.registry import ToolRegistry
 from backend.app.mcp.schema_validator import validate_args
+
+
+@runtime_checkable
+class Executor(Protocol):
+    """特权代理执行器接口（D 实现）。
+
+    定义在 mcp 层（gateway 的直接依赖），避免 agent→mcp→agent 循环导入；
+    agent.ports 从此处再导出，对上层保持单一引用点。
+    放行后的工具调用交由此接口在 systemd 沙箱内执行；gateway 不直接跑命令。
+    失败以非 0 exit_code 表达（方案 B），系统级故障抛异常由上层转 error。
+    """
+
+    async def execute(self, tool: CandidateTool) -> ToolResult: ...
 
 
 @dataclass
@@ -47,6 +60,10 @@ def _deny_verdict(reason: str) -> PolicyVerdict:
     )
 
 
+# 只读风险等级：观测阶段只允许执行这些等级的工具（防御纵深，不只信策略放行）。
+READ_ONLY_RISKS: frozenset[str] = frozenset({"R0", "R1"})
+
+
 class MCPGateway:
     """工具网关：列举与受控调用。
 
@@ -67,8 +84,35 @@ class MCPGateway:
         """tools/list：返回已注册工具规格。"""
         return self._registry.list_tools()
 
-    async def call(self, tool: CandidateTool) -> CallOutcome:
-        """tools/call：三道闸 → 执行 → 结果闸。任一闸不过则不执行。"""
+    def is_read_only(self, tool: CandidateTool) -> bool:
+        """工具是否为只读（注册表 risk ∈ READ_ONLY_RISKS）。
+
+        未注册工具视为非只读（保守）。供观测阶段做防御纵深过滤：
+        即便策略误放行变更工具，观测阶段也绝不执行非只读工具。
+        """
+        spec = self._registry.get(tool.name)
+        return spec is not None and spec.risk in READ_ONLY_RISKS
+
+    def evaluate(self, tool: CandidateTool) -> PolicyVerdict:
+        """前两道闸 + 策略裁决，**不执行**。供 orchestrator 在 POLICY_CHECKED 分支用。
+
+        闸1 注册校验、闸2 结构校验失败 → 合成 deny；通过则返回 D 策略引擎的裁决。
+        """
+        spec = self._registry.get(tool.name)
+        if spec is None:
+            return _deny_verdict(f"unknown tool: {tool.name}")
+        sv = validate_args(tool.args, spec.input_schema)
+        if not sv.ok:
+            return _deny_verdict("schema validation failed: " + "; ".join(sv.errors))
+        return self._policy.evaluate(tool)
+
+    async def call(self, tool: CandidateTool, *, approved: bool = False) -> CallOutcome:
+        """tools/call：三道闸 → 执行 → 结果闸。任一闸不过则不执行。
+
+        approved=True 仅放行经人工审批的 confirm；deny 永远拦死、allow 始终放行。
+        gateway 是权威执行边界，即便 orchestrator 已先 evaluate 过，此处仍重新过闸
+        （防御纵深；策略引擎须为确定性，两次裁决一致）。
+        """
         # 闸1：注册校验
         spec = self._registry.get(tool.name)
         if spec is None:
@@ -84,11 +128,13 @@ class MCPGateway:
             reason = "schema validation failed: " + "; ".join(sv.errors)
             return CallOutcome(executed=False, verdict=_deny_verdict(reason), reason=reason)
 
-        # 闸3：策略放行（仅 allow 执行；confirm/deny 不在网关层执行）
+        # 闸3：策略放行。deny 永拦；confirm 仅在已审批时放行；allow 放行。
         verdict = self._policy.evaluate(tool)
-        if verdict.decision != "allow":
+        if verdict.decision == "deny":
+            return CallOutcome(executed=False, verdict=verdict, reason="policy: deny")
+        if verdict.decision == "confirm" and not approved:
             return CallOutcome(
-                executed=False, verdict=verdict, reason=f"policy: {verdict.decision}"
+                executed=False, verdict=verdict, reason="policy: confirm (needs approval)"
             )
 
         # 执行 + 结果闸：强制不可信标记

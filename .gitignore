@@ -4,6 +4,7 @@ _reference/
 # --- 规划/策略文档不入库（含 AI 痕迹与竞赛策略）；根级 .md 仅 README 例外 ---
 /*.md
 !/README.md
+# 审阅交接.md 亦由上面的 /*.md 覆盖（离线作业交接日志，永不入库）
 
 # --- Python ---
 __pycache__/
