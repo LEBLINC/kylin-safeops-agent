@@ -26,7 +26,7 @@ dependencies = [
     "fakeredis<2.35",
 ]
 dynamic = ["version"]
-license-files = ["LICENSE", "licenses/GPL-3.0.txt"]
+license-files = ["LICENSE"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Console",

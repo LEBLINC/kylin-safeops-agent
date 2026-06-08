@@ -13,7 +13,7 @@ subtree 引入与借用落地逐条补全；标注"查证"者于交付前核实 
     （fastmcp 不采用；其源码仅留 third_party/ 作参考、不进运行时。）
 
 == 进仓 fork（源码保留于 third_party/，附原始许可证） ==
-- [待 Task 3 subtree 后启用] rhel-lightspeed/linux-mcp-server — Apache-2.0
+- rhel-lightspeed/linux-mcp-server — Apache-2.0
     位置：third_party/linux-mcp-server/
     · 改造产物见 mcp_servers/os_ops/，文件头标注：
       "adapted from rhel-lightspeed/linux-mcp-server (Apache-2.0), modified by team"
