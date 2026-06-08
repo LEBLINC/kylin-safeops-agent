@@ -11,7 +11,10 @@ plugins = ["pydantic.mypy"]     # 否则 D2 contracts 的 pydantic v2 模型会�
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"        # 同上：与 contracts 的 PEP 604 用法一致
+target-version = "py310"
+extend-exclude = ["third_party", "_reference"]   # vendored fork / 仅参考代码，不进 lint 闸
+force-exclude = true                              # 关键：pre-commit 显式传文件名时也强制排除
+
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
