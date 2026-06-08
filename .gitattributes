@@ -1,0 +1,34 @@
+# 全仓文本统一 LF（仓库内 + 检出都 LF；面向 Linux 运行时）
+* text=auto eol=lf
+
+# 显式：Linux 上运行的脚本/单元/配置必须 LF
+*.sh      text eol=lf
+*.bash    text eol=lf
+*.service text eol=lf
+*.conf    text eol=lf
+*.yaml    text eol=lf
+*.yml     text eol=lf
+*.toml    text eol=lf
+*.py      text eol=lf
+
+# 仅 Windows 用的脚本保留 CRLF（如有）
+*.bat     text eol=crlf
+*.ps1     text eol=crlf
+
+# 二进制：永不规范化、永不按文本 diff
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.zip  binary
+*.gz   binary
+*.whl  binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.eot  binary
+*.db   binary
+*.sqlite  binary
+*.sqlite3 binary
