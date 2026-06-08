@@ -1,0 +1,15 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["github>rhel-lightspeed/renovate-config"],
+  "packageRules": [
+    {
+      "matchManagers": ["pep621", "pip_requirements", "pip-compile", "poetry", "pipenv"],
+      "rangeStrategy": "in-range-only"
+    },
+    {
+      "matchManagers": ["npm"],
+      "groupName": "mcp-app npm dependencies",
+      "schedule": ["before 9am on monday"]
+    }
+  ]
+}

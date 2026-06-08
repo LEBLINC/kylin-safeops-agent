@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[codz]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Vendored packages
+src/linux_mcp_server/_vendor/*
+!src/linux_mcp_server/_vendor/__init__.py
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Testing
+.pytest_cache/
+.coverage
+coverage/
+htmlcov/
+.tox/
+
+# Documentation build
+site/
+docs/tools/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# uv
+.uv/
+
+# Configuration files (user-specific)
+config.sh
+
+.claude/settings.local.json
+CLAUDE.local.md
+
+# Eval data
+eval/gatekeeper/data/
+
