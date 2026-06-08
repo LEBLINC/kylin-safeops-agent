@@ -5,11 +5,13 @@ from backend.app.llm.adapter import (
     LLMAdapter,
     LLMConfig,
     Message,
+    StreamFn,
     parse_intent,
 )
 from backend.app.llm.prompts import (
     OBSERVE_ONLY_INTENT,
     build_repair_prompt,
+    build_summary_prompt,
     build_system_prompt,
 )
 
@@ -18,8 +20,10 @@ __all__ = [
     "LLMAdapter",
     "LLMConfig",
     "Message",
+    "StreamFn",
     "parse_intent",
     "OBSERVE_ONLY_INTENT",
     "build_repair_prompt",
+    "build_summary_prompt",
     "build_system_prompt",
 ]

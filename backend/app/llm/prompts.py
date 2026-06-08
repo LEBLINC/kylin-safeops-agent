@@ -22,8 +22,17 @@ _SYSTEM_PROMPT_HEAD = """\
    不得发明工具名，不得在 args 里塞命令字符串或任意路径以外的危险字段。
 4. 若信息不足以安全规划，应将 need_observation 设为 true 并优先选择只读观测工具。
 5. risk_hint 仅为你的主观提示，最终风险与放行由策略引擎裁决，不由你决定执行。
+6. 不要输出 JSON Schema 之外的任何字段；多余字段会导致整个规划被拒。
 
 输出必须严格符合下面的 JSON Schema："""
+
+# 合法输出范例（few-shot）：稳定模型输出格式，降低格式崩溃率（手册 D13 目标）。
+_FEWSHOT_EXAMPLE = """\
+合法输出示例（仅供格式参考，实际工具名以可用工具清单为准）：
+{"intent": "inspect_disk_usage", "confidence": 0.82, "need_observation": true, \
+"candidate_tools": [{"name": "disk.usage", "args": {"path": "/"}}], \
+"risk_hint": "low", "justification": "用户反馈磁盘报警，先只读查看占用"}"""
+
 
 # 降级语义：当 LLM 输出始终无法解析为合法 Intent 时，回退为"仅观测、不规划"。
 OBSERVE_ONLY_INTENT = Intent(
@@ -37,9 +46,21 @@ OBSERVE_ONLY_INTENT = Intent(
 
 
 def build_system_prompt() -> str:
-    """构造规划 system prompt，附 Intent 的 JSON Schema。"""
+    """构造规划 system prompt，附 Intent 的 JSON Schema 与合法输出范例。"""
     schema = json.dumps(Intent.model_json_schema(), ensure_ascii=False, indent=2)
-    return f"{_SYSTEM_PROMPT_HEAD}\n{schema}"
+    return f"{_SYSTEM_PROMPT_HEAD}\n{schema}\n\n{_FEWSHOT_EXAMPLE}"
+
+
+def build_summary_prompt() -> str:
+    """构造给前端思维链动画的归纳 system prompt（stream_summary 用）。
+
+    仅产自然语言过程性叙述，掩盖 CPU 延迟；不产工具调用、不影响规划决策。
+    """
+    return (
+        "你是麒麟安全运维 Agent 的解说器。用简洁中文向用户实时叙述你正在做的分析，"
+        "像在边想边说。不要输出 JSON，不要给出命令，不要承诺执行结果——"
+        "真正的工具调用与放行由确定性的策略引擎与特权代理负责。"
+    )
 
 
 def build_repair_prompt(raw_output: str, error: str) -> str:

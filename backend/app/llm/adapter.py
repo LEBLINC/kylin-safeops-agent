@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import TypeAlias
 
@@ -22,6 +22,7 @@ from backend.app.contracts.intent import Intent
 from backend.app.llm.prompts import (
     OBSERVE_ONLY_INTENT,
     build_repair_prompt,
+    build_summary_prompt,
     build_system_prompt,
 )
 
@@ -31,6 +32,9 @@ Message: TypeAlias = dict[str, str]
 # 可注入的补全函数：输入消息列表，返回模型的原始文本输出。
 # 默认实现走 httpx + OpenAI 兼容 /chat/completions；测试可注入假函数避免联网。
 CompletionFn: TypeAlias = Callable[[list[Message]], Awaitable[str]]
+
+# 可注入的流式补全函数：输入消息列表，异步产出文本增量片段。
+StreamFn: TypeAlias = Callable[[list[Message]], AsyncIterator[str]]
 
 
 @dataclass
@@ -83,9 +87,11 @@ class LLMAdapter:
         self,
         config: LLMConfig | None = None,
         completion_fn: CompletionFn | None = None,
+        stream_fn: StreamFn | None = None,
     ) -> None:
         self.config = config or LLMConfig()
         self._completion_fn = completion_fn or self._default_completion
+        self._stream_fn = stream_fn or self._default_stream
 
     async def _default_completion(self, messages: list[Message]) -> str:
         """默认补全实现：httpx 调 OpenAI 兼容 /chat/completions。"""
@@ -104,6 +110,36 @@ class LLMAdapter:
             resp.raise_for_status()
             data = resp.json()
         return str(data["choices"][0]["message"]["content"])
+
+    async def _default_stream(self, messages: list[Message]) -> AsyncIterator[str]:
+        """默认流式实现：httpx 流式读 OpenAI 兼容 SSE，逐 delta 产出文本片段。"""
+        headers = {"Content-Type": "application/json", **self.config.extra_headers}
+        if self.config.api_key:
+            headers["Authorization"] = f"Bearer {self.config.api_key}"
+        body = {
+            "model": self.config.model,
+            "messages": messages,
+            "temperature": self.config.temperature,
+            "max_tokens": self.config.max_tokens,
+            "stream": True,
+        }
+        url = self.config.base_url.rstrip("/") + "/chat/completions"
+        async with httpx.AsyncClient(timeout=self.config.timeout) as client:
+            async with client.stream("POST", url, json=body, headers=headers) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    payload = line[len("data:") :].strip()
+                    if payload == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(payload)
+                        delta = chunk["choices"][0]["delta"].get("content")
+                    except (ValueError, KeyError, IndexError):
+                        continue
+                    if delta:
+                        yield str(delta)
 
     async def plan(self, messages: Sequence[Message]) -> Intent:
         """规划主接口：返回合法 Intent；校验失败重试纠错，仍失败则降级仅观测。
@@ -134,3 +170,16 @@ class LLMAdapter:
                 ]
         # 重试用尽仍不合法 → 降级为仅观测、不规划
         return OBSERVE_ONLY_INTENT.model_copy(deep=True)
+
+    async def stream_summary(self, messages: Sequence[Message]) -> AsyncIterator[str]:
+        """流式产出过程性自然语言叙述，给前端思维链动画（手册 §3.2）。
+
+        纯展示用途：不解析、不校验、不产工具调用，与 plan() 的安全决策完全解耦；
+        即便此处被注入也无法触达执行（执行只认 plan() 的结构化 Intent + 策略放行）。
+        """
+        convo: list[Message] = [
+            {"role": "system", "content": build_summary_prompt()},
+            *list(messages),
+        ]
+        async for piece in self._stream_fn(convo):
+            yield piece

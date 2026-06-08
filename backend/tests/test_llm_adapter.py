@@ -80,3 +80,27 @@ def test_plan_rejects_bare_shell_field() -> None:
 def test_parse_intent_raises_on_garbage() -> None:
     with pytest.raises(ValueError):
         parse_intent("definitely not json")
+
+
+def test_stream_summary_yields_pieces() -> None:
+    """stream_summary 逐片产出叙述文本，供前端思维链动画。"""
+
+    async def stream_fn(messages):  # noqa: ANN001
+        for piece in ["正在", "分析", "磁盘占用"]:
+            yield piece
+
+    adapter = LLMAdapter(stream_fn=stream_fn)
+
+    async def collect() -> list[str]:
+        return [p async for p in adapter.stream_summary([{"role": "user", "content": "x"}])]
+
+    pieces = asyncio.run(collect())
+    assert pieces == ["正在", "分析", "磁盘占用"]
+
+
+def test_system_prompt_includes_schema_and_fewshot() -> None:
+    from backend.app.llm.prompts import build_system_prompt
+
+    prompt = build_system_prompt()
+    assert "candidate_tools" in prompt  # 注入了 Intent schema
+    assert "合法输出示例" in prompt  # few-shot 范例在位
