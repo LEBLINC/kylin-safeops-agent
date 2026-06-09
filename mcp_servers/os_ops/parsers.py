@@ -311,3 +311,44 @@ def diff_config_snapshots(old: ConfigSnapshot, new: ConfigSnapshot) -> ConfigDif
     removed = sorted(old_keys - new_keys)
     changed = sorted(k for k in old_keys & new_keys if old.hashes[k] != new.hashes[k])
     return ConfigDiff(added=added, removed=removed, changed=changed)
+
+
+def parse_netstat_listening(stdout: str) -> ListeningPorts:
+    """解析 `netstat -tulnp` 输出为 ListeningPorts（自写，ss 缺失时的降级格式）。
+
+    列：Proto Recv-Q Send-Q LocalAddress ForeignAddress [State] PID/Program。
+    仅取以 tcp/udp 开头的数据行；本地地址从右侧分割端口；进程取含 '/' 的 PID/Program。
+    非数据行（表头/标题）静默跳过；空输入返回空集（命令缺失/无输出优雅降级）。
+    """
+    ports: list[ListeningPort] = []
+    for line in stdout.strip().split("\n"):
+        parts = line.split()
+        if len(parts) < 4 or not (parts[0].startswith(("tcp", "udp"))):
+            continue
+        proto = "TCP" if parts[0].startswith("tcp") else "UDP"
+        local = parts[3]
+        if ":" in local:
+            local_addr, local_port = local.rsplit(":", 1)
+        else:
+            local_addr, local_port = local, ""
+        process = next((p for p in parts[4:] if "/" in p), "")
+        ports.append(
+            ListeningPort(
+                protocol=proto,
+                local_address=local_addr,
+                local_port=local_port,
+                process=process,
+            )
+        )
+    return ListeningPorts(ports=ports)
+
+
+def parse_listening_ports(stdout: str) -> ListeningPorts:
+    """监听端口自动解析：检测 ss vs netstat 输出格式后分派（D14 降级兼容）。
+
+    netstat 输出含 "Foreign Address" 表头或以 tcp/udp 行起；否则按 ss 解析。
+    命令缺失/空输出 → 两解析器均返回空集，不崩。
+    """
+    if "Foreign Address" in stdout:
+        return parse_netstat_listening(stdout)
+    return parse_ss_listening(stdout)
