@@ -20,6 +20,7 @@ from collections.abc import Sequence
 import httpx
 
 from backend.app.agent.ports import AuditSink, EventSink
+from backend.app.agent.rca import NullRCA, RCAEngine
 from backend.app.agent.state_machine import (
     INITIAL_STATE,
     State,
@@ -29,7 +30,9 @@ from backend.app.contracts.audit import GENESIS_HASH, AuditRecord, compute_curr_
 from backend.app.contracts.intent import CandidateTool
 from backend.app.contracts.policy import Decision, PolicyVerdict
 from backend.app.contracts.stream import EventType, StreamEvent
+from backend.app.contracts.untrusted import ToolResult
 from backend.app.llm.adapter import LLMAdapter, Message
+from backend.app.llm.feedback import wrap_many_for_feedback
 from backend.app.mcp.gateway import MCPGateway
 
 # 裁决严格度排序：deny 最严，allow 最宽。聚合多候选工具时取最严。
@@ -55,18 +58,22 @@ class Orchestrator:
         gateway: MCPGateway,
         audit: AuditSink,
         events: EventSink,
+        rca: RCAEngine | None = None,
         trace_id: str | None = None,
     ) -> None:
         self._llm = llm
         self._gateway = gateway
         self._audit = audit
         self._events = events
+        self._rca: RCAEngine = rca or NullRCA()
         self.trace_id = trace_id or uuid.uuid4().hex
         self.state: State = INITIAL_STATE
         self._seq = 0
         self._prev_hash = GENESIS_HASH
-        # 暂存供 resume 使用的已放行/待审工具计划
-        self._pending_tool: CandidateTool | None = None
+        # 暂存供 resume 使用的执行批次（原子计划：审批后整批执行）
+        self._batch: list[CandidateTool] | None = None
+        # 累积本次请求的所有不可信结果（观测+执行），供 RCA 接入点使用
+        self._evidence: list[ToolResult] = []
 
     # ---- 内部原语：转移 / 审计 / 事件（显式，不套公式）-------------------
 
@@ -124,43 +131,67 @@ class Orchestrator:
         self._append_audit({"user_intent": intent.intent, "risk_level": intent.risk_hint})
         self._emit("intent_parsed", {"intent": intent.model_dump()})
 
-        # 观测分支（need_observation）：经 gateway 调只读工具采集上下文。
-        # gateway 三道闸保护：未注册/结构非法/非 allow 的工具不会执行；
-        # 只把 allow 且成功执行的只读结果计入 observations（已被结果闸标记 is_untrusted）。
+        # 观测分支（need_observation）：经 gateway 调只读工具采集上下文，
+        # 再把（安全封装的）观测结果回喂 plan() 做二次规划（observe→re-plan 两阶段）。
+        # 解决"观测与行动共用 candidate_tools、只读工具双执行"：观测用 intent 的只读候选，
+        # 行动用二次规划 action_intent 的候选（二者分离）。
+        action_intent = intent
         if intent.need_observation:
             self._goto(State.CONTEXT_COLLECTED)
             observations = await self._collect_observations(intent.candidate_tools)
-            self._append_audit({"observations": [o["exit_code"] for o in observations]})
-            self._emit("observation", {"results": observations})
+            self._evidence.extend(observations)
+            self._append_audit({"observations": [o.exit_code for o in observations]})
+            self._emit("observation", {"results": [o.model_dump() for o in observations]})
+            # 把观测结果作为不可信数据回喂，二次规划行动计划
+            try:
+                feedback = wrap_many_for_feedback(observations)
+                action_intent = await self._llm.plan(
+                    [*messages, {"role": "user", "content": feedback}]
+                )
+            except httpx.HTTPError as exc:
+                self._emit("error", {"message": str(exc), "phase": self.state.value})
+                return self.state
+            # 骨架：单轮观测。二次规划即便再次 need_observation 也不再递归（防循环），
+            # 直接用其候选工具作为行动计划。TODO: 多轮 observe→plan 由后续迭代细化。
 
-        # 规划完成
+        # 规划完成（行动计划 = action_intent 的候选工具）
         self._goto(State.PLAN_GENERATED)
-        tool_plan = [t.model_dump() for t in intent.candidate_tools]
+        tool_plan = [t.model_dump() for t in action_intent.candidate_tools]
         self._append_audit({"tool_plan": tool_plan})
         self._emit("plan_generated", {"candidate_tools": tool_plan})
 
-        # 策略裁决：逐候选评估取最严；无候选则直接 deny（无可执行计划）
-        verdict = self._evaluate(intent.candidate_tools)
+        # 策略裁决：逐候选各自裁决（含注册+结构校验+策略）。
+        # 无候选 → 合成 deny；有候选 → 整批决策 = 最严裁决（deny>confirm>allow）。
+        per_tool = self._evaluate_all(action_intent.candidate_tools)
+        batch_verdict = self._batch_decision(per_tool)
         self._goto(State.POLICY_CHECKED)
         self._append_audit(
             {
-                "decision": verdict.decision,
-                "risk_level": verdict.final_risk,
-                "approval_required": verdict.approval_required,
+                "decision": batch_verdict.decision,
+                "risk_level": batch_verdict.final_risk,
+                "approval_required": batch_verdict.approval_required,
             }
         )
-        self._emit("policy_verdict", {"verdict": verdict.model_dump()})
+        # 逐工具裁决一并下发，前端按工具粒度展示；整批裁决决定状态机走向
+        self._emit(
+            "policy_verdict",
+            {
+                "verdict": batch_verdict.model_dump(),
+                "per_tool": [{"tool": t.name, "verdict": v.model_dump()} for t, v in per_tool],
+            },
+        )
 
-        return await self._branch_on_verdict(verdict)
+        return await self._branch_on_verdict(batch_verdict, per_tool)
 
-    async def _collect_observations(self, tools: Sequence[CandidateTool]) -> list[dict]:
-        """经 gateway 调只读工具采集观测；只收 allow 且执行成功的结果。
+    async def _collect_observations(self, tools: Sequence[CandidateTool]) -> list[ToolResult]:
+        """经 gateway 调只读工具采集观测；只收 allow 且执行成功的结果（已密封）。
 
         防御纵深：观测阶段**只执行注册表标记为只读(R0/R1)的工具**——即便策略误把
         变更工具放行，观测阶段也绝不触发变更（变更必须走 POLICY_CHECKED→WAIT_APPROVAL）。
         不传 approved：confirm/deny 工具在此不会执行。系统级异常被吞并跳过（尽力而为）。
+        返回 ToolResult 列表，供 emit observation 与回喂二次规划共用。
         """
-        results: list[dict] = []
+        results: list[ToolResult] = []
         for tool in tools:
             if not self._gateway.is_read_only(tool):
                 continue  # 非只读工具不在观测阶段执行（防御纵深）
@@ -169,12 +200,24 @@ class Orchestrator:
             except Exception:  # noqa: BLE001 观测尽力而为，单个工具故障不阻断规划
                 continue
             if outcome.executed and outcome.result is not None:
-                results.append(outcome.result.model_dump())
+                results.append(outcome.result)
         return results
 
-    def _evaluate(self, tools: Sequence[CandidateTool]) -> PolicyVerdict:
-        """经 gateway 逐候选裁决（含注册+结构校验+策略），取最严；无候选 → 合成 deny。"""
-        if not tools:
+    def _evaluate_all(
+        self, tools: Sequence[CandidateTool]
+    ) -> list[tuple[CandidateTool, PolicyVerdict]]:
+        """逐候选经 gateway 裁决（含注册+结构校验+策略），返回 (工具, 裁决) 列表。"""
+        return [(t, self._gateway.evaluate(t)) for t in tools]
+
+    def _batch_decision(
+        self, per_tool: Sequence[tuple[CandidateTool, PolicyVerdict]]
+    ) -> PolicyVerdict:
+        """整批决策（原子计划）：无候选→合成 deny；否则取最严裁决。
+
+        most_restrictive 在此重新定位为"整批门槛"：deny>confirm>allow。
+        含禁止动作(deny)的计划整体 REJECTED，不部分执行（安全优先）。
+        """
+        if not per_tool:
             return PolicyVerdict(
                 decision="deny",
                 final_risk="R0",
@@ -182,83 +225,118 @@ class Orchestrator:
                 reason="no candidate tools to execute",
                 approval_required=False,
             )
-        verdicts = [self._gateway.evaluate(t) for t in tools]
-        # 记住首个候选工具供 EXECUTING 用（骨架：单工具路径）
-        self._pending_tool = tools[0]
-        return most_restrictive(verdicts)
+        return most_restrictive([v for _, v in per_tool])
 
-    async def _branch_on_verdict(self, verdict: PolicyVerdict) -> State:
-        """POLICY_CHECKED 三出口：allow→执行、confirm→待审批、deny→拒绝。"""
-        if verdict.decision == "deny":
+    async def _branch_on_verdict(
+        self,
+        batch_verdict: PolicyVerdict,
+        per_tool: Sequence[tuple[CandidateTool, PolicyVerdict]],
+    ) -> State:
+        """POLICY_CHECKED 三出口（原子计划）：
+        - deny：整批 REJECTED（含禁止动作，不部分执行）；
+        - confirm：整批 WAIT_APPROVAL，面板列出所有 confirm 工具及角色；
+        - allow：整批执行（全 allow）。
+        """
+        if batch_verdict.decision == "deny":
+            denied = [t.name for t, v in per_tool if v.decision == "deny"]
             self._goto(State.REJECTED)
-            self._append_audit({"decision": "deny", "approval_required": False})
+            self._append_audit(
+                {"decision": "deny", "approval_required": False, "denied_tools": denied}
+            )
             return self.state
 
-        if verdict.decision == "confirm":
+        # 非 deny：批次内不含 deny 工具，执行集 = 全部候选工具
+        self._batch = [t for t, _ in per_tool]
+
+        if batch_verdict.decision == "confirm":
+            confirm_tools = [
+                {"tool": t.name, "approval_role": v.approval_role}
+                for t, v in per_tool
+                if v.decision == "confirm"
+            ]
             self._goto(State.WAIT_APPROVAL)
             self._append_audit({"decision": "confirm", "approval_required": True})
+            # 面板展示的 confirm 工具，正是批准后会执行的同一批的子集（消除错配）
             self._emit(
                 "await_approval",
-                {"approval_role": verdict.approval_role, "reason": verdict.reason},
+                {"reason": batch_verdict.reason, "tools": confirm_tools},
             )
             return self.state  # 暂停，等 resume()
 
-        # allow
-        return await self._execute_and_verify(approved=False)
+        # allow：整批无需审批
+        return await self._execute_batch(approved=False)
 
     async def resume(self, approved: bool) -> State:
-        """WAIT_APPROVAL 续跑：批准→EXECUTING 链，拒绝→REJECTED。"""
+        """WAIT_APPROVAL 续跑：批准→执行整批，拒绝→整批 REJECTED（原子计划）。"""
         if self.state is not State.WAIT_APPROVAL:
             raise RuntimeError(f"resume only valid in WAIT_APPROVAL, got {self.state.value}")
         if not approved:
             self._goto(State.REJECTED)
             self._append_audit({"decision": "deny", "approval_required": True})
             return self.state
-        # 批准：confirm 工具经 gateway 时需带 approved=True 才放行
-        return await self._execute_and_verify(approved=True)
+        return await self._execute_batch(approved=True)
 
-    async def _execute_and_verify(self, *, approved: bool) -> State:
-        """EXECUTING → EXECUTED → VERIFIED → FINISHED，执行经 gateway 完整三道闸。
+    async def _execute_batch(self, *, approved: bool) -> State:
+        """EXECUTING → EXECUTED → VERIFIED → FINISHED，按序逐工具经 gateway 执行。
 
-        方案 B：执行失败以 exit_code 承载，由 VERIFIED 判定，不新增失败状态。
-        gateway 拦下（理论不应发生，因 _evaluate 已放行；防御纵深）→ emit error 并终止。
-        系统级故障（gateway/executor 抛异常）→ error 事件并终止。
+        审批面板展示的 == 实际执行的（self._batch）；每个工具各自留痕（审计+tool_result）。
+        方案 B：单工具失败以 exit_code 承载，由 VERIFIED 聚合判定。
+        gateway 拦下/系统级异常 → emit error 并终止（不推进）。
+        approved 传给每个工具：allow 工具不需要也无害，confirm 工具靠它放行。
         """
-        assert self._pending_tool is not None  # 进入执行必有计划
-        tool = self._pending_tool
+        assert self._batch is not None  # 进入执行必有批次
 
         self._goto(State.EXECUTING)
-        self._append_audit({"tool_plan": [tool.model_dump()]})
-        self._emit("executing", {"tool": tool.name})
+        self._append_audit({"tool_plan": [t.model_dump() for t in self._batch]})
+        self._emit("executing", {"tools": [t.name for t in self._batch]})
 
-        try:
-            outcome = await self._gateway.call(tool, approved=approved)
-        except Exception as exc:  # noqa: BLE001 gateway/执行器系统级故障 → error 事件
-            self._emit("error", {"message": str(exc), "phase": self.state.value})
-            return self.state
-
-        # 防御纵深：gateway 二次过闸若拦下（与 _evaluate 不一致），不推进、emit error
-        if not outcome.executed or outcome.result is None:
-            self._emit(
-                "error",
-                {"message": f"gateway blocked: {outcome.reason}", "phase": self.state.value},
-            )
-            return self.state
-
-        result = outcome.result  # gateway 已强制 is_untrusted=True（结果闸）
+        results: list[ToolResult] = []
+        for tool in self._batch:
+            try:
+                outcome = await self._gateway.call(tool, approved=approved)
+            except Exception as exc:  # noqa: BLE001 系统级故障 → error 并终止
+                self._emit("error", {"message": str(exc), "phase": self.state.value})
+                return self.state
+            # 防御纵深：gateway 二次过闸拦下（与裁决不一致）→ error 并终止
+            if not outcome.executed or outcome.result is None:
+                self._emit(
+                    "error",
+                    {
+                        "message": f"gateway blocked {tool.name}: {outcome.reason}",
+                        "phase": self.state.value,
+                    },
+                )
+                return self.state
+            result = outcome.result  # gateway 已密封（is_untrusted + 标准 wrap_token）
+            results.append(result)
+            self._evidence.append(result)
+            # 每个工具各自留痕
+            self._append_audit({"tool": tool.name, "exit_code": result.exit_code})
+            self._emit("tool_result", {"result": result.model_dump()})
 
         self._goto(State.EXECUTED)
-        self._append_audit({"tool_plan": [tool.model_dump()]})
-        self._emit("tool_result", {"result": result.model_dump()})
+        self._append_audit({"executed": [t.name for t in self._batch]})
 
-        # VERIFIED：方案 B 在此判定成功/失败
-        ok = result.exit_code == 0
+        # VERIFIED：方案 B 聚合判定——全部 exit_code==0 才算 ok
+        all_ok = all(r.exit_code == 0 for r in results)
         self._goto(State.VERIFIED)
         self._append_audit(
-            {"verify_result": "ok" if ok else "non_zero", "observations": [result.exit_code]}
+            {
+                "verify_result": "ok" if all_ok else "non_zero",
+                "observations": [r.exit_code for r in results],
+            }
         )
-        self._emit("verified", {"summary": "ok" if ok else "tool exited non-zero"})
+        self._emit(
+            "verified",
+            {"summary": "ok" if all_ok else "one or more tools exited non-zero"},
+        )
+
+        # RCA 接入点（手册 D15）：把累积证据交给注入的 RCAEngine（默认 NullRCA→空报告），
+        # 非空则 emit 契约6 "rca" 事件。RCA 真实编排归 X，本处仅调起。
+        report = self._rca.analyze(self._evidence)
+        if report:
+            self._emit("rca", {"report": report})
 
         self._goto(State.FINISHED)
-        self._append_audit({"verify_result": "ok" if ok else "non_zero"})
+        self._append_audit({"verify_result": "ok" if all_ok else "non_zero"})
         return self.state

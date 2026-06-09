@@ -5,6 +5,7 @@
 
 from backend.app.agent.orchestrator import Orchestrator, most_restrictive
 from backend.app.agent.ports import AuditSink, EventSink, Executor, PolicyEngine
+from backend.app.agent.rca import NullRCA, RCAEngine
 from backend.app.agent.state_machine import (
     INITIAL_STATE,
     TERMINAL_STATES,
@@ -30,4 +31,7 @@ __all__ = [
     # orchestrator
     "Orchestrator",
     "most_restrictive",
+    # rca
+    "RCAEngine",
+    "NullRCA",
 ]

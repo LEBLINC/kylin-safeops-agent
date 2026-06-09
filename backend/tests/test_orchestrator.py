@@ -20,7 +20,7 @@ from backend.app.contracts.stream import StreamEvent
 from backend.app.contracts.tool import ToolSpec
 from backend.app.contracts.untrusted import ToolResult
 from backend.app.llm.adapter import LLMAdapter
-from backend.app.mcp.gateway import MCPGateway
+from backend.app.mcp.gateway import CallOutcome, MCPGateway
 from backend.app.mcp.registry import ToolRegistry
 
 # ---- fakes ---------------------------------------------------------------
@@ -52,6 +52,19 @@ def _intent_json(*, need_observation: bool = False, tools: list[dict] | None = N
 def _llm_returning(output: str) -> LLMAdapter:
     async def fn(messages):  # noqa: ANN001
         return output
+
+    return LLMAdapter(completion_fn=fn)
+
+
+def _llm_sequence(*outputs: str) -> LLMAdapter:
+    """按调用次序返回不同输出的 LLM（用于 observe→re-plan 两阶段测试）。"""
+    seq = list(outputs)
+    calls = {"n": 0}
+
+    async def fn(messages):  # noqa: ANN001
+        out = seq[min(calls["n"], len(seq) - 1)]
+        calls["n"] += 1
+        return out
 
     return LLMAdapter(completion_fn=fn)
 
@@ -215,6 +228,63 @@ def test_observation_skips_non_readonly_tools_defense_in_depth() -> None:
     assert len(executor.calls) == 1
 
 
+def test_observe_then_replan_uses_second_plan_tools() -> None:
+    """observe→re-plan 两阶段：观测用首次规划的只读工具，行动用二次规划的工具。
+
+    首次 plan：need_observation=True，候选 disk.usage（只读观测）。
+    二次 plan（回喂观测后）：need_observation=False，候选 disk.large_files（行动）。
+    断言：观测执行了 disk.usage，行动执行了 disk.large_files（而非再次 disk.usage）。
+    """
+    first = json.dumps(
+        {
+            "intent": "inspect",
+            "confidence": 0.9,
+            "need_observation": True,
+            "candidate_tools": [{"name": "disk.usage", "args": {}}],
+            "risk_hint": "low",
+            "justification": "先观测",
+        }
+    )
+    second = json.dumps(
+        {
+            "intent": "act",
+            "confidence": 0.9,
+            "need_observation": False,
+            "candidate_tools": [{"name": "disk.large_files", "args": {"path": "/var/log"}}],
+            "risk_hint": "medium",
+            "justification": "据观测行动",
+        }
+    )
+    large_spec = ToolSpec(
+        name="disk.large_files",
+        description="大文件",
+        risk="R1",
+        input_schema={
+            "type": "object",
+            "properties": {"path": {"type": "string", "pattern": "^/"}},
+            "required": ["path"],
+            "additionalProperties": False,
+        },
+        requires_roles=["operator"],
+        reversible=True,
+    )
+    audit, events = FakeAudit(), FakeEvents()
+    executor = FakeExecutor()
+    gateway = MCPGateway(
+        ToolRegistry([_TEST_SPEC, large_spec]), FakePolicy(_verdict("allow")), executor
+    )
+    orch = Orchestrator(
+        llm=_llm_sequence(first, second), gateway=gateway, audit=audit, events=events
+    )
+    end = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
+    assert end is State.FINISHED
+    called = [c.name for c in executor.calls]
+    assert called == ["disk.usage", "disk.large_files"]  # 观测→行动，无重复执行 disk.usage
+    # plan_generated 事件反映的是二次规划的行动计划
+    pg = [e for e in events.events if e.type == "plan_generated"][0]
+    assert pg.data["candidate_tools"][0]["name"] == "disk.large_files"
+
+
 def test_deny_goes_rejected_no_execution() -> None:
     orch, audit, events, ex = _build(_llm_returning(_intent_json()), _verdict("deny"))
     end = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
@@ -350,3 +420,224 @@ def test_audit_decision_key_only_holds_valid_decisions() -> None:
         for rec in audit.records:
             if "decision" in rec.payload:
                 assert rec.payload["decision"] in valid
+
+
+# ---- 多工具逐裁决逐执行（D12 重构核心）---------------------------------
+
+
+class PerToolPolicy:
+    """按工具名返回不同裁决，用于多工具混合裁决测试。"""
+
+    def __init__(self, mapping: dict[str, str]) -> None:
+        self._mapping = mapping  # tool name → decision
+
+    def evaluate(self, tool: CandidateTool) -> PolicyVerdict:
+        decision = self._mapping.get(tool.name, "allow")
+        return PolicyVerdict(
+            decision=decision,
+            final_risk="R2" if decision != "allow" else "R0",
+            matched_rules=[f"rule.{tool.name}"],
+            reason=f"{tool.name}:{decision}",
+            approval_required=(decision == "confirm"),
+            approval_role="admin" if decision == "confirm" else None,
+        )
+
+
+# 两个测试工具规格，args 为空对象。
+_SPEC_A = ToolSpec(
+    name="tool.a",
+    description="a",
+    risk="R0",
+    input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+    requires_roles=["operator"],
+    reversible=True,
+)
+_SPEC_B = ToolSpec(
+    name="tool.b",
+    description="b",
+    risk="R2",
+    input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+    requires_roles=["operator"],
+    reversible=True,
+)
+
+
+def _multi_intent() -> str:
+    return json.dumps(
+        {
+            "intent": "multi",
+            "confidence": 0.9,
+            "need_observation": False,
+            "candidate_tools": [
+                {"name": "tool.a", "args": {}},
+                {"name": "tool.b", "args": {}},
+            ],
+            "risk_hint": "medium",
+            "justification": "multi tool",
+        }
+    )
+
+
+def _multi_build(mapping: dict[str, str]):  # noqa: ANN201
+    audit, events = FakeAudit(), FakeEvents()
+    executor = FakeExecutor()
+    gateway = MCPGateway(ToolRegistry([_SPEC_A, _SPEC_B]), PerToolPolicy(mapping), executor)
+    orch = Orchestrator(
+        llm=_llm_returning(_multi_intent()), gateway=gateway, audit=audit, events=events
+    )
+    return orch, audit, events, executor
+
+
+def test_multi_all_allow_executes_all_in_order() -> None:
+    orch, audit, events, ex = _multi_build({"tool.a": "allow", "tool.b": "allow"})
+    end = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
+    assert end is State.FINISHED
+    assert [c.name for c in ex.calls] == ["tool.a", "tool.b"]
+    # 每个工具各自 tool_result 留痕
+    tr = [e for e in events.events if e.type == "tool_result"]
+    assert {e.data["result"]["tool"] for e in tr} == {"tool.a", "tool.b"}
+    _assert_chain_intact(audit)
+
+
+def test_multi_allow_plus_deny_rejects_whole_plan() -> None:
+    """原子计划：含 deny 工具 → 整批 REJECTED，allow 工具也不执行。"""
+    orch, audit, _events, ex = _multi_build({"tool.a": "allow", "tool.b": "deny"})
+    end = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
+    assert end is State.REJECTED
+    assert ex.calls == []  # 含禁止动作的计划不部分执行
+    _assert_chain_intact(audit)
+
+
+def test_multi_allow_plus_confirm_approval_matches_execution() -> None:
+    """审批错配修复：面板列出 confirm 工具(tool.b)，批准后执行的是同一批(a+b)。"""
+    orch, audit, events, ex = _multi_build({"tool.a": "allow", "tool.b": "confirm"})
+    paused = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
+    assert paused is State.WAIT_APPROVAL
+    # await_approval 列出的 confirm 工具确实是 tool.b
+    aa = [e for e in events.events if e.type == "await_approval"][0]
+    assert [t["tool"] for t in aa.data["tools"]] == ["tool.b"]
+    # 批准 → 执行整批，且执行的就是面板涉及的同一批（a 先 b 后）
+    end = asyncio.run(orch.resume(approved=True))
+    assert end is State.FINISHED
+    assert [c.name for c in ex.calls] == ["tool.a", "tool.b"]
+    _assert_chain_intact(audit)
+
+
+def test_multi_confirm_reject_executes_nothing() -> None:
+    orch, _audit, _events, ex = _multi_build({"tool.a": "allow", "tool.b": "confirm"})
+    asyncio.run(orch.run([{"role": "user", "content": "x"}]))
+    end = asyncio.run(orch.resume(approved=False))
+    assert end is State.REJECTED
+    assert ex.calls == []  # 拒绝审批 → 整批不执行
+
+
+def test_multi_per_tool_verdicts_in_policy_event() -> None:
+    """policy_verdict 事件携带逐工具裁决，前端可按工具粒度展示。"""
+    orch, _audit, events, _ex = _multi_build({"tool.a": "allow", "tool.b": "confirm"})
+    asyncio.run(orch.run([{"role": "user", "content": "x"}]))
+    pv = [e for e in events.events if e.type == "policy_verdict"][0]
+    per = {d["tool"]: d["verdict"]["decision"] for d in pv.data["per_tool"]}
+    assert per == {"tool.a": "allow", "tool.b": "confirm"}
+    assert pv.data["verdict"]["decision"] == "confirm"  # 整批=最严
+
+
+# ---- 批次中途失败（第二轮修订3）---------------------------------------
+
+
+class _FailOnNthExecutor:
+    """第 fail_on 次 execute 调用时抛 OSError（错误信息含工具名）。"""
+
+    def __init__(self, fail_on: int) -> None:
+        self.fail_on = fail_on
+        self.calls: list[CandidateTool] = []
+
+    async def execute(self, tool: CandidateTool) -> ToolResult:
+        self.calls.append(tool)
+        if len(self.calls) == self.fail_on:
+            raise OSError(f"boom on {tool.name}")
+        return ToolResult(tool=tool.name, args=tool.args, exit_code=0, stdout_truncated="out")
+
+
+def test_batch_mid_failure_via_executor_exception() -> None:
+    """批次 [tool.a, tool.b] 均 allow，执行第 2 个时执行器抛异常 → 停在 EXECUTING、emit error。"""
+    audit, events = FakeAudit(), FakeEvents()
+    executor = _FailOnNthExecutor(fail_on=2)
+    gateway = MCPGateway(
+        ToolRegistry([_SPEC_A, _SPEC_B]),
+        PerToolPolicy({"tool.a": "allow", "tool.b": "allow"}),
+        executor,
+    )
+    orch = Orchestrator(
+        llm=_llm_returning(_multi_intent()), gateway=gateway, audit=audit, events=events
+    )
+    end = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
+
+    assert end is State.EXECUTING  # 未推进到 FINISHED
+    # 仅 tool.a 产出 tool_result
+    tr = [e for e in events.events if e.type == "tool_result"]
+    assert len(tr) == 1
+    assert tr[0].data["result"]["tool"] == "tool.a"
+    # 末尾事件为 error，且携带具体失败工具名
+    assert events.types()[-1] == "error"
+    err = [e for e in events.events if e.type == "error"][-1]
+    assert "tool.b" in err.data["message"]
+    # 审计：tool.a 的 exit_code 已留痕，但未出现 VERIFIED 阶段
+    assert any(r.payload.get("tool") == "tool.a" for r in audit.records)
+    assert all(r.phase != State.VERIFIED.value for r in audit.records)
+
+
+class _SecondBlockedGateway:
+    """fake gateway：evaluate 全 allow；call 对 tool.b 返回 executed=False（二次过闸拦下）。"""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def is_read_only(self, tool: CandidateTool) -> bool:
+        return True
+
+    def evaluate(self, tool: CandidateTool) -> PolicyVerdict:
+        return PolicyVerdict(
+            decision="allow",
+            final_risk="R0",
+            matched_rules=[],
+            reason="ok",
+            approval_required=False,
+        )
+
+    async def call(self, tool: CandidateTool, *, approved: bool = False) -> CallOutcome:
+        self.calls.append(tool.name)
+        if tool.name == "tool.b":
+            return CallOutcome(
+                executed=False,
+                verdict=self.evaluate(tool),
+                reason="blocked by defense-in-depth second pass",
+            )
+        return CallOutcome(
+            executed=True,
+            result=ToolResult(tool=tool.name, args={}, exit_code=0, stdout_truncated="ok"),
+            verdict=self.evaluate(tool),
+        )
+
+
+def test_batch_mid_blocked_by_gateway_second_pass() -> None:
+    """批次第 2 个工具在 gateway 二次过闸被拦（executed=False）→ 停在 EXECUTING、emit error。"""
+    audit, events = FakeAudit(), FakeEvents()
+    gateway = _SecondBlockedGateway()
+    orch = Orchestrator(
+        llm=_llm_returning(_multi_intent()),
+        gateway=gateway,  # type: ignore[arg-type]
+        audit=audit,
+        events=events,
+    )
+    end = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
+
+    assert end is State.EXECUTING
+    # tool.a 已执行（产出 tool_result），tool.b 被拦
+    tr = [e for e in events.events if e.type == "tool_result"]
+    assert len(tr) == 1
+    assert tr[0].data["result"]["tool"] == "tool.a"
+    assert gateway.calls == ["tool.a", "tool.b"]  # 两个都尝试，tool.b 被拦
+    assert events.types()[-1] == "error"
+    err = [e for e in events.events if e.type == "error"][-1]
+    assert "tool.b" in err.data["message"]
+    assert all(r.phase != State.VERIFIED.value for r in audit.records)
