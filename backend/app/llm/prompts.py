@@ -64,10 +64,33 @@ def build_summary_prompt() -> str:
 
 
 def build_repair_prompt(raw_output: str, error: str) -> str:
-    """构造纠错提示：把上一次的坏输出与校验错误回喂给模型，要求自修。"""
+    """构造纠错提示：把上一次的坏输出与校验错误回喂给模型，要求自修。
+
+    针对常见错误类型给具体修正引导，提升二次成功率（手册 D13 稳定性目标）。
+    """
+    hints: list[str] = []
+    low = error.lower()
+    if "extra" in low or "additional" in low or "not permitted" in low:
+        hints.append("- 删除 Intent JSON Schema 之外的所有多余字段。")
+    if "json" in low or "expecting" in low or "decode" in low or "delimiter" in low:
+        hints.append(
+            "- 只输出一个 JSON 对象：不要散文、不要 Markdown 代码块、不要尾逗号、用双引号。"
+        )
+    if "required" in low or "missing" in low or "field required" in low:
+        hints.append(
+            "- 补齐所有必填字段：" "intent/confidence/need_observation/risk_hint/justification。"
+        )
+    if "candidate_tools" in low or "name" in low:
+        hints.append(
+            '- candidate_tools 每项必须是 {"name": "...", "args": {...}}，' "工具名取自可用清单。"
+        )
+    if "confidence" in low:
+        hints.append("- confidence 必须是 0 到 1 之间的数字。")
+    hint_text = ("\n常见修正：\n" + "\n".join(hints)) if hints else ""
     return (
         "你上一次的输出无法解析为合法的 Intent JSON。\n"
         f"上一次输出：\n{raw_output}\n\n"
-        f"校验错误：\n{error}\n\n"
+        f"校验错误：\n{error}\n"
+        f"{hint_text}\n\n"
         "请只输出修正后的、严格符合 Intent JSON Schema 的单个 JSON 对象，不要任何额外文字。"
     )

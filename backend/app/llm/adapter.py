@@ -52,29 +52,104 @@ class LLMConfig:
     extra_headers: dict[str, str] = field(default_factory=dict)
 
 
-def _extract_json(raw: str) -> str:
-    """从模型输出里抽出 JSON 对象主体。
+def _balanced_object_at(text: str, start: int) -> str | None:
+    """从 text[start]（须为 '{'）起扫描出括号平衡的对象，尊重字符串与转义。
 
-    容忍模型偶发包裹 ```json fence 或前后空白；不做语义修复，仅定位首尾花括号。
+    返回该对象子串；括号未闭合返回 None。
     """
-    text = raw.strip()
-    if text.startswith("```"):
-        # 去掉可能的 ```json ... ``` 围栏
-        text = text.split("```", 2)[1] if text.count("```") >= 2 else text.strip("`")
-        if text.startswith("json"):
-            text = text[len("json") :]
-        text = text.strip()
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None  # 括号未闭合（被截断）
+
+
+def _first_balanced_object(text: str) -> str | None:
+    """文本中第一个括号平衡的 JSON 对象（从首个 '{' 起）。找不到返回 None。"""
     start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        return text[start : end + 1]
-    return text
+    if start == -1:
+        return None
+    return _balanced_object_at(text, start)
+
+
+def _strip_trailing_commas(text: str) -> str:
+    """移除对象/数组里的尾逗号（常见非法 JSON），尊重字符串字面量。"""
+    out: list[str] = []
+    in_string = False
+    escape = False
+    for i, ch in enumerate(text):
+        if in_string:
+            out.append(ch)
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+            out.append(ch)
+            continue
+        if ch == ",":
+            j = i + 1
+            while j < len(text) and text[j] in " \t\r\n":
+                j += 1
+            if j < len(text) and text[j] in "}]":
+                continue
+        out.append(ch)
+    return "".join(out)
+
+
+def _extract_json(raw: str) -> str:
+    """从模型输出里抽出第一个括号平衡的 JSON 对象主体（容错预览用）。"""
+    obj = _first_balanced_object(raw)
+    return obj if obj is not None else raw.strip()
+
+
+def _loads_lenient(candidate: str) -> dict:
+    """严格 json.loads；失败则移除尾逗号再试。仍失败抛 JSONDecodeError。"""
+    try:
+        return json.loads(candidate)  # type: ignore[no-any-return]
+    except json.JSONDecodeError:
+        return json.loads(_strip_trailing_commas(candidate))  # type: ignore[no-any-return]
 
 
 def parse_intent(raw: str) -> Intent:
-    """把模型原始文本解析+校验为 Intent；失败抛 ValidationError/ValueError。"""
-    payload = json.loads(_extract_json(raw))
-    return Intent.model_validate(payload)
+    """把模型原始文本解析+校验为 Intent；失败抛 ValidationError/ValueError。
+
+    稳健策略：依次尝试文本中每个括号平衡的 {...} 块（跳过散文里的伪对象如
+    "{ignored?}"），对每块做宽松解析(去尾逗号)，取**第一个能解析且通过 Intent 校验**的。
+    全部失败抛错，由 plan() 的重试/降级兜底。
+    """
+    last_exc: Exception = ValueError("no JSON object found")
+    pos = raw.find("{")
+    while pos != -1:
+        candidate = _balanced_object_at(raw, pos)
+        if candidate is not None:
+            try:
+                return Intent.model_validate(_loads_lenient(candidate))
+            except (ValidationError, ValueError) as exc:
+                last_exc = exc
+        pos = raw.find("{", pos + 1)
+    raise last_exc
 
 
 class LLMAdapter:

@@ -8,6 +8,7 @@ from backend.app.llm.adapter import (
     StreamFn,
     parse_intent,
 )
+from backend.app.llm.feedback import wrap_for_feedback, wrap_many_for_feedback
 from backend.app.llm.prompts import (
     OBSERVE_ONLY_INTENT,
     build_repair_prompt,
@@ -22,6 +23,8 @@ __all__ = [
     "Message",
     "StreamFn",
     "parse_intent",
+    "wrap_for_feedback",
+    "wrap_many_for_feedback",
     "OBSERVE_ONLY_INTENT",
     "build_repair_prompt",
     "build_summary_prompt",
