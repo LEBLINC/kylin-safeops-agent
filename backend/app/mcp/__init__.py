@@ -3,6 +3,7 @@
 from backend.app.mcp.gateway import CallOutcome, MCPGateway
 from backend.app.mcp.protocol import from_mcp_tool, to_mcp_tool
 from backend.app.mcp.registry import ToolRegistry
+from backend.app.mcp.result_gate import seal_result
 from backend.app.mcp.schema_validator import ValidationResult, validate_args
 
 __all__ = [
@@ -11,6 +12,7 @@ __all__ = [
     "ValidationResult",
     "MCPGateway",
     "CallOutcome",
+    "seal_result",
     "to_mcp_tool",
     "from_mcp_tool",
 ]

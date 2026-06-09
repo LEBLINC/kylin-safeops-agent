@@ -19,6 +19,7 @@ from backend.app.contracts.policy import PolicyEngine, PolicyVerdict
 from backend.app.contracts.tool import ToolSpec
 from backend.app.contracts.untrusted import ToolResult
 from backend.app.mcp.registry import ToolRegistry
+from backend.app.mcp.result_gate import seal_result
 from backend.app.mcp.schema_validator import validate_args
 
 
@@ -137,8 +138,7 @@ class MCPGateway:
                 executed=False, verdict=verdict, reason="policy: confirm (needs approval)"
             )
 
-        # 执行 + 结果闸：强制不可信标记
+        # 执行 + 结果闸：密封不可信（强制 is_untrusted=True + 标准 wrap_token）
         result = await self._executor.execute(tool)
-        if not result.is_untrusted:
-            result = result.model_copy(update={"is_untrusted": True})
+        result = seal_result(result)
         return CallOutcome(executed=True, result=result, verdict=verdict)
