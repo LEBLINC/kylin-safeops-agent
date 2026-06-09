@@ -16,9 +16,9 @@ from pydantic import BaseModel, ConfigDict, Field
 #   intent_parsed   -> {"intent": Intent}
 #   observation     -> {"results": list[ToolResult]}
 #   plan_generated  -> {"candidate_tools": list[CandidateTool]}
-#   policy_verdict  -> {"verdict": PolicyVerdict}
-#   await_approval  -> {"approval_role": str, "reason": str}
-#   executing       -> {"tool": str}
+#   policy_verdict  -> {"verdict": PolicyVerdict, "per_tool": list[{tool, verdict}]}
+#   await_approval  -> {"reason": str, "tools": list[{"tool": str, "approval_role": str|None}]}
+#   executing       -> {"tools": list[str]}
 #   tool_result     -> {"result": ToolResult}
 #   verified        -> {"summary": str}
 #   rca             -> {"report": dict}
