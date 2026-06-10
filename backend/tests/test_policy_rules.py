@@ -119,9 +119,7 @@ def test_deny_must_not_have_approval_role() -> None:
 
 def test_confirm_requires_approval_role() -> None:
     with pytest.raises(ValidationError):
-        PolicyRule.model_validate(
-            {"id": "x", "name": "n", "match": {}, "action": "confirm"}
-        )
+        PolicyRule.model_validate({"id": "x", "name": "n", "match": {}, "action": "confirm"})
 
 
 def test_invalid_regex_rejected_at_load() -> None:
@@ -153,6 +151,4 @@ def test_invalid_risk_level_rejected() -> None:
 def test_invalid_action_rejected() -> None:
     """Action 是 Decision Literal：warn/approval 不被接受（语义已合并入 allow/confirm）。"""
     with pytest.raises(ValidationError):
-        PolicyRule.model_validate(
-            {"id": "x", "name": "n", "match": {}, "action": "warn"}
-        )
+        PolicyRule.model_validate({"id": "x", "name": "n", "match": {}, "action": "warn"})
