@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"   # ≥3.10：契约 PEP 604 + 官方 mcp SDK 下限
+          python-version: "3.11"   # 对齐麒麟 V11 靶机实测 Python 3.11.6（CI 须与生产环境同版本，否则绿了也不代表靶机能跑）
       - name: Install backend deps (+ pre-commit)
         run: |
           python -m pip install --upgrade pip
