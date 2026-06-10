@@ -1,0 +1,189 @@
+/**
+ * style.css
+ *
+ * 全局样式与深色主题文件。
+ *
+ * 作用：
+ * 1. 定义 Kylin SafeOps 的深色主题变量；
+ * 2. 覆盖 Element Plus 在深色主题下的表格、下拉框、弹窗、输入框样式；
+ * 3. 修复鼠标 hover 后出现浅色背景导致文字看不清的问题；
+ * 4. 提供 ks-page、ks-card、ks-muted、ks-grid 等通用样式类。
+ *
+ * 注意：
+ * - 页面级布局样式仍写在各自 .vue 的 scoped style 中；
+ * - 全局 UI 变量和 Element Plus 覆盖样式集中放在这里，方便统一维护。
+ */
+
+:root {
+  --ks-bg: #0f172a;
+  --ks-bg-soft: #111827;
+  --ks-card: #1e293b;
+  --ks-card-2: #172033;
+  --ks-border: #334155;
+  --ks-text: #f8fafc;
+  --ks-text-muted: #94a3b8;
+  --ks-primary: #3b82f6;
+  --ks-success: #22c55e;
+  --ks-warning: #f59e0b;
+  --ks-danger: #ef4444;
+  --ks-purple: #8b5cf6;
+
+  --el-bg-color: var(--ks-card);
+  --el-bg-color-overlay: #111827;
+  --el-text-color-primary: var(--ks-text);
+  --el-text-color-regular: #e5e7eb;
+  --el-text-color-secondary: var(--ks-text-muted);
+  --el-border-color: var(--ks-border);
+  --el-border-color-light: var(--ks-border);
+  --el-fill-color: #172033;
+  --el-fill-color-light: #1e293b;
+  --el-fill-color-lighter: #23324a;
+  --el-fill-color-blank: #0b1220;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--ks-bg);
+  color: var(--ks-text);
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Microsoft YaHei", "PingFang SC", sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.ks-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ks-card {
+  border: 1px solid var(--ks-border);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.96));
+  box-shadow: 0 12px 32px rgba(2, 6, 23, 0.22);
+}
+
+.ks-muted {
+  color: var(--ks-text-muted);
+}
+
+.ks-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.el-card,
+.el-dialog,
+.el-drawer,
+.el-message-box {
+  --el-bg-color: var(--ks-card);
+  --el-fill-color-blank: var(--ks-card);
+  --el-border-color-light: var(--ks-border);
+  color: var(--ks-text);
+}
+
+.el-table {
+  --el-table-bg-color: var(--ks-card);
+  --el-table-tr-bg-color: var(--ks-card);
+  --el-table-header-bg-color: #162034;
+  --el-table-row-hover-bg-color: #23324a;
+  --el-table-current-row-bg-color: #1d4ed8;
+  --el-table-text-color: #e5e7eb;
+  --el-table-header-text-color: var(--ks-text);
+  --el-table-border-color: var(--ks-border);
+  background: var(--ks-card);
+  color: #e5e7eb;
+}
+
+.el-table th.el-table__cell {
+  background-color: #162034 !important;
+  color: var(--ks-text) !important;
+}
+
+.el-table tr,
+.el-table td.el-table__cell {
+  background-color: var(--ks-card) !important;
+  color: #e5e7eb !important;
+}
+
+.el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell,
+.el-table__body tr.current-row > td.el-table__cell {
+  background-color: #23324a !important;
+  color: var(--ks-text) !important;
+}
+
+.el-input,
+.el-textarea {
+  --el-input-bg-color: #0b1220;
+  --el-input-border-color: var(--ks-border);
+  --el-input-hover-border-color: #3b82f6;
+  --el-input-focus-border-color: #3b82f6;
+  --el-input-text-color: var(--ks-text);
+  --el-input-placeholder-color: #64748b;
+}
+
+.el-select__popper.el-popper,
+.el-dropdown__popper.el-popper,
+.el-picker__popper.el-popper {
+  background: #111827 !important;
+  border-color: var(--ks-border) !important;
+  color: var(--ks-text) !important;
+}
+
+.el-select-dropdown__item,
+.el-dropdown-menu,
+.el-dropdown-menu__item {
+  background: #111827;
+  color: var(--ks-text);
+}
+
+.el-select-dropdown__item.hover,
+.el-select-dropdown__item:hover,
+.el-dropdown-menu__item:hover,
+.el-dropdown-menu__item:focus {
+  background: #23324a !important;
+  color: var(--ks-text) !important;
+}
+
+.el-collapse,
+.el-collapse-item__header,
+.el-collapse-item__wrap {
+  background: transparent;
+  color: var(--ks-text);
+  border-color: var(--ks-border);
+}
+
+.el-tree {
+  --el-tree-node-hover-bg-color: #23324a;
+}
+
+.el-menu {
+  border-right: none;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-track {
+  background: #0f172a;
+}
