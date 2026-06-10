@@ -6,7 +6,7 @@ pythonpath = ["."]              # 冻结 仓库根=导入根：backend.app.* 与
 testpaths = ["backend/tests"]
 
 [tool.mypy]
-python_version = "3.10"         # 契约用 PEP 604 (str | None) → 需 ≥3.10；TODO(L): 核实麒麟 V11 Python 版本
+python_version = "3.10"         # 下限 3.10（契约用 PEP 604）；麒麟 V11 靶机实测 Python 3.11.6，按 3.10 写下限兼容
 plugins = ["pydantic.mypy"]     # 否则 D2 contracts 的 pydantic v2 模型会误报 / 漏校
 
 [tool.ruff]
