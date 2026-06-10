@@ -26,7 +26,6 @@ from backend.app.llm.adapter import LLMAdapter
 from backend.app.mcp.gateway import MCPGateway
 from backend.app.mcp.registry import ToolRegistry
 
-
 # ---- fake 协作者依赖 -----------------------------------------------------
 
 
