@@ -18,3 +18,18 @@ force-exclude = true                              # 关键：pre-commit 显式�
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI 依赖注入靠"在参数默认值里调用 Depends/Header/... "实现，是官方惯用法；
+# 把这些可调用项加入白名单，避免 B008 误报，同时保留 B008 抓真正的可变默认值 bug。
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Header",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Cookie",
+    "fastapi.Form",
+    "fastapi.File",
+    "fastapi.Security",
+]

@@ -221,8 +221,8 @@ def test_tools_call_executes_and_unregistered_blocked() -> None:
 
 def _change_tool_gateway() -> MCPGateway:
     """注册一个 R3 变更工具 + allow-all 策略：用于验证只读门（防御纵深）。"""
-    from backend.app.contracts.tool import ToolSpec
     from backend.app.api._fakes import FakePolicyEngine
+    from backend.app.contracts.tool import ToolSpec
 
     registry = ToolRegistry()
     registry.register(
