@@ -1,0 +1,17 @@
+# Kylin SafeOps Agent — 开发 / CI 工具依赖
+# 从 requirements.txt 拆出：运行时镜像无需安装这些；CI 与本地校验需安装。
+# 版本与 .pre-commit-config.yaml 的 pinned rev 对齐（单一来源防漂移，本地绿==CI绿）。
+#
+# 安装运行时 + dev：
+#   pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+#
+# 说明：ruff/mypy 实际由 pre-commit 的 pinned repo 在隔离环境运行；此处列出同版本
+# 便于直接 `ruff`/`mypy` 调用与版本核对。pytest 由 pre-commit 的 local system hook
+# 在本 env 调用（python -m pytest），故 pytest 必须装在本 env。
+
+-r requirements.txt
+
+ruff==0.8.4            # == ruff-pre-commit rev v0.8.4
+mypy==1.13.0           # == mirrors-mypy rev v1.13.0
+pytest==9.0.3          # pre-commit local hook 在本 env 调用，必须安装
+pre-commit==4.6.0      # 本地 / CI 统一校验入口

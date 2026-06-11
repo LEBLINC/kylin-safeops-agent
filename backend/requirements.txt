@@ -1,6 +1,7 @@
-# Kylin SafeOps Agent — 后端依赖
+# Kylin SafeOps Agent — 后端运行时依赖
 # 版本策略：核心运行时包 == 锁定，与麒麟 V11 靶机 Python 3.11.6 + CI(3.11) + 本地三者一致，
-# 可复现、杜绝"本地绿 CI 红"漂移。下列锁定组合已在 Python 3.11 干净环境验证全绿（pytest 178 passed）。
+# 可复现、杜绝"本地绿 CI 红"漂移。
+# dev / CI 工具（ruff/mypy/pytest/pre-commit）已拆分至 requirements-dev.txt。
 # LoongArch 铁律：含 Rust/C 扩展者（pydantic-core）需提前在 VM 预编译 wheel 并记部署文档。
 
 # --- core / contracts ---
@@ -15,9 +16,3 @@ httpx==0.28.1          # OpenAI 兼容网关客户端（纯 Python）
 
 # --- MCP 协议层（决策1：官方 SDK，pin v1.x；fastmcp 仅 third_party 参考、不进运行时）---
 mcp==1.27.2            # 官方 MCP Python SDK；编译型依赖仅 pydantic-core
-
-# --- dev / CI（版本与 .pre-commit-config.yaml 的 rev 对齐，单一来源防漂移）---
-ruff==0.8.4            # == ruff-pre-commit rev v0.8.4
-mypy==1.13.0           # == mirrors-mypy rev v1.13.0
-pytest==9.0.3
-pre-commit==4.6.0
