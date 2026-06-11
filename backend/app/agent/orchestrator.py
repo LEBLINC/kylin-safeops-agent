@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from collections.abc import Sequence
@@ -60,6 +61,7 @@ class Orchestrator:
         events: EventSink,
         rca: RCAEngine | None = None,
         trace_id: str | None = None,
+        max_observation_rounds: int = 3,
     ) -> None:
         self._llm = llm
         self._gateway = gateway
@@ -70,6 +72,8 @@ class Orchestrator:
         self.state: State = INITIAL_STATE
         self._seq = 0
         self._prev_hash = GENESIS_HASH
+        # 观测→re-plan 多轮上限（有界，防死循环）
+        self._max_observation_rounds = max(1, max_observation_rounds)
         # 暂存供 resume 使用的执行批次（原子计划：审批后整批执行）
         self._batch: list[CandidateTool] | None = None
         # 累积本次请求的所有不可信结果（观测+执行），供 RCA 接入点使用
@@ -131,28 +135,41 @@ class Orchestrator:
         self._append_audit({"user_intent": intent.intent, "risk_level": intent.risk_hint})
         self._emit("intent_parsed", {"intent": intent.model_dump()})
 
-        # 观测分支（need_observation）：经 gateway 调只读工具采集上下文，
-        # 再把（安全封装的）观测结果回喂 plan() 做二次规划（observe→re-plan 两阶段）。
-        # 解决"观测与行动共用 candidate_tools、只读工具双执行"：观测用 intent 的只读候选，
-        # 行动用二次规划 action_intent 的候选（二者分离）。
+        # 观测分支（need_observation）：有界多轮 observe→re-plan（手册，防死循环）。
+        # 在 CONTEXT_COLLECTED 内循环（不新增状态、不重复 _goto）：每轮经 gateway 只读防御
+        # 纵深采集观测 → 安全封装回喂 → 二次规划；满足终止条件或达上限后进入 PLAN_GENERATED。
+        # 解决"观测与行动共用 candidate_tools、只读工具双执行"：观测用各轮 intent 的只读候选，
+        # 行动用最终规划 action_intent 的候选（二者分离）。
         action_intent = intent
         if intent.need_observation:
             self._goto(State.CONTEXT_COLLECTED)
-            observations = await self._collect_observations(intent.candidate_tools)
-            self._evidence.extend(observations)
-            self._append_audit({"observations": [o.exit_code for o in observations]})
-            self._emit("observation", {"results": [o.model_dump() for o in observations]})
-            # 把观测结果作为不可信数据回喂，二次规划行动计划
-            try:
-                feedback = wrap_many_for_feedback(observations)
-                action_intent = await self._llm.plan(
-                    [*messages, {"role": "user", "content": feedback}]
-                )
-            except httpx.HTTPError as exc:
-                self._emit("error", {"message": str(exc), "phase": self.state.value})
-                return self.state
-            # 骨架：单轮观测。二次规划即便再次 need_observation 也不再递归（防循环），
-            # 直接用其候选工具作为行动计划。TODO: 多轮 observe→plan 由后续迭代细化。
+            convo: list[Message] = list(messages)
+            current = intent
+            for _round in range(self._max_observation_rounds):
+                # 观测当前计划的（只读）候选工具；记录指纹用于"无推进"截断
+                observed_key = self._candidates_key(current.candidate_tools)
+                observations = await self._collect_observations(current.candidate_tools)
+                self._evidence.extend(observations)
+                self._append_audit({"observations": [o.exit_code for o in observations]})
+                self._emit("observation", {"results": [o.model_dump() for o in observations]})
+                # 把观测结果作为不可信数据回喂，二次规划
+                try:
+                    feedback = wrap_many_for_feedback(observations)
+                    convo = [*convo, {"role": "user", "content": feedback}]
+                    current = await self._llm.plan(convo)
+                except httpx.HTTPError as exc:
+                    self._emit("error", {"message": str(exc), "phase": self.state.value})
+                    return self.state
+                action_intent = current
+                # 终止条件（任一即停，进入规划）：
+                #   不再需要观测 / 无候选工具 / 候选与刚观测的一致（planner 未推进，防循环）。
+                # 达到 _max_observation_rounds 时循环自然退出（强制进入规划），双重防死循环。
+                if not current.need_observation:
+                    break
+                if not current.candidate_tools:
+                    break
+                if self._candidates_key(current.candidate_tools) == observed_key:
+                    break
 
         # 规划完成（行动计划 = action_intent 的候选工具）
         self._goto(State.PLAN_GENERATED)
@@ -182,6 +199,11 @@ class Orchestrator:
         )
 
         return await self._branch_on_verdict(batch_verdict, per_tool)
+
+    @staticmethod
+    def _candidates_key(tools: Sequence[CandidateTool]) -> tuple[tuple[str, str], ...]:
+        """候选工具的稳定指纹（名 + 规范化 args），用于判定两轮规划是否无变化（防循环）。"""
+        return tuple((t.name, json.dumps(t.args, sort_keys=True)) for t in tools)
 
     async def _collect_observations(self, tools: Sequence[CandidateTool]) -> list[ToolResult]:
         """经 gateway 调只读工具采集观测；只收 allow 且执行成功的结果（已密封）。

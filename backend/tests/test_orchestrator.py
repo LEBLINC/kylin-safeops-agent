@@ -641,3 +641,124 @@ def test_batch_mid_blocked_by_gateway_second_pass() -> None:
     err = [e for e in events.events if e.type == "error"][-1]
     assert "tool.b" in err.data["message"]
     assert all(r.phase != State.VERIFIED.value for r in audit.records)
+
+
+# ---- L2: 有界多轮 observe→re-plan 终止条件 -------------------------------
+
+# 两个只读工具规格供多轮观测使用。
+_OBS_USAGE = ToolSpec(
+    name="disk.usage",
+    description="磁盘占用",
+    risk="R1",
+    input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+    requires_roles=["operator"],
+    reversible=True,
+)
+_OBS_LARGE = ToolSpec(
+    name="disk.large_files",
+    description="大文件",
+    risk="R1",
+    input_schema={
+        "type": "object",
+        "properties": {"path": {"type": "string", "pattern": "^/"}},
+        "required": ["path"],
+        "additionalProperties": False,
+    },
+    requires_roles=["operator"],
+    reversible=True,
+)
+
+
+def _obs_plan(*, need_observation: bool, tools: list[dict]) -> str:
+    return json.dumps(
+        {
+            "intent": "multi_observe",
+            "confidence": 0.9,
+            "need_observation": need_observation,
+            "candidate_tools": tools,
+            "risk_hint": "low",
+            "justification": "test",
+        }
+    )
+
+
+def _obs_gateway(executor: FakeExecutor) -> MCPGateway:
+    return MCPGateway(
+        ToolRegistry([_OBS_USAGE, _OBS_LARGE]), FakePolicy(_verdict("allow")), executor
+    )
+
+
+def test_two_round_observation_then_converge() -> None:
+    """两轮观测后收敛：round0 观测 disk.usage→换计划，round1 观测 disk.large_files→
+    二次规划 need_observation=False 收敛，进入行动规划并执行。共 2 个 observation 事件。"""
+    p0 = _obs_plan(need_observation=True, tools=[{"name": "disk.usage", "args": {}}])
+    p1 = _obs_plan(
+        need_observation=True, tools=[{"name": "disk.large_files", "args": {"path": "/var/log"}}]
+    )
+    p2 = _obs_plan(need_observation=False, tools=[{"name": "disk.usage", "args": {}}])
+    audit, events = FakeAudit(), FakeEvents()
+    executor = FakeExecutor()
+    orch = Orchestrator(
+        llm=_llm_sequence(p0, p1, p2),
+        gateway=_obs_gateway(executor),
+        audit=audit,
+        events=events,
+    )
+    end = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
+    assert end is State.FINISHED
+    obs = [e for e in events.events if e.type == "observation"]
+    assert len(obs) == 2  # 两轮观测
+    assert len(obs[0].data["results"]) == 1  # round0 观测 disk.usage
+    assert len(obs[1].data["results"]) == 1  # round1 观测 disk.large_files
+    _assert_chain_intact(audit)
+
+
+def test_observation_round_limit_forces_planning() -> None:
+    """达上限强制进入规划：planner 每轮都 need_observation=True 且候选各异（不自然收敛），
+    应在 max_observation_rounds 轮后被截断，进入规划并执行。"""
+    calls = {"n": 0}
+
+    async def fn(messages):  # noqa: ANN001
+        n = calls["n"]
+        calls["n"] += 1
+        # 每轮候选 path 各异 → 指纹不同 → 不触发"无推进"截断，只能靠轮次上限收口
+        return _obs_plan(
+            need_observation=True,
+            tools=[{"name": "disk.large_files", "args": {"path": f"/var/log/{n}"}}],
+        )
+
+    audit, events = FakeAudit(), FakeEvents()
+    executor = FakeExecutor()
+    orch = Orchestrator(
+        llm=LLMAdapter(completion_fn=fn),
+        gateway=_obs_gateway(executor),
+        audit=audit,
+        events=events,
+        max_observation_rounds=2,
+    )
+    end = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
+    # 达上限退出循环后仍进入规划→执行（最后一轮计划的 disk.large_files）
+    assert end is State.FINISHED
+    obs = [e for e in events.events if e.type == "observation"]
+    assert len(obs) == 2  # 恰好 max_observation_rounds 轮，未无限观测
+    _assert_chain_intact(audit)
+
+
+def test_infinite_loop_truncated_by_identical_candidates() -> None:
+    """无限循环被截断：planner 反复返回同一 need_observation=True 计划，
+    候选与上轮一致 → 第一轮后即截断，仅 1 个 observation 事件（防死循环）。"""
+    same = _obs_plan(need_observation=True, tools=[{"name": "disk.usage", "args": {}}])
+    audit, events = FakeAudit(), FakeEvents()
+    executor = FakeExecutor()
+    orch = Orchestrator(
+        llm=_llm_returning(same),
+        gateway=_obs_gateway(executor),
+        audit=audit,
+        events=events,
+        max_observation_rounds=5,
+    )
+    end = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
+    assert end is State.FINISHED
+    obs = [e for e in events.events if e.type == "observation"]
+    assert len(obs) == 1  # 候选无推进 → 截断，未跑满 5 轮
+    _assert_chain_intact(audit)
