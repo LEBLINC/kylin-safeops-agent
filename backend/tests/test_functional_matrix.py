@@ -11,8 +11,6 @@ from __future__ import annotations
 import asyncio
 import json
 
-import pytest
-
 from backend.app.agent.orchestrator import Orchestrator
 from backend.app.agent.state_machine import State
 from backend.app.contracts.audit import AuditRecord
@@ -181,22 +179,20 @@ def test_f004_r3_approval_gate_rejected() -> None:
     assert ex.calls == []  # 拒绝审批 → 不执行
 
 
-# ---- F005 危险命令策略拦截（依赖 D 真 evaluate，待激活）-----------------
+# ---- F005 危险命令策略拦截（D 真 evaluate 已合入，哨兵已激活）-----------
 
 
 def test_f005_dangerous_command_denied_by_real_policy() -> None:
-    """命中 deny 规则 → 整批 REJECTED、不执行。依赖 D 真 PolicyEngine，未合入则 skip。"""
-    try:
-        from backend.app.security import (  # type: ignore[attr-defined]
-            DEFAULT_POLICY,
-            PolicyEngine,
-        )
-    except ImportError:
-        pytest.skip("待 D 的 PolicyEngine 从 backend.app.security 导出后启用（同 L1 哨兵）")
+    """命中 deny 规则 → 整批 REJECTED、不执行（真 PolicyEngine 实证）。
+
+    L-2 整改：D 的 PolicyEngine 已从 backend.app.security 导出，原 try/except skip
+    守卫已删除——import 失败应如实 ERROR，不再静默 skip。
+    """
+    from backend.app.security import DEFAULT_POLICY, PolicyEngine
 
     registry = ToolRegistry(all_specs())
     executor = _Executor()
-    gateway = MCPGateway(registry, PolicyEngine(DEFAULT_POLICY, registry), executor)  # type: ignore[call-arg]
+    gateway = MCPGateway(registry, PolicyEngine(DEFAULT_POLICY, registry), executor)
     audit, events = _Audit(), _Events()
     orch = Orchestrator(
         llm=_llm(

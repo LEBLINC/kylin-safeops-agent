@@ -1,34 +1,20 @@
-"""L1 — fake→real 策略集成验证脚手架（端到端，预置待命）。
+"""L1 — fake→real 策略集成验证哨兵（端到端）。
 
-目的：在 D 的真 PolicyEngine 合入【前】预置集成测试，把 fake→real 切换的集成风险前置。
+D 的真 PolicyEngine 已合入并从 backend.app.security 导出，本哨兵**已激活**（实跑非 skip）。
 装配方式：真 ToolRegistry(os_ops all_specs()) + 真 DEFAULT_POLICY + 真 PolicyEngine，
 Executor 仍用 FakeExecutor（不实现 D 的执行层；C3 红线）。端到端断言策略实质成立。
 
-★优雅待命：D 的真 PolicyEngine 尚未合入（backend.app.security 暂未导出 PolicyEngine）。
-本文件 import 失败即整文件 skip，CI 不红；D 一合入并导出 PolicyEngine 即自动激活。
+注（L-2 整改）：原有 try/except ImportError 待命守卫已删除——真件已合入，import 失败
+应如实 ERROR（守卫只会在环境损坏时伪装成 "1 skipped" 静默下线，是风险而非保护）。
 
-【与 D 的接线契约约定】（D 合入时若签名不同，在此对齐）：
-- backend.app.security 导出 PolicyEngine 类；
-- 构造签名按 L 已拍板：PolicyEngine(policy: PolicySet, registry: ToolRegistry)；
-- evaluate(tool: CandidateTool) -> PolicyVerdict（已是 contracts.policy 冻结签名）。
-若 D 的构造签名不同，调整下方 _make_engine() 即可——这正是集成对齐点。
+【与 D 的接线契约】：PolicyEngine(policy: PolicySet, registry: ToolRegistry)；
+evaluate(tool) -> PolicyVerdict（contracts.policy 冻结）。构造若变更，改 _make_engine()。
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-
-import pytest
-
-# 优雅待命：D 的真 PolicyEngine 未合入则整文件跳过（CI 不红，合入后自动激活）。
-try:
-    from backend.app.security import DEFAULT_POLICY, PolicyEngine  # type: ignore[attr-defined]
-except ImportError:
-    pytest.skip(
-        "待 D 的 PolicyEngine.evaluate 合入并从 backend.app.security 导出后启用",
-        allow_module_level=True,
-    )
 
 from backend.app.agent.orchestrator import Orchestrator
 from backend.app.agent.state_machine import State
@@ -39,6 +25,7 @@ from backend.app.contracts.untrusted import ToolResult
 from backend.app.llm.adapter import LLMAdapter
 from backend.app.mcp.gateway import MCPGateway
 from backend.app.mcp.registry import ToolRegistry
+from backend.app.security import DEFAULT_POLICY, PolicyEngine
 from mcp_servers.os_ops import all_specs
 
 # ---- fakes（仅 Executor/audit/events/llm；策略与注册表用真件）-------------
