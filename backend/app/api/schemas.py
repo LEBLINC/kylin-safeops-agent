@@ -88,6 +88,21 @@ class SessionCreateRequest(BaseModel):
     title: str | None = Field(default=None, description="会话标题（缺省自动命名）")
 
 
+class SessionUpdateRequest(BaseModel):
+    """PATCH /api/chat/sessions/{session_id} 请求体。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(..., min_length=1, description="新会话标题")
+
+
+class SessionDeleteResponse(BaseModel):
+    """DELETE /api/chat/sessions/{session_id} 响应体。"""
+
+    session_id: str = Field(..., description="被删除的会话 id")
+    deleted: bool = Field(..., description="是否删除成功")
+
+
 class ChatSessionDTO(BaseModel):
     """对话会话（对齐前端 ChatSession，session_id 主键）。"""
 

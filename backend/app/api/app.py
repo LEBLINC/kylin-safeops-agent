@@ -21,7 +21,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.api._fakes import build_fake_gateway, build_fake_llm
+from backend.app.agent.ports import AuditSink
+from backend.app.api._fakes import build_fake_audit, build_fake_gateway, build_fake_llm
 from backend.app.api.event_bus import EventBus
 from backend.app.api.session_registry import SessionRegistry
 from backend.app.api.session_store import SessionStore
@@ -71,6 +72,15 @@ def get_llm() -> LLMAdapter:
     非单例：每次装配一个 fake；测试可经 dependency_overrides 替换。
     """
     return build_fake_llm()
+
+
+def get_audit() -> AuditSink:
+    """获取 AuditSink（当前为 fake 注入桩，待接 D 的 backend/app/audit）。
+
+    非单例：FakeAudit 无状态；D 真实现就位后改此 provider 返回真模块实例即可
+    （唯一接线点，见 _fakes.py 注入点替换清单 ③）。
+    """
+    return build_fake_audit()
 
 
 # ============================================================

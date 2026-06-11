@@ -291,6 +291,67 @@ def test_sessions_create_and_list() -> None:
     asyncio.run(scenario())
 
 
+def test_sessions_get_patch_delete() -> None:
+    """单个 GET / PATCH 改名 / DELETE，含 404 守卫。"""
+
+    async def scenario() -> None:
+        app = create_app()
+        async with lifespan(app):
+            async with _client(app) as client:
+                sid = (await client.post("/api/chat/sessions", json={"title": "原标题"})).json()[
+                    "session_id"
+                ]
+
+                # 单个 GET
+                got = await client.get(f"/api/chat/sessions/{sid}")
+                assert got.status_code == 200
+                assert got.json()["title"] == "原标题"
+
+                # PATCH 改名
+                patched = await client.patch(f"/api/chat/sessions/{sid}", json={"title": "新标题"})
+                assert patched.status_code == 200
+                assert patched.json()["title"] == "新标题"
+
+                # DELETE
+                deleted = await client.delete(f"/api/chat/sessions/{sid}")
+                assert deleted.status_code == 200
+                assert deleted.json() == {"session_id": sid, "deleted": True}
+
+                # 删后再取 → 404
+                assert (await client.get(f"/api/chat/sessions/{sid}")).status_code == 404
+
+    asyncio.run(scenario())
+
+
+def test_sessions_404_guards() -> None:
+    """未知 session_id 的 GET/PATCH/DELETE 均 404。"""
+
+    async def scenario() -> None:
+        app = create_app()
+        async with lifespan(app):
+            async with _client(app) as client:
+                assert (await client.get("/api/chat/sessions/nope")).status_code == 404
+                p = await client.patch("/api/chat/sessions/nope", json={"title": "x"})
+                assert p.status_code == 404
+                assert (await client.delete("/api/chat/sessions/nope")).status_code == 404
+
+    asyncio.run(scenario())
+
+
+def test_session_update_rejects_empty_title() -> None:
+    """PATCH 空标题被 schema 拒（min_length=1 → 422）。"""
+
+    async def scenario() -> None:
+        app = create_app()
+        async with lifespan(app):
+            async with _client(app) as client:
+                sid = (await client.post("/api/chat/sessions", json={})).json()["session_id"]
+                r = await client.patch(f"/api/chat/sessions/{sid}", json={"title": ""})
+                assert r.status_code == 422
+
+    asyncio.run(scenario())
+
+
 def test_system_overview_flat_fields() -> None:
     """system/overview 返回扁平指标 + services 列表。"""
 

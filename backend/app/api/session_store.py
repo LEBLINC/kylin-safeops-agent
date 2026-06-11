@@ -53,3 +53,16 @@ class SessionStore:
         session = self._sessions.get(session_id)
         if session is not None:
             session.updated_at = _now_iso()
+
+    def update_title(self, session_id: str, title: str) -> ChatSessionDTO | None:
+        """改会话标题并刷新 updated_at；不存在返回 None。"""
+        session = self._sessions.get(session_id)
+        if session is None:
+            return None
+        session.title = title
+        session.updated_at = _now_iso()
+        return session
+
+    def delete(self, session_id: str) -> bool:
+        """删除会话；存在并删除返回 True，不存在返回 False。"""
+        return self._sessions.pop(session_id, None) is not None
