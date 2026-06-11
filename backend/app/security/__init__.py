@@ -6,8 +6,20 @@
 本包内子模块：
 - policy_rules: 规则数据结构（Pydantic 模型）+ 三态/严重度枚举
 - policy_loader: 从 dict / JSON 文件加载规则集，并提供默认规则
+- guard: RuleBasedPolicyEngine.evaluate() 三态裁决实现
 """
 
+from backend.app.security.guard import PolicyEngine, RuleBasedPolicyEngine
+from backend.app.security.normalize import (
+    iter_abspath_values,
+    iter_scalar_values,
+    normalize_path,
+)
+from backend.app.security.path_policy import (
+    PathFinding,
+    canonicalize_linux_path,
+    classify_paths,
+)
 from backend.app.security.policy_loader import (
     DEFAULT_POLICY,
     load_policy_from_dict,
@@ -23,13 +35,26 @@ from backend.app.security.policy_rules import (
 )
 
 __all__ = [
+    # guard
+    "PolicyEngine",
+    "RuleBasedPolicyEngine",
+    # normalize
+    "normalize_path",
+    "iter_scalar_values",
+    "iter_abspath_values",
+    # path_policy
+    "PathFinding",
+    "canonicalize_linux_path",
+    "classify_paths",
+    # policy_rules
     "Action",
-    "DEFAULT_POLICY",
     "PolicyRule",
     "PolicySet",
     "ProtectedPaths",
     "Severity",
     "Where",
+    # policy_loader
+    "DEFAULT_POLICY",
     "load_policy_from_dict",
     "load_policy_from_json",
 ]
