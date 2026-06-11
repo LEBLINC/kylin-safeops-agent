@@ -1,0 +1,42 @@
+# GitLab CI —— 与 .github/workflows/ci.yml 四道闸完全对齐（ruff/ruff-format/mypy/pytest）。
+# 仅 x86。LoongArch + 麒麟 V11 兼容性以真机另验，CI 不覆盖（见 README / 手册 §2.3）。
+#
+# 单一来源防漂移：ruff/mypy 版本由 .pre-commit-config.yaml 的 pinned rev 决定，
+# 与本地 pre-commit、GitHub Actions 完全一致。pytest 经 pre-commit 的 local system hook
+# 在本 env 调用（python -m pytest），故必须由 requirements-dev.txt 装入本 env。
+
+stages:
+  - verify
+
+variables:
+  # 把 pip 与 pre-commit 的 hook 环境缓存进项目目录，供 GitLab cache 复用（加速）
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  PRE_COMMIT_HOME: "$CI_PROJECT_DIR/.cache/pre-commit"
+
+# 触发策略：MR 事件 + 直推 main/dev 才跑；feature 分支无 MR 时不跑（省 CI 配额，
+# 且 main/dev 受保护、Developer 本就推不动）。同一改动不会重复触发（无分支+MR 双跑）。
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "dev"
+
+lint-type-test:
+  stage: verify
+  image: python:3.11            # 对齐麒麟 V11 靶机实测 Python 3.11.6；含 git，pre-commit 可用
+  cache:
+    # 按依赖/钩子配置指纹缓存：内容不变则命中，跳过重复下载与 hook env 重建
+    key:
+      files:
+        - .pre-commit-config.yaml
+        - backend/requirements-dev.txt
+    paths:
+      - .cache/pip
+      - .cache/pre-commit
+  before_script:
+    - python -m pip install --upgrade pip
+    - pip install -r backend/requirements.txt
+    - pip install -r backend/requirements-dev.txt
+  script:
+    # 涵盖：ruff(lint+format) · mypy(仅 contracts，启 pydantic.mypy) · pytest(容忍 exit 5 = 无测试也绿)
+    - pre-commit run --all-files --show-diff-on-failure
