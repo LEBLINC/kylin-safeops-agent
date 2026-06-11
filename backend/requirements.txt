@@ -2,7 +2,10 @@
 # 版本策略：核心运行时包 == 锁定，与麒麟 V11 靶机 Python 3.11.6 + CI(3.11) + 本地三者一致，
 # 可复现、杜绝"本地绿 CI 红"漂移。
 # dev / CI 工具（ruff/mypy/pytest/pre-commit）已拆分至 requirements-dev.txt。
-# LoongArch 铁律：含 Rust/C 扩展者（pydantic-core）需提前在 VM 预编译 wheel 并记部署文档。
+# LoongArch 铁律：运行时唯一编译型依赖为 pydantic-core（Rust）→ 需 VM 预编译 wheel 并记部署文档。
+#   （L-1 整改：移除 mcp 运行时依赖——mcp 会传递拉入 jsonschema→rpds-py(Rust)、
+#    pyjwt[crypto]→cryptography→cffi(C) 等编译件，与上述铁律冲突，且全仓仅用一个 Tool 类型，
+#    已改为 backend/app/mcp/protocol.py 自写薄 Tool 类型。）
 
 # --- core / contracts ---
 pydantic==2.13.4       # 契约模型；pydantic-core 为 Rust 扩展 → LoongArch 需预编译 wheel
@@ -14,5 +17,5 @@ uvicorn==0.49.0        # 纯 uvicorn，不加 [standard]（避 uvloop/httptools 
 # --- llm gateway ---
 httpx==0.28.1          # OpenAI 兼容网关客户端（纯 Python）
 
-# --- MCP 协议层（决策1：官方 SDK，pin v1.x；fastmcp 仅 third_party 参考、不进运行时）---
-mcp==1.27.2            # 官方 MCP Python SDK；编译型依赖仅 pydantic-core
+# --- MCP 协议层：自写薄 Tool 类型（protocol.py），不依赖官方 mcp SDK（见上 L-1 整改说明）---
+#   fastmcp / mcp 源码仅留 third_party 作参考，不进运行时。

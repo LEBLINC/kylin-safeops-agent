@@ -208,8 +208,8 @@ def test_protocol_roundtrip_preserves_security_fields() -> None:
 
 
 def test_protocol_missing_meta_defaults_conservative() -> None:
-    """无 _meta 的外部工具 → 保守默认 R4/admin/不可逆，宁严勿放。"""
-    from mcp.types import Tool
+    """无 meta 的外部工具 → 保守默认 R4/admin/不可逆，宁严勿放。"""
+    from backend.app.mcp.protocol import Tool
 
     raw = Tool(name="ext.tool", description="d", inputSchema={"type": "object"})
     spec = from_mcp_tool(raw)
