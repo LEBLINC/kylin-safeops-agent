@@ -17,6 +17,13 @@ subtree 引入与借用落地逐条补全；标注"查证"者于交付前核实 
     位置：third_party/linux-mcp-server/
     · 改造产物见 mcp_servers/os_ops/，文件头标注：
       "adapted from rhel-lightspeed/linux-mcp-server (Apache-2.0), modified by team"
+    · 具体改造范围：
+        - mcp_servers/os_ops/parsers.py：命令输出解析器改造自其 parsers.py
+          （平移 parse_os_release / parse_system_info 思路；df、find 大文件解析为本项目
+           自写，原仓 disk 用 JSON df、大文件用 du/find 列目录，此处适配为经
+           df -PB1 与 find -printf）。
+        - mcp_servers/os_ops/models.py：感知工具数据模型改造自其模型定义
+          （字段裁剪 / 重命名以贴合本项目契约，原结构作参考）。
     · 引入时已就地剔除其 GPL-3.0 组件（删 _vendor/、删 licenses/GPL-3.0.txt、
       pyproject license-files 收敛为 ["LICENSE"]）。
 
