@@ -153,5 +153,6 @@ async def drive(
     print("-" * 64)
     print(f"执行的工具：{executor.calls}")
     print(f"终态：{state.value}")
+    print("（注：演示执行器为桩 DemoExecutor，未触真命令；策略闸为参考桩 RiskBasedPolicy）")
     print("=" * 64)
     return state, executor.calls

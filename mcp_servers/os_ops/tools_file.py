@@ -9,9 +9,10 @@ from __future__ import annotations
 from backend.app.contracts.tool import ToolSpec
 
 # file.lsof_check：检查指定路径或进程的打开文件 → R0。
-# 二选一参数：path（绝对路径）或 pid（正整数）。两者都给视为非法（exactly one）。
-# JSON Schema 子集校验器不支持 oneOf，本期由两参数都可选 + 描述约束承载，
-# 真实策略层（D 的 PolicyEngine）做语义校验；本期不做强 schema 互斥。
+# 设计意图：path（绝对路径）或 pid（正整数）二选一。
+# 现状（L-9 校准）：JSON Schema 子集校验器不支持 oneOf，**当前未做 path/pid 强制互斥**——
+# 两参数都可选；策略层(guard)目前也不含该互斥语义校验，故"恰好一个"仅为约定，未强制。
+# TODO：如需强制互斥，给 schema_validator 加 oneOf 子集支持，或在 dispatch 解析层显式校验。
 FILE_LSOF_CHECK = ToolSpec(
     name="file.lsof_check",
     description="用 lsof 列出某路径或某 PID 占用的文件描述符（路径必须绝对）。",

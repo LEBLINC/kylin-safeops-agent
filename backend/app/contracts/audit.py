@@ -6,8 +6,11 @@ orchestrator 在每个状态转移点产出 / D 的 audit_logger 落库。
 其中 D_i 为第 i 条记录 payload 的规范化 JSON，H_{i-1} 为前一条链值；
 任一中间记录被改，后续链值全部对不上（防篡改）。
 
-payload 为结构化推理摘要（非原始思维链），字段固定为：
-user_intent / risk_level / observations / decision / tool_plan / approval_required。
+payload 为结构化推理摘要（非原始思维链），字段**随 phase 变化**（不是固定集合）：
+orchestrator 在不同状态转移点写入不同键，常见有
+user_intent / risk_level / observations / decision / tool_plan / approval_required /
+denied_tools / tool / exit_code / executed / verify_result 等。
+哈希链对任意 payload 一律按 canonical_json 规范化后入链，键集合不影响可复算性。
 """
 
 from __future__ import annotations
