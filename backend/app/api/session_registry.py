@@ -51,6 +51,8 @@ class SessionRegistry:
 
     def __init__(self) -> None:
         self._sessions: dict[str, OrchestratorSession] = {}
+        # L-4：正在 resume 的 trace 集合，per-trace 重入保护（防并发 resume 竞态）。
+        self._resuming: set[str] = set()
 
     def register(self, session: OrchestratorSession) -> None:
         """注册新会话。"""
@@ -59,6 +61,21 @@ class SessionRegistry:
     def get(self, trace_id: str) -> OrchestratorSession | None:
         """按 trace_id 查找会话。"""
         return self._sessions.get(trace_id)
+
+    def begin_resume(self, trace_id: str) -> bool:
+        """尝试占位 resume（CAS）。已在 resume 中返回 False；否则占位并返回 True。
+
+        asyncio 单线程事件循环下，本检查+置位之间无 await，天然原子——
+        消除两个 near-simultaneous resume 都通过 WAIT_APPROVAL 检查后各起一 task 的竞态。
+        """
+        if trace_id in self._resuming:
+            return False
+        self._resuming.add(trace_id)
+        return True
+
+    def end_resume(self, trace_id: str) -> None:
+        """清除 resume 占位（resume 后台任务结束时调用）。"""
+        self._resuming.discard(trace_id)
 
     def mark_done(self, trace_id: str) -> None:
         """标记会话已完成（记录终止时间供清理用）。"""

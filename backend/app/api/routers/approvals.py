@@ -43,15 +43,26 @@ async def resume_approval(
             detail=f"trace not awaiting approval (state={session.orchestrator.state.value})",
         )
 
-    # 后台续跑，runner 同样兜异常；事件经原 SSEEventSink 进同一 trace_id 队列
-    session.task = asyncio.create_task(
-        drive_resume(
-            session.orchestrator,
-            body.approved,
-            bus=bus,
-            registry=registry,
-            trace_id=body.trace_id,
+    # L-4：per-trace 重入保护。状态检查与置位之间无 await（asyncio 单线程原子），
+    # 两个 near-simultaneous resume 只有一个能占位，另一个 409，避免双 task 竞态破坏审计/SSE。
+    if not registry.begin_resume(body.trace_id):
+        raise HTTPException(
+            status_code=409, detail=f"resume already in progress for trace {body.trace_id}"
         )
-    )
+
+    async def _resume_then_release() -> None:
+        try:
+            await drive_resume(
+                session.orchestrator,
+                body.approved,
+                bus=bus,
+                registry=registry,
+                trace_id=body.trace_id,
+            )
+        finally:
+            registry.end_resume(body.trace_id)
+
+    # 后台续跑，runner 兜异常；事件经原 SSEEventSink 进同一 trace_id 队列
+    session.task = asyncio.create_task(_resume_then_release())
 
     return ResumeResponse(trace_id=body.trace_id, accepted=True)

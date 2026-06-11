@@ -173,6 +173,81 @@ def test_resume_unknown_trace_404() -> None:
     asyncio.run(scenario())
 
 
+def test_concurrent_resume_only_one_succeeds() -> None:
+    """L-4：并发两个 resume 只有一个被受理(200)，另一个 409（per-trace 重入保护）。"""
+
+    async def _wait_state(registry, trace_id: str, target: str, timeout: float = 5.0) -> None:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while loop.time() < deadline:
+            session = registry.get(trace_id)
+            if session is not None and session.orchestrator.state.value == target:
+                return
+            await asyncio.sleep(0.01)
+        raise AssertionError(f"timeout waiting for {target}")
+
+    async def scenario() -> None:
+        app = create_app()
+        app.dependency_overrides[get_gateway] = _confirm_gateway
+        async with lifespan(app):
+            registry = app_module.get_registry()
+            async with _client(app) as client:
+                trace_id = (await client.post("/api/chat", json={"message": "重启"})).json()[
+                    "trace_id"
+                ]
+                await _wait_state(registry, trace_id, "WAIT_APPROVAL")
+
+                r1, r2 = await asyncio.gather(
+                    client.post(
+                        "/api/approvals/resume", json={"trace_id": trace_id, "approved": True}
+                    ),
+                    client.post(
+                        "/api/approvals/resume", json={"trace_id": trace_id, "approved": True}
+                    ),
+                )
+                statuses = sorted([r1.status_code, r2.status_code])
+                assert statuses == [200, 409]  # 恰一个受理、一个被拒
+        app.dependency_overrides.clear()
+
+    asyncio.run(scenario())
+
+
+def test_resume_non_wait_approval_409() -> None:
+    """resume 一个已终态(非 WAIT_APPROVAL)的 trace → 409（approvals.py 守卫，L-3 补测）。
+
+    默认真策略下 fake LLM 提议 system.info(R0)→allow→run 直达 FINISHED；
+    对已 FINISHED 的 trace 再打 resume → 409。
+    """
+
+    async def _wait_terminal(registry, trace_id: str, timeout: float = 5.0) -> str:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while loop.time() < deadline:
+            session = registry.get(trace_id)
+            if session is not None and session.orchestrator.state.value in ("FINISHED", "REJECTED"):
+                return session.orchestrator.state.value
+            await asyncio.sleep(0.01)
+        raise AssertionError("timeout waiting for terminal state")
+
+    async def scenario() -> None:
+        app = create_app()
+        async with lifespan(app):
+            registry = app_module.get_registry()
+            async with _client(app) as client:
+                trace_id = (await client.post("/api/chat", json={"message": "看系统"})).json()[
+                    "trace_id"
+                ]
+                await _wait_terminal(registry, trace_id)
+                rr = await client.post(
+                    "/api/approvals/resume",
+                    json={"trace_id": trace_id, "approved": True},
+                )
+                assert rr.status_code == 409
+                assert "approval" in rr.json()["detail"].lower()
+
+    asyncio.run(scenario())
+
+
 # ---- 增量4 ---------------------------------------------------------------
 
 

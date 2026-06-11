@@ -158,6 +158,17 @@ def test_session_registry_cleanup_only_expired_done() -> None:
     assert reg.total_count == 1
 
 
+def test_registry_resume_reentrancy_guard() -> None:
+    """L-4：begin_resume 占位后再 begin_resume 返回 False；end_resume 释放后可再占。"""
+    reg = SessionRegistry()
+    assert reg.begin_resume("t") is True
+    assert reg.begin_resume("t") is False  # 已在 resume 中
+    reg.end_resume("t")
+    assert reg.begin_resume("t") is True  # 释放后可再占
+    # 不同 trace 互不影响
+    assert reg.begin_resume("other") is True
+
+
 def test_cleanup_removes_session_and_queue_together() -> None:
     """修订1：session 与 queue 同生命周期——cleanup 后两者皆消失，防 queue 泄漏。
 
@@ -232,3 +243,145 @@ def test_orchestrator_events_flow_through_sse_sink() -> None:
     assert "intent_parsed" in body
     assert "policy_verdict" in body
     assert chunks[-1] == "event: done\ndata: {}\n\n"
+
+
+# ---- L-3: SSE 心跳超时不丢事件 ------------------------------------------
+
+
+def test_sse_stream_heartbeat_then_real_event_not_lost() -> None:
+    """无事件时 sse_stream 按心跳间隔 yield keepalive；其后真事件仍能送达不丢。
+
+    缩短 _HEARTBEAT_INTERVAL 以避免长等；断言收到 keepalive 后仍收到真事件再 done。
+    """
+    from backend.app.api import event_bus as eb
+
+    original = eb._HEARTBEAT_INTERVAL
+    eb._HEARTBEAT_INTERVAL = 0.05  # 缩短心跳，避免测试久等
+
+    async def scenario() -> list[str]:
+        bus = EventBus()
+        bus.create("hb")
+        chunks: list[str] = []
+
+        async def consume() -> None:
+            async for c in sse_stream(bus, "hb"):
+                chunks.append(c)
+                if "event: done" in c:
+                    break
+
+        task = asyncio.create_task(consume())
+        await asyncio.sleep(0.13)  # 跨过 >=1 个心跳周期（此间无事件）
+        bus.put("hb", StreamEvent(trace_id="hb", type="intent_parsed", ts=1.0, data={"x": 1}))
+        await asyncio.sleep(0.05)
+        bus.close("hb")
+        await asyncio.wait_for(task, timeout=2.0)
+        return chunks
+
+    try:
+        chunks = asyncio.run(scenario())
+    finally:
+        eb._HEARTBEAT_INTERVAL = original
+
+    assert any(c == ": keepalive\n\n" for c in chunks)  # 心跳已发
+    # 心跳之后真事件未丢
+    assert any(c.startswith("data: ") and "intent_parsed" in c for c in chunks)
+    assert chunks[-1] == "event: done\ndata: {}\n\n"
+
+
+# ---- L-3: runner 后台任务异常兜底（防 SSE 永久挂起）---------------------
+
+
+class _RaisingOrchestrator:
+    """run/resume 抛系统级异常的 fake，用于验证 runner 兜底。"""
+
+    def __init__(self, trace_id: str) -> None:
+        self.trace_id = trace_id
+        self.state = State.RECEIVED  # .state.value 供 runner 取 phase
+
+    async def run(self, messages, user_intent=""):  # noqa: ANN001, ANN201
+        raise OSError("boom in run")
+
+    async def resume(self, approved):  # noqa: ANN001, ANN201
+        raise OSError("boom in resume")
+
+
+class _RecordingRegistry:
+    def __init__(self) -> None:
+        self.marked: list[str] = []
+
+    def mark_done(self, trace_id: str) -> None:
+        self.marked.append(trace_id)
+
+
+def test_drive_run_exception_emits_error_and_closes() -> None:
+    """drive_run 中 run 抛异常 → emit error 事件 + bus.close(None 哨兵) + mark_done，
+    绝不让 SSE 永久挂起。"""
+    from backend.app.api.runner import drive_run
+
+    async def scenario() -> tuple[list[str], list[str]]:
+        bus = EventBus()
+        tid = "err-run"
+        bus.create(tid)
+        registry = _RecordingRegistry()
+        orch = _RaisingOrchestrator(tid)
+
+        await drive_run(
+            orch,  # type: ignore[arg-type]
+            [{"role": "user", "content": "x"}],
+            "x",
+            bus=bus,
+            registry=registry,  # type: ignore[arg-type]
+            trace_id=tid,
+        )
+        # 排空队列收事件类型 + 是否有终止哨兵 None
+        types: list[str] = []
+        saw_sentinel = False
+        queue = bus.get(tid)
+        assert queue is not None
+        while not queue.empty():
+            ev = queue.get_nowait()
+            if ev is None:
+                saw_sentinel = True
+            else:
+                types.append(ev.type)
+        return types, registry.marked, saw_sentinel  # type: ignore[return-value]
+
+    types, marked, saw_sentinel = asyncio.run(scenario())  # type: ignore[misc]
+    assert "error" in types  # 兜底 emit error
+    assert saw_sentinel is True  # bus.close 投了 None，SSE 能正常收尾
+    assert marked == ["err-run"]  # mark_done 被调
+
+
+def test_drive_resume_exception_emits_error_and_closes() -> None:
+    """drive_resume 中 resume 抛异常 → 同样 emit error + close + mark_done。"""
+    from backend.app.api.runner import drive_resume
+
+    async def scenario() -> tuple[list[str], bool]:
+        bus = EventBus()
+        tid = "err-resume"
+        bus.create(tid)
+        registry = _RecordingRegistry()
+        orch = _RaisingOrchestrator(tid)
+
+        await drive_resume(
+            orch,  # type: ignore[arg-type]
+            True,
+            bus=bus,
+            registry=registry,  # type: ignore[arg-type]
+            trace_id=tid,
+        )
+        types: list[str] = []
+        saw_sentinel = False
+        queue = bus.get(tid)
+        assert queue is not None
+        while not queue.empty():
+            ev = queue.get_nowait()
+            if ev is None:
+                saw_sentinel = True
+            else:
+                types.append(ev.type)
+        return types, saw_sentinel
+
+    types, saw_sentinel = asyncio.run(scenario())
+    assert "error" in types
+    assert saw_sentinel is True
