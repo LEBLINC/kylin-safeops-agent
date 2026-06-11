@@ -1,4 +1,5 @@
-# ruff(lint+format) 全量；mypy 仅 contracts（启 pydantic.mypy 插件）；pytest 容忍"无测试"(exit 5)
+# ruff(lint+format) 全量；mypy 仅 contracts（启 pydantic.mypy 插件）；pytest 必须收集到用例并全过
+# （L-5：去除 exit5 容忍——收集为 0 视为失败，防 collection 配错导致四道闸假绿）。
 # 版本与 backend/requirements.txt 的 ruff/mypy pin 对齐（复审重点②，防 CI 漂移）。
 minimum_pre_commit_version: "3.5.0"
 repos:
@@ -15,12 +16,12 @@ repos:
     hooks:
       - id: mypy
         files: ^backend/app/contracts/          # 仅 contracts 强制类型
-        additional_dependencies: [pydantic>=2]  # 供 pydantic.mypy 插件加载（见 pyproject [tool.mypy]）
+        additional_dependencies: [pydantic==2.13.4]  # 与 requirements pin 同步（L-5 防漂移）
   - repo: local
     hooks:
       - id: pytest
-        name: pytest (tolerate no-tests = exit 5)
-        entry: python -c 'import subprocess,sys; sys.exit(0 if subprocess.run([sys.executable,"-m","pytest","-q"]).returncode in (0,5) else 1)'
+        name: pytest (must collect & pass; exit 5 = 收集为 0 视为失败)
+        entry: python -c 'import subprocess,sys; sys.exit(0 if subprocess.run([sys.executable,"-m","pytest","-q"]).returncode == 0 else 1)'
         language: system
         pass_filenames: false
         always_run: true
