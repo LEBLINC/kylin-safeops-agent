@@ -21,9 +21,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.api._fakes import build_fake_gateway
+from backend.app.api._fakes import build_fake_gateway, build_fake_llm
 from backend.app.api.event_bus import EventBus
 from backend.app.api.session_registry import SessionRegistry
+from backend.app.api.session_store import SessionStore
+from backend.app.llm.adapter import LLMAdapter
 from backend.app.mcp.gateway import MCPGateway
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,7 @@ logger = logging.getLogger(__name__)
 _bus: EventBus | None = None
 _registry: SessionRegistry | None = None
 _gateway: MCPGateway | None = None
+_session_store: SessionStore | None = None
 _cleanup_task: asyncio.Task | None = None  # type: ignore[type-arg]
 
 
@@ -54,6 +57,20 @@ def get_gateway() -> MCPGateway:
     """获取全局 MCPGateway 实例（含已注册工具的 fake 装配）。"""
     assert _gateway is not None, "MCPGateway not initialized (lifespan not started)"
     return _gateway
+
+
+def get_session_store() -> SessionStore:
+    """获取全局 SessionStore 实例（对话会话表）。"""
+    assert _session_store is not None, "SessionStore not initialized (lifespan not started)"
+    return _session_store
+
+
+def get_llm() -> LLMAdapter:
+    """获取 LLMAdapter（当前为 fake 注入桩，待接真实 LLM 端点）。
+
+    非单例：每次装配一个 fake；测试可经 dependency_overrides 替换。
+    """
+    return build_fake_llm()
 
 
 # ============================================================
@@ -91,7 +108,7 @@ async def _periodic_cleanup() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """应用生命周期：初始化全局单例，启动清理任务。"""
-    global _bus, _registry, _gateway, _cleanup_task  # noqa: PLW0603
+    global _bus, _registry, _gateway, _session_store, _cleanup_task  # noqa: PLW0603
 
     logger.warning(
         "╔══════════════════════════════════════════════════╗\n"
@@ -103,6 +120,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _bus = EventBus()
     _registry = SessionRegistry()
     _gateway = build_fake_gateway()
+    _session_store = SessionStore()
     _cleanup_task = asyncio.create_task(_periodic_cleanup())
 
     logger.info("API layer initialized: bus=%s, registry=%s", _bus, _registry)
@@ -115,6 +133,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _bus = None
     _registry = None
     _gateway = None
+    _session_store = None
     logger.info("API layer shutdown complete")
 
 
@@ -143,5 +162,11 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # 路由挂载：延迟 import 避免 routers ↔ app 循环依赖
+    # （routers 从本模块 import get_bus/get_registry/... 作 Depends）。
+    from backend.app.api.routers import api_router
+
+    app.include_router(api_router)
 
     return app

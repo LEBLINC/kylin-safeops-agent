@@ -11,10 +11,14 @@
 
 from __future__ import annotations
 
+import json
+
+from backend.app.contracts.audit import AuditRecord
 from backend.app.contracts.intent import CandidateTool
 from backend.app.contracts.policy import PolicyVerdict
 from backend.app.contracts.tool import ToolSpec
 from backend.app.contracts.untrusted import ToolResult
+from backend.app.llm.adapter import LLMAdapter, Message
 from backend.app.mcp.gateway import MCPGateway
 from backend.app.mcp.registry import ToolRegistry
 
@@ -45,6 +49,13 @@ class FakeExecutor:
         )
 
 
+class FakeAudit:
+    """注入桩：审计落库空操作。待 D 的 audit_logger（哈希链落库）真实现替换。"""
+
+    def append(self, record: AuditRecord) -> None:
+        return None
+
+
 def build_fake_gateway() -> MCPGateway:
     """装配 fake MCPGateway 用于空跑/联调（注入桩，待真实现替换）。"""
     registry = ToolRegistry()
@@ -64,3 +75,29 @@ def build_fake_gateway() -> MCPGateway:
         policy=FakePolicyEngine(),  # type: ignore[arg-type]
         executor=FakeExecutor(),  # type: ignore[arg-type]
     )
+
+
+# 默认 fake 意图：提议调用已注册的只读 system.overview（驱动主链路空跑到 verified）。
+_FAKE_INTENT_JSON = json.dumps(
+    {
+        "intent": "system_overview",
+        "confidence": 0.9,
+        "need_observation": False,
+        "candidate_tools": [{"name": "system.overview", "args": {}}],
+        "risk_hint": "low",
+        "justification": "查看系统概览（fake 规划）",
+    }
+)
+
+
+def build_fake_llm(intent_json: str | None = None) -> LLMAdapter:
+    """装配 fake LLMAdapter（注入桩，不联网，待接真实 LLM 端点替换）。
+
+    注入一个 completion_fn 永远返回固定 Intent JSON，使 orchestrator 可空跑主链路。
+    """
+    payload = intent_json or _FAKE_INTENT_JSON
+
+    async def _fixed_completion(messages: list[Message]) -> str:
+        return payload
+
+    return LLMAdapter(completion_fn=_fixed_completion)
