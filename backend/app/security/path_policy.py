@@ -16,12 +16,12 @@ from dataclasses import dataclass
 from typing import Literal
 
 from backend.app.contracts.tool import RiskLevel
-from backend.app.security.policy_rules import ProtectedPaths
 from backend.app.security.normalize import (
     has_dotdot,
     iter_abspath_values,
     normalize_path,
 )
+from backend.app.security.policy_rules import ProtectedPaths
 
 PathDecision = Literal["allow", "confirm", "deny"]
 
@@ -85,9 +85,7 @@ def classify_paths(tool_name: str, args: dict, protected: ProtectedPaths) -> lis
         try:
             path = canonicalize_linux_path(raw)
         except ValueError as exc:
-            findings.append(
-                PathFinding(raw, raw, "deny", "R4", "PATH_TRAVERSAL", str(exc))
-            )
+            findings.append(PathFinding(raw, raw, "deny", "R4", "PATH_TRAVERSAL", str(exc)))
             continue
 
         if path == "/":

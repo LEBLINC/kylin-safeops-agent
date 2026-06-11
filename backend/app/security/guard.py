@@ -25,9 +25,9 @@ from backend.app.security.policy_rules import PolicyRule, PolicySet
 from backend.app.security.risk_engine import (
     default_decision_for_risk,
     max_risk,
-    rule_risk_floor,
     risk_reason,
     rule_matches,
+    rule_risk_floor,
 )
 
 _DECISION_RANK = {"allow": 0, "confirm": 1, "deny": 2}
@@ -56,7 +56,9 @@ class RuleBasedPolicyEngine:
     evaluate 无 IO、无随机、无时间依赖、无可变全局状态（确定性铁律）。
     """
 
-    def __init__(self, policy: PolicySet = DEFAULT_POLICY, registry: ToolRegistry | None = None) -> None:
+    def __init__(
+        self, policy: PolicySet = DEFAULT_POLICY, registry: ToolRegistry | None = None
+    ) -> None:
         self._policy = policy
         self._registry: ToolRegistry = registry if registry is not None else ToolRegistry()
 

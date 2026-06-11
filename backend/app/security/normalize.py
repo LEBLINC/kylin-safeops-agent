@@ -49,7 +49,7 @@ def iter_scalar_values(value: object) -> Iterable[str]:
     if isinstance(value, dict):
         for v in value.values():
             yield from iter_scalar_values(v)
-    elif isinstance(value, (list, tuple, set)):
+    elif isinstance(value, list | tuple | set):
         for v in value:
             yield from iter_scalar_values(v)
     elif value is not None:

@@ -136,9 +136,7 @@ def test_fullwidth_slash_not_abspath() -> None:
 
 
 def test_nonstandard_key_path_protected() -> None:
-    v = _engine().evaluate(
-        _tool("log.compress_rotate", {"weird_target": "/etc/nginx.conf"})
-    )
+    v = _engine().evaluate(_tool("log.compress_rotate", {"weird_target": "/etc/nginx.conf"}))
     assert v.decision == "deny" and "PATH_FORBID_MODIFY" in v.matched_rules
 
 
@@ -151,9 +149,7 @@ def test_nested_dict_dangerous_value() -> None:
 
 
 def test_nested_list_abspath_protected() -> None:
-    v = _engine().evaluate(
-        _tool("log.compress_rotate", {"items": ["/etc/nginx.conf", "/var/log"]})
-    )
+    v = _engine().evaluate(_tool("log.compress_rotate", {"items": ["/etc/nginx.conf", "/var/log"]}))
     assert v.decision == "deny" and "PATH_FORBID_MODIFY" in v.matched_rules
 
 
@@ -163,7 +159,6 @@ def test_nested_list_abspath_protected() -> None:
 def test_dotdot_path_denied() -> None:
     v = _engine().evaluate(_tool("file.lsof_check", {"path": "/var/../etc/passwd"}))
     assert v.decision == "deny" and "PATH_TRAVERSAL" in v.matched_rules
-
 
 
 # ---- 其他路径场景 -----------------------------------------------------------

@@ -9,19 +9,19 @@ from __future__ import annotations
 import re
 
 from backend.app.contracts.tool import RiskLevel
-from backend.app.security.policy_rules import PolicyRule
 from backend.app.security.normalize import iter_scalar_values
+from backend.app.security.policy_rules import PolicyRule
 
 _RISK_RANK: dict[RiskLevel, int] = {"R0": 0, "R1": 1, "R2": 2, "R3": 3, "R4": 4}
 
 # ★ final_risk 死映射表（修正 E）：保证 final_risk 可复算，deny≥R4，confirm+admin≥R3。
 # evaluate 使用 _rule_risk_floor + max(spec.risk, floor) 计算 final_risk。
 RULE_RISK_FLOOR: dict[tuple[str, str | None], RiskLevel] = {
-    ("deny", None):       "R4",  # deny 类：最低 R4
-    ("deny", ""):         "R4",
+    ("deny", None): "R4",  # deny 类：最低 R4
+    ("deny", ""): "R4",
     ("confirm", "admin"): "R3",  # confirm+admin：最低 R3
     ("confirm", "operator"): "R2",  # confirm+operator：最低 R2
-    ("allow", None):      "R0",  # allow：不抬 risk
+    ("allow", None): "R0",  # allow：不抬 risk
 }
 
 
