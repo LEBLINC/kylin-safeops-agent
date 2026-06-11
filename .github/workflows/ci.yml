@@ -18,11 +18,12 @@ jobs:
       - name: Install backend deps (runtime + dev tools)
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt
-          pip install -r backend/requirements-dev.txt
+          pip install -r backend/requirements.txt -c backend/constraints.txt
+          pip install -r backend/requirements-dev.txt -c backend/constraints.txt
       # 单一来源防漂移（复审重点②）：ruff/mypy 版本由 .pre-commit-config.yaml 的 pinned rev 决定，
       # 与本地 pre-commit 完全一致。本步涵盖：
-      #   ruff(lint+format) · mypy(仅 contracts，启 pydantic.mypy) · pytest(容忍 exit 5 = 无测试也绿)
+      #   ruff(lint+format) · mypy(仅 contracts，启 pydantic.mypy) · pytest(必须收集到用例且全过)
       # 注：pytest 经 pre-commit 的 local system hook 在本 env 调用，故须由 requirements-dev.txt 装入。
+      # 传递依赖由 backend/constraints.txt 封顶（L-8），杜绝浮动漂移。
       - name: Lint + type-check + test (via pinned pre-commit hooks)
         run: pre-commit run --all-files --show-diff-on-failure

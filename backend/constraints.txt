@@ -1,0 +1,53 @@
+# Kylin SafeOps Agent — 传递依赖锁（constraints，L-8 整改）
+# 目的：requirements.txt / requirements-dev.txt 只 pin 顶层包，传递依赖原先全浮动，
+#   "可复现"宣称打折、易"本地绿 CI 红"。本文件锁死【运行时 + dev】的完整传递闭包版本。
+#
+# 生成方式（可复现）：干净 Python 3.11 venv 中
+#   pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+#   pip freeze > backend/constraints.txt   （再补本头注）
+#   —— 已在移除 mcp 运行时依赖（L-1）后的干净环境生成，确认无
+#      mcp / rpds-py / cryptography / cffi / jsonschema / pyjwt（mcp 的 Rust/C 传递链已消失）。
+#
+# 用法（CI 与靶机部署统一）：
+#   pip install -r backend/requirements.txt -c backend/constraints.txt
+#   pip install -r backend/requirements-dev.txt -c backend/constraints.txt
+#   constraints 只"封顶版本"、不主动安装；故运行时部署只装 requirements.txt 时同样受锁、不会引入 dev 包。
+#
+# LoongArch 铁律：下列唯一编译型依赖为 pydantic-core（Rust）→ 靶机需预编译 wheel。其余皆纯 Python。
+# 维护：升级任一顶层 pin 后，须在干净 venv 重跑上述 freeze 同步本文件（与 requirements 同一 commit）。
+
+annotated-doc==0.0.4
+annotated-types==0.7.0
+anyio==4.13.0
+certifi==2026.5.20
+cfgv==3.5.0
+click==8.4.1
+colorama==0.4.6
+distlib==0.4.2
+fastapi==0.136.3
+filelock==3.29.3
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+identify==2.6.19
+idna==3.18
+iniconfig==2.3.0
+mypy==1.13.0
+mypy_extensions==1.1.0
+nodeenv==1.10.0
+packaging==26.2
+platformdirs==4.10.0
+pluggy==1.6.0
+pre_commit==4.6.0
+pydantic==2.13.4
+pydantic_core==2.46.4
+Pygments==2.20.0
+pytest==9.0.3
+python-discovery==1.4.2
+PyYAML==6.0.3
+ruff==0.8.4
+starlette==1.3.0
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+uvicorn==0.49.0
+virtualenv==21.4.2
