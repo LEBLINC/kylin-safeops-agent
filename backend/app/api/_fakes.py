@@ -7,17 +7,16 @@
 ═══════════════════════════════════════════════════════════════════
 三个协作者注入桩，真实现均归 D（C3 越界红线：L 侧不实现 evaluate/execute/append）：
 
-  ① PolicyEngine（策略裁决）
-     桩：FakePolicyEngine.evaluate（本文件，永远 allow）
-     真模块：backend/app/security（D 实现 PolicyEngine.evaluate）
-     接线处：build_fake_gateway() 的 policy=... → 换成 D 的 PolicyEngine 实例
+  ① PolicyEngine（策略裁决）✅ 已切真
+     现状：build_fake_gateway() 已注入 D 的真 PolicyEngine(DEFAULT_POLICY, registry)。
+     桩 FakePolicyEngine 保留供测试按需注入 allow-all 场景。
 
-  ② Executor（特权代理执行）
+  ② Executor（特权代理执行）🔴 仍桩
      桩：FakeExecutor.execute（本文件，返回成功空结果）
-     真模块：backend/app/executor（D 实现 Executor.execute）
+     真模块：backend/app/executor（D 实现 Executor.execute，PR2）
      接线处：build_fake_gateway() 的 executor=... → 换成 D 的 Executor 实例
 
-  ③ AuditSink（哈希链审计落库）
+  ③ AuditSink（哈希链审计落库）🟡 落库仍桩
      桩：FakeAudit.append（本文件，空操作）
      真模块：backend/app/audit（D 实现 audit_logger）
      接线处：app.get_audit() provider → 换成 D 的 AuditSink 实例
@@ -37,15 +36,20 @@ import json
 from backend.app.contracts.audit import AuditRecord
 from backend.app.contracts.intent import CandidateTool
 from backend.app.contracts.policy import PolicyVerdict
-from backend.app.contracts.tool import ToolSpec
 from backend.app.contracts.untrusted import ToolResult
 from backend.app.llm.adapter import LLMAdapter, Message
 from backend.app.mcp.gateway import MCPGateway
 from backend.app.mcp.registry import ToolRegistry
+from backend.app.security import DEFAULT_POLICY, PolicyEngine
+from mcp_servers.os_ops import all_specs
 
 
 class FakePolicyEngine:
-    """注入桩：永远 allow。待 D 的 PolicyEngine.evaluate 真实现替换。"""
+    """注入桩：永远 allow。
+
+    注：默认 app 装配已切换为 D 的真 PolicyEngine（见 build_fake_gateway）；
+    本桩保留供测试按需注入（dependency_overrides）构造 allow-all 场景。
+    """
 
     def evaluate(self, tool: CandidateTool) -> PolicyVerdict:
         return PolicyVerdict(
@@ -58,7 +62,7 @@ class FakePolicyEngine:
 
 
 class FakeExecutor:
-    """注入桩：永远返回成功空结果。待 D 的 Executor 真实现替换。"""
+    """注入桩：永远返回成功空结果。待 D 的 Executor 真实现替换（PR2）。"""
 
     async def execute(self, tool: CandidateTool) -> ToolResult:
         return ToolResult(
@@ -83,35 +87,32 @@ def build_fake_audit() -> FakeAudit:
 
 
 def build_fake_gateway() -> MCPGateway:
-    """装配 fake MCPGateway 用于空跑/联调（注入桩，待真实现替换）。"""
-    registry = ToolRegistry()
-    # 注册一个示例工具供 /api/tools/registry 联调
-    registry.register(
-        ToolSpec(
-            name="system.overview",
-            description="获取系统概览信息",
-            risk="R0",
-            input_schema={"type": "object", "properties": {}},
-            requires_roles=["operator"],
-            reversible=True,
-        )
-    )
+    """装配默认 MCPGateway：【真 registry + 真策略 + fake 执行器】。
+
+    现状（非全 fake）：
+    - registry：真 os_ops 工具集 all_specs()（13 工具），策略闸据此实质裁决。
+    - policy：D 的真 PolicyEngine(DEFAULT_POLICY, registry)——同一 registry 实例防漂移。
+    - executor：仍 FakeExecutor（D 的 Executor PR2 未合，本层不跑真命令）。
+
+    待 D 的 Executor 合入后，仅需把 executor 换成真 Executor（唯一剩余切换点）。
+    """
+    registry = ToolRegistry(all_specs())
     return MCPGateway(
         registry=registry,
-        policy=FakePolicyEngine(),  # type: ignore[arg-type]
+        policy=PolicyEngine(DEFAULT_POLICY, registry),
         executor=FakeExecutor(),  # type: ignore[arg-type]
     )
 
 
-# 默认 fake 意图：提议调用已注册的只读 system.overview（驱动主链路空跑到 verified）。
+# 默认 fake 意图：提议真只读工具 system.info（R0）——真策略下 allow→执行→verified。
 _FAKE_INTENT_JSON = json.dumps(
     {
-        "intent": "system_overview",
+        "intent": "system_info",
         "confidence": 0.9,
         "need_observation": False,
-        "candidate_tools": [{"name": "system.overview", "args": {}}],
+        "candidate_tools": [{"name": "system.info", "args": {}}],
         "risk_hint": "low",
-        "justification": "查看系统概览（fake 规划）",
+        "justification": "查看系统基本信息（fake 规划）",
     }
 )
 

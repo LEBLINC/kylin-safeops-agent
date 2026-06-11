@@ -51,10 +51,10 @@ def _confirm_gateway() -> MCPGateway:
 
     registry.register(
         ToolSpec(
-            name="system.overview",
-            description="获取系统概览信息",
+            name="system.info",
+            description="获取系统基本信息",
             risk="R0",
-            input_schema={"type": "object", "properties": {}},
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
             requires_roles=["operator"],
             reversible=True,
         )
@@ -177,7 +177,7 @@ def test_resume_unknown_trace_404() -> None:
 
 
 def test_tools_registry_field_is_tool() -> None:
-    """registry 输出键名是 tool（非 name）。"""
+    """registry 输出键名是 tool（非 name），且为真 os_ops 工具集。"""
 
     async def scenario() -> None:
         app = create_app()
@@ -189,13 +189,16 @@ def test_tools_registry_field_is_tool() -> None:
                 assert len(items) >= 1
                 assert "tool" in items[0]
                 assert "name" not in items[0]
-                assert items[0]["tool"] == "system.overview"
+                names = {it["tool"] for it in items}
+                # 切真后注册的是真 os_ops 工具集
+                assert "system.info" in names
+                assert "disk.usage" in names
 
     asyncio.run(scenario())
 
 
 def test_tools_call_executes_and_unregistered_blocked() -> None:
-    """call 已注册只读工具走通；未注册被三道闸拦下 executed=False。"""
+    """call 真只读工具(system.info)→真策略 allow→executed True；未注册→deny→executed False。"""
 
     async def scenario() -> None:
         app = create_app()
@@ -203,7 +206,7 @@ def test_tools_call_executes_and_unregistered_blocked() -> None:
             async with _client(app) as client:
                 ok = await client.post(
                     "/api/tools/call",
-                    json={"tool": "system.overview", "args": {}},
+                    json={"tool": "system.info", "args": {}},
                 )
                 assert ok.status_code == 200
                 assert ok.json()["executed"] is True
@@ -215,6 +218,30 @@ def test_tools_call_executes_and_unregistered_blocked() -> None:
                 assert bad.status_code == 200
                 # 未注册工具被只读门兜住（保守视为非只读），executed=False
                 assert bad.json()["executed"] is False
+
+    asyncio.run(scenario())
+
+
+def test_tools_call_real_policy_deny_via_api() -> None:
+    """真策略经 B/S 层实质生效：只读工具承载触发 deny 的路径参数 → executed False、verdict=deny。
+
+    log.large_log_scan(R1 只读，过只读门) + path=/etc/shadow → 真策略 FILE001 deny。
+    证明策略闸经 API 真实拦截（非 allow-all 桩）。
+    """
+
+    async def scenario() -> None:
+        app = create_app()
+        async with lifespan(app):
+            async with _client(app) as client:
+                resp = await client.post(
+                    "/api/tools/call",
+                    json={"tool": "log.large_log_scan", "args": {"path": "/etc/shadow"}},
+                )
+                assert resp.status_code == 200
+                data = resp.json()
+                assert data["executed"] is False
+                assert data["verdict"] is not None
+                assert data["verdict"]["decision"] == "deny"
 
     asyncio.run(scenario())
 
