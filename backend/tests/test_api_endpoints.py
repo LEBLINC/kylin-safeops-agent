@@ -455,7 +455,7 @@ def test_session_update_rejects_empty_title() -> None:
 
 
 def test_system_overview_flat_fields() -> None:
-    """system/overview 返回扁平指标 + services 列表。"""
+    """system/overview 返回扁平指标 + services 列表 + 任务D 来源标注与管道连通证据。"""
 
     async def scenario() -> None:
         app = create_app()
@@ -475,6 +475,11 @@ def test_system_overview_flat_fields() -> None:
                 ):
                     assert key in data
                 assert isinstance(data["services"], list)
+                # 任务D：来源态显式标注（桩执行器下绝不冒充真实数据）
+                assert data["data_source"] == "stub_executor"
+                # 任务D：采集管道真实经 gateway dispatch 只读工具（管道连通证据）
+                assert "system.info" in data["probed_tools"]
+                assert "disk.usage" in data["probed_tools"]
 
     asyncio.run(scenario())
 

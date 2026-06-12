@@ -132,6 +132,16 @@ class SystemOverview(BaseModel):
     tool_calls_today: int = Field(..., description="今日工具调用次数")
     denied_today: int = Field(..., description="今日被策略拒绝次数")
     services: list[ServiceStatus] = Field(default_factory=list, description="关键服务状态列表")
+    # 任务D：数据来源态显式标注（防桩数据冒充真数据，审计红线）。
+    # "stub_executor"=当前 FakeExecutor 下为示例值；切真 Executor + 接 dispatch 解析后改 "real"。
+    data_source: str = Field(
+        default="stub_executor",
+        description="数据来源态：stub_executor=桩执行器下为示例值；real=真实采集",
+    )
+    probed_tools: list[str] = Field(
+        default_factory=list,
+        description="本次经 MCPGateway 真实 dispatch 的只读工具名，证明采集管道连通",
+    )
 
 
 # ---- rca -----------------------------------------------------------------
