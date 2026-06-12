@@ -10,7 +10,7 @@ export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired' | '
  * 风险审批页中的审批单。
  * 命名统一原则：
  * - 工具名称使用 tool；
- * - 所需审批角色使用 required_role；
+ * - 所需审批角色使用 approval_role；
  * - 用户审批/拒绝/转交时填写的备注统一使用 comment。
  */
 export interface ApprovalItem {
@@ -31,7 +31,7 @@ export interface ApprovalItem {
   /** 为什么需要审批，这是系统给出的审批原因，不是用户备注。 */
   reason: string
   /** 完成该审批所需的最低角色。 */
-  required_role?: UserRole | null
+  approval_role?: UserRole | null
   /** 工具参数。 */
   args?: Record<string, unknown>
   /** dry-run 结果，展示影响范围。 */
@@ -57,7 +57,7 @@ export interface InlineApproval {
   /** 本批需要确认的所有工具及角色要求。 */
   tools: AwaitApprovalTool[]
   /** 整批原子计划所需的最低角色。 */
-  required_role?: UserRole | null
+  approval_role?: UserRole | null
   /** 当前内联审批状态。 */
   status: ApprovalStatus
 }

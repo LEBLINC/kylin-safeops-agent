@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isMockEnabled } from '@/api/mock'
 import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import PageHeader from '@/layouts/PageHeader.vue'
@@ -42,6 +43,7 @@ onMounted(async () => {
   try {
     call.value = await getToolCallDetail(callId)
   } catch {
+    if (!isMockEnabled()) { call.value = null; return }
     call.value = {
       call_id: callId,
       trace_id: 'mock_trace',

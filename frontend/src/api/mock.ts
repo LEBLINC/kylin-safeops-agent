@@ -1,4 +1,7 @@
 import type { ChatSession, SendMessageRequest, SendMessageResponse, StreamEvent } from '@/types/chat'
+
+/** Backend contract: contracts/untrusted.py UNTRUSTED_WRAP_TOKEN. */
+const UNTRUSTED_WRAP_TOKEN = '<<UNTRUSTED_TOOL_OUTPUT>>'
 import type {
   ApprovalItem,
   EscalateApprovalRequest,
@@ -285,7 +288,7 @@ export async function mockGetPendingApprovals(): Promise<ApprovalItem[]> {
       risk_level: 'R2',
       status: 'pending',
       reason: '涉及日志文件变更，需要人工确认；不允许直接删除数据库 binlog。',
-      required_role: 'Operator',
+      approval_role: 'operator',
       args: { path: '/var/log/app.log' },
       dry_run: {
         passed: true,
@@ -359,7 +362,7 @@ function buildInitialEvents(traceId: string, userMessage: string): StreamEvent[]
           exit_code: 0,
           stdout_truncated: 'Filesystem / 使用率 92%，/var/log 所在分区增长明显',
           is_untrusted: true,
-          wrap_token: `untrusted:${traceId}:disk.usage`
+          wrap_token: UNTRUSTED_WRAP_TOKEN
         },
         {
           tool: 'disk.large_files',
@@ -367,7 +370,7 @@ function buildInitialEvents(traceId: string, userMessage: string): StreamEvent[]
           exit_code: 0,
           stdout_truncated: '/var/log/app.log 18GB\n/var/lib/mysql/mysql-bin.000123 6GB',
           is_untrusted: true,
-          wrap_token: `untrusted:${traceId}:disk.large_files`
+          wrap_token: UNTRUSTED_WRAP_TOKEN
         }
       ]
     }),
@@ -385,19 +388,19 @@ function buildInitialEvents(traceId: string, userMessage: string): StreamEvent[]
         reason: '本批计划包含日志轮转操作，同时检测到数据库 binlog，必须避免直接删除并进行整批确认。',
         safer_alternative: '压缩归档普通日志；数据库 binlog 交由 DBA 或备份策略处理。',
         approval_required: true,
-        required_role: 'Operator'
+        approval_role: 'operator'
       },
       per_tool: [
         {
           tool: 'file.lsof_check',
           verdict: {
-            decision: 'allow', final_risk: 'R1', matched_rules: [], reason: '只读检查文件占用，允许执行。', safer_alternative: null, approval_required: false, required_role: null
+            decision: 'allow', final_risk: 'R1', matched_rules: [], reason: '只读检查文件占用，允许执行。', safer_alternative: null, approval_required: false, approval_role: null
           }
         },
         {
           tool: 'log.compress_rotate',
           verdict: {
-            decision: 'confirm', final_risk: 'R2', matched_rules: ['LOG001'], reason: '日志轮转属于可逆变更，需要确认。', safer_alternative: '先压缩归档，不直接删除。', approval_required: true, required_role: 'Operator'
+            decision: 'confirm', final_risk: 'R2', matched_rules: ['LOG001'], reason: '日志轮转属于可逆变更，需要确认。', safer_alternative: '先压缩归档，不直接删除。', approval_required: true, approval_role: 'operator'
           }
         }
       ]
@@ -405,8 +408,8 @@ function buildInitialEvents(traceId: string, userMessage: string): StreamEvent[]
     event(traceId, 'await_approval', {
       reason: '多工具原子计划等待确认：批准后将按序执行 file.lsof_check 与 log.compress_rotate；拒绝则整批停止。',
       tools: [
-        { tool: 'file.lsof_check', required_role: null },
-        { tool: 'log.compress_rotate', required_role: 'Operator' }
+        { tool: 'file.lsof_check', approval_role: null },
+        { tool: 'log.compress_rotate', approval_role: 'operator' }
       ]
     }),
     event(traceId, 'audit_appended', { seq: 1, curr_hash: '4d5a88e09a8b0c1d99aa' })
@@ -418,10 +421,10 @@ function buildApprovedEvents(traceId: string): StreamEvent[] {
   return [
     event(traceId, 'executing', { tools: ['file.lsof_check', 'log.compress_rotate'] }),
     event(traceId, 'tool_result', {
-      result: { tool: 'file.lsof_check', args: { path: '/var/log/app.log' }, exit_code: 0, stdout_truncated: '未发现数据库进程持有 /var/log/app.log，可进行轮转。', is_untrusted: true, wrap_token: `untrusted:${traceId}:file.lsof_check`, duration_ms: 210 }
+      result: { tool: 'file.lsof_check', args: { path: '/var/log/app.log' }, exit_code: 0, stdout_truncated: '未发现数据库进程持有 /var/log/app.log，可进行轮转。', is_untrusted: true, wrap_token: UNTRUSTED_WRAP_TOKEN, duration_ms: 210 }
     }),
     event(traceId, 'tool_result', {
-      result: { tool: 'log.compress_rotate', args: { path: '/var/log/app.log' }, exit_code: 0, stdout_truncated: '已生成 /var/log/app.log.20260610.gz，并创建新的 app.log。', is_untrusted: true, wrap_token: `untrusted:${traceId}:log.compress_rotate`, duration_ms: 1260 }
+      result: { tool: 'log.compress_rotate', args: { path: '/var/log/app.log' }, exit_code: 0, stdout_truncated: '已生成 /var/log/app.log.20260610.gz，并创建新的 app.log。', is_untrusted: true, wrap_token: UNTRUSTED_WRAP_TOKEN, duration_ms: 1260 }
     }),
     event(traceId, 'verified', {
       summary: '整批工具计划已执行并验证：普通应用日志已压缩轮转；数据库 binlog 未执行删除，建议交由 DBA 策略处理。'

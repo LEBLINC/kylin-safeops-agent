@@ -3,7 +3,7 @@
 
 [tool.pytest.ini_options]
 pythonpath = ["."]              # 冻结 仓库根=导入根：backend.app.* 与 mcp_servers.os_ops 一致可导
-testpaths = ["backend/tests"]
+testpaths = ["backend/tests", "mcp_servers/rca/tests"]
 
 [tool.mypy]
 python_version = "3.10"         # 下限 3.10（契约用 PEP 604）；麒麟 V11 靶机实测 Python 3.11.6，按 3.10 写下限兼容

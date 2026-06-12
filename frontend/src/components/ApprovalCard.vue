@@ -26,7 +26,7 @@ const props = defineProps<{
   inline?: InlineApproval
   /** 当前用户角色，例如 Viewer / Operator / Admin。 */
   currentRole?: string
-  /** 当前用户是否满足 inline.required_role。 */
+  /** 当前用户是否满足 inline.approval_role。 */
   canApprove?: boolean
 }>()
 
@@ -60,14 +60,14 @@ const title = computed(() => props.inline ? '本批计划需要审批' : props.i
 
       <div class="meta">
         <span>当前角色</span><code>{{ currentRole || '-' }}</code>
-        <span>所需角色</span><code>{{ inline.required_role || '无' }}</code>
+        <span>所需角色</span><code>{{ inline.approval_role || '无' }}</code>
       </div>
 
       <div class="tool-list">
         <strong>待审批工具</strong>
         <div v-for="tool in inline.tools" :key="tool.tool" class="tool-item">
           <code>{{ tool.tool }}</code>
-          <span>所需角色：{{ tool.required_role || '无' }}</span>
+          <span>所需角色：{{ tool.approval_role || '无' }}</span>
         </div>
       </div>
 
@@ -101,7 +101,7 @@ const title = computed(() => props.inline ? '本批计划需要审批' : props.i
       <div class="meta">
         <span>风险等级</span><RiskTag :level="item.risk_level" />
         <span>工具</span><code>{{ item.tool || '-'  }}</code>
-        <span>角色要求</span><code>{{ item.required_role || 'Admin' }}</code>
+        <span>角色要求</span><code>{{ item.approval_role || 'Admin' }}</code>
       </div>
 
       <el-collapse v-if="item.args || item.dry_run">

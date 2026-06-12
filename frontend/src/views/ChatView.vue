@@ -76,7 +76,7 @@ const inlineApproval = computed(() => chat.currentApproval)
 const canApproveCurrentBatch = computed(() => {
   const approval = inlineApproval.value
   if (!approval) return false
-  return canRoleApprove(chat.currentUserRole, approval.required_role)
+  return canRoleApprove(chat.currentUserRole, approval.approval_role)
 })
 
 /** 消息列表变化后自动滚动到底部。 */

@@ -172,7 +172,15 @@ export function connectChatStream(
     }
   }
 
+  let isClosed = false
+  source.addEventListener('done', () => {
+    isClosed = true
+    onMessage({ trace_id: traceId, type: 'done', ts: Date.now(), data: {} } as StreamEvent)
+    source.close()
+  })
+
   source.onerror = error => {
+    if (isClosed) return
     onError?.(error)
   }
 
