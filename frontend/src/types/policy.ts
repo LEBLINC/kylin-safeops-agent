@@ -4,7 +4,7 @@
  * 命名统一原则：
  * 1. 裁决只使用 allow / deny / confirm，不再使用 approval 表示“需确认”；
  * 2. 规则 ID 统一使用 rule_id，不再混用 id；
- * 3. 审批角色统一使用 required_role，不再混用 approval_role；
+ * 3. 审批角色统一使用 approval_role，不再混用 approval_role；
  * 4. 工具名称统一使用 tool，不再混用 name / tool_name。
  */
 
@@ -15,7 +15,7 @@ export type RiskLevel = 'R0' | 'R1' | 'R2' | 'R3' | 'R4'
 export type PolicyDecision = 'allow' | 'deny' | 'confirm'
 
 /** 系统角色。用于审批权限判断。 */
-export type UserRole = 'Viewer' | 'Operator' | 'Admin' | 'Auditor'
+export type UserRole = 'viewer' | 'operator' | 'admin' | 'auditor'
 
 /**
  * PolicyVerdict
@@ -37,7 +37,7 @@ export interface PolicyVerdict {
   /** 是否需要人工确认。 */
   approval_required?: boolean
   /** 完成该确认所需的最低角色。 */
-  required_role?: UserRole | null
+  approval_role?: UserRole | null
 }
 
 /** policy_verdict.data.per_tool[] 中的一项。 */
@@ -68,7 +68,7 @@ export interface PolicyEvent {
   reason: string
   safer_alternative?: string | null
   approval_required?: boolean
-  required_role?: UserRole | null
+  approval_role?: UserRole | null
   created_at?: string
 }
 

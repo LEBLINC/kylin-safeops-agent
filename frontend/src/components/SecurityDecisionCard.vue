@@ -54,7 +54,7 @@ const rules = computed(() => {
       <code>{{ rules }}</code>
 
       <span>审批要求</span>
-      <p>{{ data?.approval_required ? `需要 ${data.required_role || '管理员'} 确认` : '无需审批' }}</p>
+      <p>{{ data?.approval_required ? `需要 ${data.approval_role || '管理员'} 确认` : '无需审批' }}</p>
 
       <span>安全替代方案</span>
       <p>{{ data?.safer_alternative || '无' }}</p>

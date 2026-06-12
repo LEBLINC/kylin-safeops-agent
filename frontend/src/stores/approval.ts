@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { approveAction, getPendingApprovals, rejectAction } from '@/api/approval'
+import { isMockEnabled } from '@/api/mock'
 import type { ApprovalItem } from '@/types/approval'
 
 /**
@@ -47,6 +48,7 @@ export const useApprovalStore = defineStore('approval', {
       try {
         this.pending = await getPendingApprovals()
       } catch {
+        if (!isMockEnabled()) return
         this.pending = [
           {
             approval_id: 'mock_ap_001',
@@ -56,7 +58,7 @@ export const useApprovalStore = defineStore('approval', {
             risk_level: 'R2',
             status: 'pending',
             reason: '涉及日志文件变更，需要管理员确认',
-            required_role: 'Admin',
+            approval_role: 'admin',
             args: { path: '/var/log/app.log' },
             dry_run: { passed: true, impact: '会生成 .gz 归档文件，不直接删除原始日志' }
           }

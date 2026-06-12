@@ -25,6 +25,7 @@ export type EventType =
   | 'verified'
   | 'rca'
   | 'audit_appended'
+  | 'done'
   | 'error'
 
 /**
@@ -180,7 +181,7 @@ export interface AwaitApprovalTool {
   /** 待审批工具名，例如 service.restart / log.compress_rotate。 */
   tool: string
   /** 该工具要求的最低审批角色；为空表示无需特定角色。 */
-  required_role?: string | null
+  approval_role?: string | null
 }
 
 /** await_approval 事件 data 结构。 */

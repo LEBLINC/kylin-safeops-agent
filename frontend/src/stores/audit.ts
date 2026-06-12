@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { getAuditTraceDetail, getAuditTraces, verifyHashChain } from '@/api/audit'
+import { isMockEnabled } from '@/api/mock'
 import type { AuditRecord, AuditTrace, HashChainVerifyResult } from '@/types/audit'
 
 /**
@@ -54,6 +55,7 @@ export const useAuditStore = defineStore('audit', {
       try {
         this.traces = await getAuditTraces()
       } catch {
+        if (!isMockEnabled()) return
         this.traces = [
           {
             trace_id: 'mock_trace',
@@ -89,6 +91,7 @@ export const useAuditStore = defineStore('audit', {
       try {
         this.records = await getAuditTraceDetail(traceId)
       } catch {
+        if (!isMockEnabled()) return
         this.records = [
           {
             id: 'r1',
@@ -133,17 +136,8 @@ export const useAuditStore = defineStore('audit', {
       try {
         this.verifyResult = await verifyHashChain(traceId)
       } catch {
-        this.verifyResult = {
-          trace_id: traceId,
-          valid: true,
-          records: this.records.map(record => ({
-            seq: record.seq,
-            record_type: record.record_type,
-            prev_hash: record.prev_hash,
-            curr_hash: record.curr_hash,
-            valid: true
-          }))
-        }
+        if (!isMockEnabled()) { this.verifyResult = null; return }
+        this.verifyResult = { trace_id: traceId, valid: false, records: [] }
       }
     }
   }

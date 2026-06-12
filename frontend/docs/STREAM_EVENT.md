@@ -19,7 +19,7 @@ interface StreamEvent {
 | `observation` | `{ results: ToolResult[] }` | 只读观测结果，`is_untrusted=true` 时标记“不可信输出” |
 | `plan_generated` | `{ candidate_tools: CandidateTool[] }` | 候选工具计划 |
 | `policy_verdict` | `{ verdict: PolicyVerdict, per_tool: {tool, verdict}[] }` | 整批裁决 + 逐工具裁决 |
-| `await_approval` | `{ reason: string, tools: {tool, required_role}[] }` | 多工具原子审批面板 |
+| `await_approval` | `{ reason: string, tools: {tool, approval_role}[] }` | 多工具原子审批面板 |
 | `executing` | `{ tools: string[] }` | 当前批量执行的工具列表 |
 | `tool_result` | `{ result: ToolResult }` | 单个工具结果，支持“不可信输出”标记 |
 | `verified` | `{ summary: string }` | 执行后验证总结 |
@@ -37,7 +37,7 @@ interface PolicyVerdict {
   reason: string
   safer_alternative: string | null
   approval_required: boolean
-  required_role: string | null
+  approval_role: string | null
 }
 ```
 
