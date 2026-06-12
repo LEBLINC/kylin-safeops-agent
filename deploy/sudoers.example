@@ -1,0 +1,28 @@
+# Kylin SafeOps Agent — sudoers 配置示例
+# [需人工复核] 将此文件内容追加到 /etc/sudoers 或 /etc/sudoers.d/kylin-safeops
+# 使用 visudo 编辑以保证语法正确：sudo visudo -f /etc/sudoers.d/kylin-safeops
+
+# 允许 kylin-safeops 用户以 root 身份执行以下只读/诊断命令
+# 危险命令（rm、fdisk、dd、mkfs）不在此列表中
+# 实际配置根据目标主机工具箱注册情况调整
+
+kylin-safeops ALL=(root) NOPASSWD: /usr/bin/systemctl status *
+kylin-safeops ALL=(root) NOPASSWD: /bin/journalctl *
+kylin-safeops ALL=(root) NOPASSWD: /usr/bin/df
+kylin-safeops ALL=(root) NOPASSWD: /usr/bin/du
+kylin-safeops ALL=(root) NOPASSWD: /usr/bin/lsof
+kylin-safeops ALL=(root) NOPASSWD: /usr/sbin/lsblk
+kylin-safeops ALL=(root) NOPASSWD: /usr/bin/free
+kylin-safeops ALL=(root) NOPASSWD: /usr/bin/top -b -n 1
+kylin-safeops ALL=(root) NOPASSWD: /usr/bin/ps aux
+
+# === RCA 诊断命令（只读，无修改权限） ===
+# 注：以下 find/stat 使用 * 通配符以覆盖常见诊断路径，
+# 生产部署时应替换为实际路径（如 /var/log/*）以精确限定范围。
+kylin-safeops ALL=(root) NOPASSWD: /usr/bin/find * -maxdepth * -type f
+kylin-safeops ALL=(root) NOPASSWD: /usr/bin/stat *
+kylin-safeops ALL=(root) NOPASSWD: /usr/sbin/ss -tlnp
+
+# 注意：不要在 sudoers 中加入以下危险命令的 NOPASSWD 授权：
+#   rm, mv, cp (覆盖), dd, mkfs, fdisk, cfdisk,
+#   systemctl stop/disable/mask, reboot, shutdown, iptables, modprobe

@@ -1,0 +1,26 @@
+[Unit]
+Description=Kylin SafeOps Agent Backend
+After=network.target
+
+[Service]
+Type=simple
+User=kylin-safeops
+Group=kylin-safeops
+WorkingDirectory=/opt/kylin-safeops
+ExecStart=/opt/kylin-safeops/.venv/bin/uvicorn backend.app.api.app:create_app --factory --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kylin-safeops
+
+# 安全加固
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/kylin-safeops
+ReadOnlyPaths=/etc
+
+[Install]
+WantedBy=multi-user.target
