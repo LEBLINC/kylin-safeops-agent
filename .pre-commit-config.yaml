@@ -15,8 +15,16 @@ repos:
     rev: v1.13.0
     hooks:
       - id: mypy
-        files: ^backend/app/contracts/          # 仅 contracts 强制类型
-        additional_dependencies: [pydantic==2.13.4]  # 与 requirements pin 同步（L-5 防漂移）
+        # 任务C + GAP-5：mypy 强制范围从仅 contracts 扩到 L 核心目录（agent/mcp/llm/api）
+        # 及 L 自有的 mcp_servers/os_ops（11+ 工具/解析器/dispatch）；与 pyproject 对齐。
+        # **不含 D 的 security/executor/audit**（C3 边界）。
+        files: ^(backend/app/(contracts|agent|mcp|llm|api)|mcp_servers/os_ops)/
+        # 隔离环境需装运行时依赖供 mypy 解析类型（fastapi/httpx 自带 py.typed）；
+        # 版本与 backend/requirements.txt pin 同步（L-5 防漂移）。
+        additional_dependencies:
+          - pydantic==2.13.4
+          - fastapi==0.136.3
+          - httpx==0.28.1
   - repo: local
     hooks:
       - id: pytest

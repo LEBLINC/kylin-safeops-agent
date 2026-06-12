@@ -15,6 +15,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"   # 对齐麒麟 V11 靶机实测 Python 3.11.6（CI 须与生产环境同版本，否则绿了也不代表靶机能跑）
+          cache: pip               # 任务C：缓存 pip 下载，加速依赖安装（纯加速，不改校验语义）
+      - name: Cache pre-commit hook environments
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-py3.11-${{ hashFiles('.pre-commit-config.yaml') }}
+          restore-keys: |
+            pre-commit-${{ runner.os }}-py3.11-
       - name: Install backend deps (runtime + dev tools)
         run: |
           python -m pip install --upgrade pip
