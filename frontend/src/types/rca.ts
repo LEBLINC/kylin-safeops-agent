@@ -86,6 +86,8 @@ export interface RcaReport {
   risk_notes: string[]
   /** Recommended next steps (legacy compat). */
   recommended_next_steps: string[]
+  /** Evidence tree for UI display. */
+  evidence_tree: RcaEvidenceNode[]
 }
 
 /**
@@ -110,7 +112,7 @@ export interface RcaResult {
   recommendations?: string[]
   safe_actions: string[]
   approval_required_actions?: ApprovalRequiredAction[]
-  dangerous_actions_rejected: string[] | RejectedDangerousAction[]
+  dangerous_actions_rejected: RejectedDangerousAction[]
   risk_notes?: string[]
   evidence_tree?: RcaEvidenceNode[]
   evidence_chain?: RcaEvidenceItem[]
