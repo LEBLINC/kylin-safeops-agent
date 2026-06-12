@@ -93,6 +93,12 @@ export interface RcaReport {
  *
  * Standalone RCA page interface return structure.
  */
+/** GET /api/rca/{trace_id} backend response wrapper. */
+export interface RcaApiResponse {
+  trace_id: string
+  report: RcaReport
+}
+
 export interface RcaResult {
   trace_id: string
   problem_type: RcaProblemType

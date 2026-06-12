@@ -29,7 +29,7 @@ import { request } from './request'
  * - { status: 'ready', message: '...' }
  */
 export function prepareDemoScenario(scenario: string) {
-  return request.post('/api/demo/{scenario_id}/prepare', { scenario })
+  return request.post(`/api/demo/${scenario}/prepare`, { scenario })
 }
 
 /**
@@ -67,5 +67,5 @@ export function runDemoScenario(scenario: string) {
  * - { status: 'cleaned', message: '...' }
  */
 export function cleanupDemoScenario(scenario: string) {
-  return request.post('/api/demo/{scenario_id}/cleanup', { scenario })
+  return request.post(`/api/demo/${scenario}/cleanup`, { scenario })
 }

@@ -1,6 +1,6 @@
 import { request } from './request'
 import { isMockEnabled, mockGetRcaResult, mockStartRcaAnalysis } from './mock'
-import type { RcaProblemType, RcaResult } from '@/types/rca'
+import type { RcaApiResponse, RcaProblemType, RcaResult } from '@/types/rca'
 
 /**
  * rca.ts
@@ -60,7 +60,8 @@ export function startRcaAnalysis(data: { problem_type: RcaProblemType; descripti
  * - safe_actions：安全建议；
  * - dangerous_actions_rejected：被拒绝的危险动作。
  */
-export function getRcaResult(traceId: string) {
+export async function getRcaResult(traceId: string) {
   if (isMockEnabled()) return mockGetRcaResult(traceId)
-  return request.get<RcaResult, RcaResult>(`/api/rca/${traceId}`)
+  const resp = await request.get<RcaApiResponse, RcaApiResponse>(`/api/rca/${traceId}`)
+  return { trace_id: resp.trace_id, ...resp.report } as RcaResult
 }
