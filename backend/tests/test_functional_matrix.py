@@ -1,9 +1,19 @@
-"""D19 功能测试矩阵 F001–F006 脚手架（提案，★待 L 确认编号）。
+"""D19 功能测试矩阵 F001–F006（任务B：F001–F004 接真 PolicyEngine + F006 真 SSE 行为）。
 
 矩阵定义见 docs/design/functional-test-matrix.md。
 
 原则：happy-path 管道断言（终态/执行序/关键事件）；不硬编"安全拦截"断言。
-依赖 D 真 PolicyEngine 的 F005 用 module/用例级 skip 待命（同 L1 哨兵套路），D 合入即激活。
+
+任务B 整改：
+- F001–F004 原跑在 scripts._demo_common.RiskBasedPolicy **桩**上，现统一注入 D 的真
+  PolicyEngine(DEFAULT_POLICY, registry)（真件已合入，top-level import，**不加待命守卫**）。
+  断言已核对真裁决：F001 只读→allow→FINISHED；F002 log.compress_rotate(R2,/var/log)→
+  operator 审批；F004 service.restart(R3)→admin 审批；F003 多只读(R0,/etc 配置)→allow 原子执行
+  （只读工具不触发 forbid_modify，/etc 配置不命中 FILE001）。
+- F005 已是真 PolicyEngine（保留独立装配）。
+- F006 由"查另一文件函数名字符串"的伪测试**改为真 SSE 端到端行为测试**（真起 app 跑一条链、
+  断言事件流到 done 且关键事件序正确）。
+- RiskBasedPolicy 仍留在 scripts/_demo_common.py（演示参考桩，不删），本矩阵不再依赖它。
 """
 
 from __future__ import annotations
@@ -11,8 +21,11 @@ from __future__ import annotations
 import asyncio
 import json
 
+import httpx
+
 from backend.app.agent.orchestrator import Orchestrator
 from backend.app.agent.state_machine import State
+from backend.app.api.app import create_app, lifespan
 from backend.app.contracts.audit import AuditRecord
 from backend.app.contracts.intent import CandidateTool
 from backend.app.contracts.stream import StreamEvent
@@ -20,10 +33,10 @@ from backend.app.contracts.untrusted import ToolResult
 from backend.app.llm.adapter import LLMAdapter
 from backend.app.mcp.gateway import MCPGateway
 from backend.app.mcp.registry import ToolRegistry
+from backend.app.security import DEFAULT_POLICY, PolicyEngine
 from mcp_servers.os_ops import all_specs
-from scripts._demo_common import RiskBasedPolicy
 
-# ---- 复用演示参考桩装配（fake 协作者）------------------------------------
+# ---- 真件装配（真 registry + 真 PolicyEngine + fake 执行/审计/事件）-------
 
 
 class _Audit:
@@ -69,7 +82,8 @@ def _llm(*intents: str) -> LLMAdapter:
 def _build(*intents: str) -> tuple[Orchestrator, _Audit, _Events, _Executor]:
     registry = ToolRegistry(all_specs())
     executor = _Executor()
-    gateway = MCPGateway(registry, RiskBasedPolicy(registry), executor)
+    # 任务B：注入 D 的真 PolicyEngine（同一 registry 防漂移），脱离 RiskBasedPolicy 桩。
+    gateway = MCPGateway(registry, PolicyEngine(DEFAULT_POLICY, registry), executor)
     audit, events = _Audit(), _Events()
     orch = Orchestrator(
         llm=_llm(*intents), gateway=gateway, audit=audit, events=events, trace_id="fmatrix"
@@ -185,41 +199,59 @@ def test_f004_r3_approval_gate_rejected() -> None:
 def test_f005_dangerous_command_denied_by_real_policy() -> None:
     """命中 deny 规则 → 整批 REJECTED、不执行（真 PolicyEngine 实证）。
 
-    L-2 整改：D 的 PolicyEngine 已从 backend.app.security 导出，原 try/except skip
-    守卫已删除——import 失败应如实 ERROR，不再静默 skip。
+    任务B：_build 已统一注入真 PolicyEngine，直接复用即可。
     """
-    from backend.app.security import DEFAULT_POLICY, PolicyEngine
-
-    registry = ToolRegistry(all_specs())
-    executor = _Executor()
-    gateway = MCPGateway(registry, PolicyEngine(DEFAULT_POLICY, registry), executor)
-    audit, events = _Audit(), _Events()
-    orch = Orchestrator(
-        llm=_llm(
-            _intent(
-                need_observation=False,
-                tools=[{"name": "log.large_log_scan", "args": {"path": "/etc/shadow"}}],
-            )
-        ),
-        gateway=gateway,
-        audit=audit,
-        events=events,
+    orch, _a, _events, ex = _build(
+        _intent(
+            need_observation=False,
+            tools=[{"name": "log.large_log_scan", "args": {"path": "/etc/shadow"}}],
+        )
     )
     end = asyncio.run(orch.run([{"role": "user", "content": "扫描"}]))
     assert end is State.REJECTED
-    assert executor.calls == []
+    assert ex.calls == []
 
 
-# ---- F006 SSE 端到端：已由 test_api_endpoints 覆盖（登记，不重复装配）----
+# ---- F006 SSE 端到端真行为：起 app 跑一条链、断言事件流到 done ------------
 
 
-def test_f006_sse_e2e_covered_elsewhere() -> None:
-    """F006(SSE 事件流端到端) 已由 test_api_endpoints::test_chat_post_then_sse_to_done 覆盖。
+def test_f006_sse_e2e_to_done() -> None:
+    """F006：真起 app、POST /api/chat 拿 trace_id、消费 SSE，断言事件流到 done 且关键事件序正确。
 
-    此处仅登记矩阵条目并校验被引测试存在（按文件内容核验，避免导入测试模块/重复装配）。
+    任务B：删除原"查 test_api_endpoints 文件含某函数名字符串"的伪断言，改为真 SSE 行为断言
+    （httpx ASGITransport，不联网；默认 fake LLM 提议 system.info(R0)→真策略 allow→执行→verified）。
+    lifespan 手动进入以初始化全局单例（ASGITransport 不触发 lifespan）。
     """
-    from pathlib import Path
 
-    covering = Path(__file__).with_name("test_api_endpoints.py")
-    assert covering.is_file()
-    assert "def test_chat_post_then_sse_to_done" in covering.read_text(encoding="utf-8")
+    async def scenario() -> None:
+        app = create_app()
+        async with lifespan(app):
+            transport = httpx.ASGITransport(app=app)  # type: ignore[arg-type]
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post("/api/chat", json={"message": "看下系统"})
+                assert resp.status_code == 200
+                data = resp.json()
+                trace_id = data["trace_id"]
+                assert data["stream_url"] == f"/api/chat/{trace_id}/events"
+
+                lines: list[str] = []
+                # GAP-4：消费加轮次上限，防链路 hang（如 fake LLM 改成需审批工具）挂到 CI 超时。
+                max_lines = 500
+                async with client.stream("GET", data["stream_url"]) as r:
+                    async for line in r.aiter_lines():
+                        lines.append(line)
+                        if "event: done" in line:
+                            break
+                        if len(lines) >= max_lines:
+                            break
+                body = "\n".join(lines)
+                assert (
+                    "event: done" in body
+                ), "SSE 未在轮次上限内到达 done（疑似 hang 或事件序异常）"
+                # 关键事件序：意图解析 → 裁决 → 验证 → 终态 done
+                assert "intent_parsed" in body
+                assert "policy_verdict" in body
+                assert "verified" in body
+                assert body.index("intent_parsed") < body.index("verified")
+
+    asyncio.run(scenario())
