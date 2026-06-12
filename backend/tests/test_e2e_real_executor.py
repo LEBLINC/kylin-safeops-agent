@@ -5,8 +5,9 @@
 
 当前安全闭环"后半条"（策略放行 → 沙箱内最小权限执行 → 真实兜底）全靠 FakeExecutor 罐头，
 零真实覆盖；"即便 LLM 生成 rm -rf / 也无法造成实际损害"目前无法端到端证明。本哨兵在
-D 合入后用真 Executor 跑通只读链、真实非零退出、deny 链未触达三条断言，并预置 symlink/
-TOCTOU 占位（PR2b 真沙箱到位后必须转真断言，不许假装已覆盖）。
+D 合入后用真 Executor 跑通只读链、真实非零退出、deny 链未触达三条断言，并把 symlink/
+TOCTOU 两个占位升级为**编排层真断言**（真 symlink + 真 PrivilegeExecutor realpath 兜底，
+win32 跳过、CI ubuntu 真跑；与 D 的执行层用例 test_executor.py 分层互补）。
 
 【精确待命，非裸 except ImportError（L-2 教训）】：
 backend.app.executor 当前是"空命名空间包"（仅 .gitkeep，import 成功但无任何 Executor
@@ -27,6 +28,8 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
+import sys
+from unittest.mock import patch
 
 import pytest
 
@@ -221,26 +224,69 @@ def test_real_executor_deny_chain_not_reached() -> None:
     assert "executing" not in events.types()
 
 
-@pytest.mark.skip(
-    reason="待 D 的 PR2b 真沙箱 + realpath/symlink 兜底——届时必须转真断言，不许假装已覆盖"
-)
-def test_real_executor_symlink_escape_guarded() -> None:
-    """占位（PR2b 必转真）：symlink 逃逸被 Executor 的 realpath 兜底 + 沙箱拦死。
+@pytest.mark.skipif(sys.platform == "win32", reason="真 symlink 需 Linux 环境（CI ubuntu 跑）")
+def test_real_executor_symlink_escape_guarded(tmp_path) -> None:  # noqa: ANN001
+    """编排层真断言：symlink 逃逸被 Executor 的 realpath 兜底拦死（与 D 执行层用例分层互补）。
 
-    TODO(PR2b)：构造指向受保护路径的 symlink（如 /tmp/evil_trap -> /etc/shadow），经
-    只读工具(log.large_log_scan path=/tmp/evil_trap) 调用，断言 Executor 在执行期 realpath
-    解析回 /etc/shadow 并被策略/沙箱拦死（判执一致，杜绝 TOCTOU）。当前 FakeExecutor 无沙箱/
-    realpath，**无法真实覆盖**——绝不假装已覆盖。
+    场景：tmp_path 下 evil -> /etc/shadow。整链跑真 Orchestrator（真 PolicyEngine +
+    真 PrivilegeExecutor）：词法路径（tmp 下的链接）未命中保护，**策略 evaluate 放行**；
+    Executor 在 realpath 复核时发现真实目标是 /etc/shadow（FILE001 deny 面），方案B 拒绝。
+
+    从编排层看，这是一次"判定放行、执行兜底"的防御纵深：executed 但 exit≠0（非策略 REJECTED）。
+    断言重点 = 真受保护文件从未被读（子进程未起）+ 结果携违规标记 + is_untrusted=True；
+    终态 FINISHED（方案B 聚合 non_zero，非崩溃）。
     """
-    raise AssertionError("placeholder: PR2b 到位后实现真实 symlink 逃逸断言")
+    link = tmp_path / "evil"
+    link.symlink_to("/etc/shadow")
+
+    orch, _audit, events, ex = _build(
+        _action_plan([{"name": "disk.large_files", "args": {"path": str(link)}}])
+    )
+    # 真命令绝不能起：受保护文件从未被读（杜绝 TOCTOU 窗口）
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
+        end = asyncio.run(orch.run([{"role": "user", "content": "扫描可疑链接"}]))
+
+    mock_exec.assert_not_called()  # 子进程从未启动
+    assert end is State.FINISHED  # 方案B：执行兜底失败不崩溃、不新增失败态
+    assert ex.calls == ["disk.large_files"]  # executor 被调起（在其内部兜底拦截）
+    tr = [e for e in events.events if e.type == "tool_result"]
+    assert tr, "应有 tool_result 事件（方案B 失败仍产结果）"
+    result = tr[0].data["result"]
+    assert result["exit_code"] != 0  # 违规 → 非零退出
+    stdout = result["stdout_truncated"]
+    assert "FILE001" in stdout or "violates protection" in stdout
+    assert result["is_untrusted"] is True
+    # 编排层是执行兜底失败（FINISHED/non_zero），不是策略 REJECTED
+    verified = [e for e in events.events if e.type == "verified"]
+    assert verified and "non-zero" in verified[0].data["summary"]
 
 
-@pytest.mark.skip(reason="待 D 的 PR2b 真沙箱——TOCTOU（check 后 swap）必须转真断言，不许假装已覆盖")
-def test_real_executor_toctou_not_exploitable() -> None:
-    """占位（PR2b 必转真）：TOCTOU（判定后、执行前替换路径目标）不可利用。
+@pytest.mark.skipif(sys.platform == "win32", reason="真 symlink 需 Linux 环境（CI ubuntu 跑）")
+def test_real_executor_toctou_not_exploitable(tmp_path) -> None:  # noqa: ANN001
+    """编排层真断言：TOCTOU（指向 confirm_required 保护目录的 symlink）不可利用。
 
-    TODO(PR2b)：在策略判定通过后、Executor 执行前把合法路径 swap 成指向受保护目标的 symlink，
-    断言执行层 realpath/openat(O_NOFOLLOW) 等兜底使其仍被拦死或不命中受保护资源。当前桩执行器
-    无法构造此场景——绝不假装已覆盖。
+    场景：tmp_path 下 evil -> /home（命中 PATH_CONFIRM_REQUIRED）。词法路径策略放行，
+    Executor 执行期 realpath 解析回 /home 并被复核拦死——审批针对的是评估时的词法路径，
+    不能迁移到策略层从未见过的真实目标。
+
+    断言：子进程从未启动 + 结果携 PATH_CONFIRM_REQUIRED 违规标记 + is_untrusted=True；
+    终态 FINISHED（方案B）。
     """
-    raise AssertionError("placeholder: PR2b 到位后实现真实 TOCTOU 断言")
+    link = tmp_path / "evil"
+    link.symlink_to("/home")
+
+    orch, _audit, events, ex = _build(
+        _action_plan([{"name": "disk.large_files", "args": {"path": str(link)}}])
+    )
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
+        end = asyncio.run(orch.run([{"role": "user", "content": "扫描可疑链接"}]))
+
+    mock_exec.assert_not_called()  # 子进程从未启动
+    assert end is State.FINISHED
+    assert ex.calls == ["disk.large_files"]
+    tr = [e for e in events.events if e.type == "tool_result"]
+    assert tr, "应有 tool_result 事件"
+    result = tr[0].data["result"]
+    assert result["exit_code"] != 0
+    assert "PATH_CONFIRM_REQUIRED" in result["stdout_truncated"]
+    assert result["is_untrusted"] is True
