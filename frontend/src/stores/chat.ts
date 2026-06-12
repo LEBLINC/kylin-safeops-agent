@@ -11,6 +11,7 @@ import {
 } from '@/api/chat'
 import { escalateApproval, resumeApproval } from '@/api/approval'
 import type { InlineApproval } from '@/types/approval'
+import type { UserRole } from '@/types/policy'
 import type { AuditAppendedData, ChatMessage, ChatSession, StreamEvent } from '@/types/chat'
 import type { PolicyVerdict } from '@/types/policy'
 import type { RcaReport } from '@/types/rca'
@@ -59,7 +60,7 @@ function normalizeSession(session: Partial<ChatSession>): ChatSession {
 }
 
 /** 页面权限判断使用的角色等级。数字越大权限越高。 */
-export const roleRank: Record<string, number> = { Viewer: 1, Auditor: 1, Operator: 2, Admin: 3 }
+export const roleRank: Record<string, number> = { viewer: 1, auditor: 1, operator: 2, admin: 3 }
 
 /** 判断 currentRole 是否满足 requiredRole。 */
 export function canRoleApprove(currentRole: string, requiredRole?: string | null) {
@@ -75,19 +76,23 @@ export function canRoleApprove(currentRole: string, requiredRole?: string | null
  * - 用户批准/拒绝是对整批计划生效；
  * - 如果其中一个工具需要 Admin，那么整批都必须由 Admin 批准。
  */
-function requiredRoleOf(tools: InlineApproval['tools']): InlineApproval['required_role'] {
-  let role: string | null = null
+function requiredRoleOf(tools: InlineApproval['tools']): InlineApproval['approval_role'] {
+  let role: UserRole | null = null
   let rank = 0
   for (const item of tools) {
-    const currentRole = item.required_role || null
+    const currentRole = (item.approval_role || null) as UserRole | null
     const currentRank = currentRole ? roleRank[currentRole] || 3 : 0
     if (currentRank > rank) {
       role = currentRole
       rank = currentRank
     }
   }
-  return role as InlineApproval['required_role']
+  return role
 }
+
+
+/** Debounce timer for throttled localStorage writes (avoid O(n^2) per SSE event). */
+let _persistTimer: ReturnType<typeof setTimeout> | null = null
 
 export const useChatStore = defineStore('chat', {
   state: () => ({
@@ -124,7 +129,7 @@ export const useChatStore = defineStore('chat', {
     /** 页面发送中 / 事件流未结束时使用。 */
     loading: false,
     /** 当前用户角色。暂时从环境变量读取，后续可接登录态。 */
-    currentUserRole: (import.meta.env.VITE_CURRENT_USER_ROLE || 'Admin') as string,
+    currentUserRole: (import.meta.env.VITE_CURRENT_USER_ROLE || 'viewer') as string,
     /**
      * 打字机定时器。
      * key=trace_id，value=window.setInterval 返回值。
@@ -295,6 +300,8 @@ export const useChatStore = defineStore('chat', {
       this.currentSessionId = sessionId
       this.messagesBySession[sessionId] ||= []
       this.traceIdsBySession[sessionId] ||= []
+
+
       this.persist()
     },
 
@@ -519,7 +526,7 @@ export const useChatStore = defineStore('chat', {
           trace_id: traceId,
           reason: String(event.data.reason || '该批工具计划需要人工确认'),
           tools,
-          required_role: requiredRoleOf(tools),
+          approval_role: requiredRoleOf(tools),
           status: 'pending'
         }
         this.approvalByTrace[traceId] = approval
@@ -563,7 +570,33 @@ export const useChatStore = defineStore('chat', {
         })
       }
 
-      this.persist()
+      if (event.type === 'done') {
+        this.loading = false
+        this.stopAssistantTyping(traceId)
+        const verdict = this.policyVerdictByTrace[traceId]
+        const approval = this.approvalByTrace[traceId]
+        if (verdict?.decision === 'deny') {
+          this.addMessage(sessionId, {
+            id: uid('msg_denied'),
+            role: 'system',
+            status: 'done',
+            content: `操作被安全策略拒绝：${verdict.reason || '不允许执行'}`,
+            created_at: nowIso(),
+            trace_id: traceId
+          })
+        } else if (approval?.status === 'rejected') {
+          this.addMessage(sessionId, {
+            id: uid('msg_rejected'),
+            role: 'system',
+            status: 'done',
+            content: `用户已拒绝执行：${approval.reason || '未说明原因'}`,
+            created_at: nowIso(),
+            trace_id: traceId
+          })
+        }
+      }
+
+      this._debouncedPersist()
     },
 
     /**
@@ -578,7 +611,13 @@ export const useChatStore = defineStore('chat', {
      * 6. 后端或 api mock 持续推送 StreamEvent；
      * 7. addEvent() 统一入库并驱动页面刷新。
      */
-    async sendMessage(content: string) {
+        /** Throttled persist — limits localStorage writes to once per 1.5s during SSE streaming. */
+    _debouncedPersist() {
+      if (_persistTimer) clearTimeout(_persistTimer)
+      _persistTimer = setTimeout(() => { this.persist(); _persistTimer = null }, 1500)
+    },
+
+async sendMessage(content: string) {
       const cleanContent = content.trim()
       if (!cleanContent) return
       this.ensureDefaultSession()
@@ -600,13 +639,14 @@ export const useChatStore = defineStore('chat', {
         const traceId = response.trace_id
         this.prepareTrace(traceId)
         this.stream?.close()
+        const capturedSessionId = this.currentSessionId
         this.stream = connectChatStream(
           traceId,
           response.stream_url,
           event => this.addEvent(event),
           error => {
             this.loading = false
-            this.addMessage(this.currentSessionId, {
+            this.addMessage(capturedSessionId, {
               id: uid('msg_error'),
               role: 'assistant',
               status: 'error',
@@ -633,12 +673,23 @@ export const useChatStore = defineStore('chat', {
       const traceId = this.activeTraceId
       const approval = traceId ? this.approvalByTrace[traceId] : null
       if (!traceId || !approval) return
-      approval.status = 'approved'
-      this.updateApprovalStatusInMessages(traceId, 'approved')
-      const session = this.sessions.find(item => sessionIdOf(item) === this.sessionIdForTrace(traceId))
-      if (session) session.pending_approval_count = 0
-      this.persist()
-      await resumeApproval({ trace_id: traceId, approved: true, comment })
+      try {
+        await resumeApproval({ trace_id: traceId, approved: true })
+        approval.status = 'approved'
+        this.updateApprovalStatusInMessages(traceId, 'approved')
+        const session = this.sessions.find(item => sessionIdOf(item) === this.sessionIdForTrace(traceId))
+        if (session) session.pending_approval_count = 0
+        this.persist()
+      } catch (error) {
+        this.addMessage(this.sessionIdForTrace(traceId), {
+          id: uid('msg_error'),
+          role: 'system',
+          status: 'error',
+          content: `审批提交失败：${(error as Error).message}。请稍后重试。`,
+          created_at: nowIso(),
+          trace_id: traceId
+        })
+      }
     },
 
     /** 对话内拒绝当前批次原子计划。 */
@@ -646,12 +697,23 @@ export const useChatStore = defineStore('chat', {
       const traceId = this.activeTraceId
       const approval = traceId ? this.approvalByTrace[traceId] : null
       if (!traceId || !approval) return
-      approval.status = 'rejected'
-      this.updateApprovalStatusInMessages(traceId, 'rejected')
-      const session = this.sessions.find(item => sessionIdOf(item) === this.sessionIdForTrace(traceId))
-      if (session) session.pending_approval_count = 0
-      this.persist()
-      await resumeApproval({ trace_id: traceId, approved: false, comment })
+      try {
+        await resumeApproval({ trace_id: traceId, approved: false })
+        approval.status = 'rejected'
+        this.updateApprovalStatusInMessages(traceId, 'rejected')
+        const session = this.sessions.find(item => sessionIdOf(item) === this.sessionIdForTrace(traceId))
+        if (session) session.pending_approval_count = 0
+        this.persist()
+      } catch (error) {
+        this.addMessage(this.sessionIdForTrace(traceId), {
+          id: uid('msg_error'),
+          role: 'system',
+          status: 'error',
+          content: `拒绝提交失败：${(error as Error).message}。请稍后重试。`,
+          created_at: nowIso(),
+          trace_id: traceId
+        })
+      }
     },
 
     /** 权限不足时，在对话中申请转管理员审批。 */
