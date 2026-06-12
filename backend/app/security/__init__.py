@@ -31,8 +31,8 @@ from backend.app.security.policy_rules import (
     PolicySet,
     ProtectedPaths,
     Severity,
-    Where,
 )
+from backend.app.security.rbac import can_approve
 
 __all__ = [
     # guard
@@ -52,9 +52,10 @@ __all__ = [
     "PolicySet",
     "ProtectedPaths",
     "Severity",
-    "Where",
     # policy_loader
     "DEFAULT_POLICY",
     "load_policy_from_dict",
     "load_policy_from_json",
+    # rbac
+    "can_approve",
 ]

@@ -22,10 +22,6 @@ Action = Decision
 #: 严重度：仅供前端/审计展示，不影响裁决（裁决由 action 决定）。
 Severity = Literal["low", "medium", "high", "critical"]
 
-#: 规则匹配范围：限定规则关注哪一面（命名/参数/风险），缩小误命中。
-#: any 表示不限制（综合匹配，兜底）。
-Where = Literal["tool_name", "tool_args", "tool_risk", "any"]
-
 
 class RuleMatch(BaseModel):
     """规则匹配条件（多条件取 AND；同字段内的列表取 OR）。
@@ -72,7 +68,6 @@ class PolicyRule(BaseModel):
     id: str = Field(..., min_length=1, description="规则唯一 ID，如 'CMD001'")
     name: str = Field(..., min_length=1, description="人类可读名")
     description: str = Field(default="", description="规则说明")
-    where: Where = Field(default="any", description="匹配范围（命名/参数/风险/综合）")
     match: RuleMatch = Field(..., description="匹配条件")
     action: Action = Field(..., description="命中后动作：allow/deny/confirm")
     severity: Severity = Field(default="medium", description="严重度（仅展示用）")
@@ -95,12 +90,13 @@ class PolicyRule(BaseModel):
 class ProtectedPaths(BaseModel):
     """路径保护清单（手册 §6.4 / Build-Guide §3.3）。
 
-    路径参数经 canonicalize（os.path.realpath）+ 禁 .. 后比对；按以下层级取最严：
-    - forbid_modify:       禁修改（命中即 deny）
-    - forbid_delete:       禁删除（命中删除类工具即 deny）
+    路径参数经 normalize_path（posixpath.normpath，纯词法）+ 禁 .. 后大小写敏感比对；
+    真实 realpath/symlink 兜底在 Executor（evaluate 无 IO，不调 realpath，确定性铁律）。
+    按以下层级取最严：
+    - forbid_modify:       禁修改（变更类工具命中即 deny）
+    - forbid_delete:       禁删除（变更类工具命中即 deny）
     - confirm_required:    需要确认（命中即 confirm）
     - rotate_only:         可轮转/压缩，禁直接删（删除工具命中 → deny；轮转工具 → allow/confirm）
-    - cleanable_limited:   可有限清理（结合工具语义裁定）
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -109,7 +105,6 @@ class ProtectedPaths(BaseModel):
     forbid_delete: list[str] = Field(default_factory=list)
     confirm_required: list[str] = Field(default_factory=list)
     rotate_only: list[str] = Field(default_factory=list)
-    cleanable_limited: list[str] = Field(default_factory=list)
 
 
 class PolicySet(BaseModel):
