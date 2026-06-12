@@ -275,3 +275,76 @@ def test_iter_abspath_values_ascii_only() -> None:
     assert "/etc/passwd" in paths and "/var/log" in paths
     assert "\uff0fetc\uff0fpasswd" not in paths
     assert "etc/passwd" not in paths
+
+
+# ---- RBAC 审批角色校验（D-3，security 侧纯函数）---------------------------
+
+
+def test_can_approve_admin_approves_operator_and_admin() -> None:
+    from backend.app.security.rbac import can_approve
+
+    assert can_approve("admin", "operator") is True
+    assert can_approve("admin", "admin") is True
+
+
+def test_can_approve_operator_only_operator() -> None:
+    from backend.app.security.rbac import can_approve
+
+    assert can_approve("operator", "operator") is True
+    assert can_approve("operator", "admin") is False
+
+
+def test_can_approve_fail_closed() -> None:
+    """未知/缺失角色一律拒绝（失败关闭）；不做大小写归一（口径=内部小写）。"""
+    from backend.app.security.rbac import can_approve
+
+    assert can_approve("viewer", "operator") is False
+    assert can_approve("auditor", "operator") is False
+    assert can_approve(None, "operator") is False
+    assert can_approve("admin", None) is False
+    assert can_approve("", "operator") is False
+    assert can_approve("Admin", "operator") is False
+    assert can_approve("admin", "Operator") is False
+
+
+# ---- 保护路径规则 id 断言（D-8）+ 变更类守卫（D-6/D-7）---------------------
+
+
+def test_db_protected_rule_id_for_change_tool() -> None:
+    """变更类工具触达 DB 数据目录 → 命中 PATH_DB_PROTECTED（admin confirm）。"""
+    v = _engine().evaluate(_tool("log.compress_rotate", {"path": "/var/lib/mysql/binlog.1"}))
+    assert "PATH_DB_PROTECTED" in v.matched_rules
+    assert v.decision == "confirm"
+
+
+def test_db_protected_not_triggered_for_readonly_tool() -> None:
+    """只读工具扫描 DB 数据目录不触发 admin confirm（D-6：与 forbid_modify 对称）。"""
+    v = _engine().evaluate(_tool("disk.large_files", {"path": "/var/lib/mysql"}))
+    assert "PATH_DB_PROTECTED" not in v.matched_rules
+    assert v.decision == "allow"
+
+
+def test_rotate_only_rule_id_for_change_tool() -> None:
+    """变更类工具触达 /var/log → 命中 PATH_ROTATE_ONLY。"""
+    v = _engine().evaluate(_tool("log.compress_rotate", {"path": "/var/log/app.log"}))
+    assert "PATH_ROTATE_ONLY" in v.matched_rules
+    assert v.decision == "confirm"
+
+
+def test_rotate_only_not_triggered_for_readonly_tool() -> None:
+    v = _engine().evaluate(_tool("log.tail", {"path": "/var/log/messages"}))
+    assert "PATH_ROTATE_ONLY" not in v.matched_rules
+
+
+def test_change_tool_classified_by_spec_not_name() -> None:
+    """D-7：变更类以 ToolSpec 权威属性（risk>=R2 / reversible=False）判定，不靠名字。"""
+    spec = ToolSpec(
+        name="thing.apply",
+        description="假想变更工具（名字无 delete/remove 等提示词）",
+        risk="R2",
+        input_schema={"type": "object"},
+        requires_roles=["operator"],
+        reversible=True,
+    )
+    v = _engine([spec]).evaluate(_tool("thing.apply", {"path": "/etc/nginx/nginx.conf"}))
+    assert "PATH_FORBID_MODIFY" in v.matched_rules or v.decision == "deny"

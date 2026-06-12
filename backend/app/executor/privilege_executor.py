@@ -33,6 +33,9 @@ from backend.app.executor.command_templates import (
     has_tool,
 )
 from backend.app.security.normalize import has_dotdot, normalize_path
+from backend.app.security.path_policy import real_path_violation
+from backend.app.security.policy_loader import DEFAULT_POLICY
+from backend.app.security.policy_rules import PolicySet
 from mcp_servers.os_ops.fallback import candidate_commands
 
 #: stdout + stderr 截断上限（字节）。
@@ -53,10 +56,14 @@ class PrivilegeExecutor:
     """D 的 Executor 首版：subprocess list + 命令模板白名单。
 
     构造无状态依赖；execute() 可并发调用（每次独立子进程）。
+    policy 仅用于 symlink 解析后对真实路径重跑保护路径校验（与 evaluate 同一份配置）。
     """
 
-    def __init__(self, *, timeout: int = DEFAULT_TIMEOUT) -> None:
+    def __init__(
+        self, *, timeout: int = DEFAULT_TIMEOUT, policy: PolicySet = DEFAULT_POLICY
+    ) -> None:
         self._timeout = timeout
+        self._policy = policy
 
     async def execute(self, tool: CandidateTool) -> ToolResult:
         """执行单个工具调用。"""
@@ -112,25 +119,28 @@ class PrivilegeExecutor:
                 continue
             if isinstance(val, list):
                 for item in val:
-                    argv.append(self._sanitize_arg(str(item)))
+                    argv.append(self._sanitize_arg(str(item), tool.name))
             else:
-                argv.append(self._sanitize_arg(str(val)))
+                argv.append(self._sanitize_arg(str(val), tool.name))
 
         # flag 映射：-u <unit> -p <priority> ...
         for arg_key, flag in tpl.flag_map.items():
             val = args.get(arg_key)
             if val is not None and str(val):
-                argv.extend([flag, self._sanitize_arg(str(val))])
+                argv.extend([flag, self._sanitize_arg(str(val), tool.name)])
 
         # 工具特殊 argv 补全
         argv = self._tool_specific_argv(tool.name, argv, args)
         return argv
 
-    def _sanitize_arg(self, value: str) -> str:
+    def _sanitize_arg(self, value: str, tool_name: str) -> str:
         """参数安全校验：与 evaluate 同源归一（D-1a）+ Linux realpath symlink 兜底（D-1b）。
 
         词法层：复用 security/normalize.normalize_path（与 evaluate 同一份，判执逐字节一致）。
-        Linux 兜底：os.path.realpath 解析 symlink，防止 /tmp/link_to_etc → /etc 穿越词法层。
+        Linux 兜底：os.path.realpath 解析 symlink；若解析结果与词法路径不同（symlink/`.`
+        改变了目标），对【真实路径】重跑保护路径 + deny 规则校验（real_path_violation，
+        与 evaluate 同一份 path_policy 逻辑）；命中即拒绝执行——策略层从未见过该目标，
+        不能让 /tmp/link → /etc/shadow 穿越词法裁决（判定语义 == 执行语义）。
           NOTE(symlink): evaluate 是纯词法层（无 IO，确定性铁律），realpath 只在 Executor
           执行层做，与 evaluate 职责分离，符合 §工作策略.md §2 架构设计。
         """
@@ -142,13 +152,18 @@ class PrivilegeExecutor:
                 real = os.path.realpath(normed)
                 if has_dotdot(real):
                     raise _PathTraversalError(f"realpath traversal detected: {real}")
+                if real != normed:
+                    violation = real_path_violation(tool_name, real, self._policy)
+                    if violation is not None:
+                        raise _PathTraversalError(
+                            f"symlink target violates protection: "
+                            f"{value} -> {real} ({violation})"
+                        )
                 return real
             return normed
         return value
 
-    def _tool_specific_argv(
-        self, tool_name: str, argv: list[str], args: dict
-    ) -> list[str]:
+    def _tool_specific_argv(self, tool_name: str, argv: list[str], args: dict) -> list[str]:
         """工具特殊参数补全。"""
         if tool_name == "disk.large_files":
             return [*argv, "-type", "f", "-printf", "%s\\t%p\\n"]
@@ -161,9 +176,7 @@ class PrivilegeExecutor:
             return [*argv, "--"]
         return argv
 
-    async def _run_subprocess(
-        self, tool: CandidateTool, argv: Sequence[str]
-    ) -> ToolResult:
+    async def _run_subprocess(self, tool: CandidateTool, argv: Sequence[str]) -> ToolResult:
         """在子进程中执行命令（不用 shell）。"""
         try:
             proc = await asyncio.create_subprocess_exec(

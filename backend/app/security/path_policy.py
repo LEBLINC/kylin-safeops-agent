@@ -15,18 +15,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from backend.app.contracts.tool import RiskLevel
+from backend.app.contracts.tool import RiskLevel, ToolSpec
 from backend.app.security.normalize import (
     has_dotdot,
     iter_abspath_values,
     normalize_path,
 )
-from backend.app.security.policy_rules import ProtectedPaths
+from backend.app.security.policy_rules import PolicySet, ProtectedPaths
+from backend.app.security.risk_engine import risk_ge, rule_matches
 
 PathDecision = Literal["allow", "confirm", "deny"]
 
-# 变更类工具集：这些工具对 forbid_modify 路径执行写/删操作，触发 deny。
-# 只读工具（disk.large_files、file.lsof_check 等）对 /etc 扫描不触发 forbid_modify deny。
+# 变更类工具名称启发式（仅在拿不到 ToolSpec 时兜底，如 Executor 真实路径复核）；
+# 有 spec 时以权威属性判定：risk >= R2 或 reversible=False 即变更类。
 _CHANGE_TOOLS = {"log.compress_rotate", "service.restart"}
 _DELETE_HINTS = {"delete", "remove", "clean", "truncate", "wipe"}
 
@@ -65,11 +66,18 @@ def _is_under(path: str, base: str) -> bool:
     return path == base_norm or path.startswith(base_norm.rstrip("/") + "/")
 
 
-def _tool_is_change(tool_name: str) -> bool:
+def _tool_is_change(tool_name: str, spec: ToolSpec | None = None) -> bool:
+    if spec is not None:
+        return risk_ge(spec.risk, "R2") or spec.reversible is False
     return tool_name in _CHANGE_TOOLS or any(h in tool_name for h in _DELETE_HINTS)
 
 
-def classify_paths(tool_name: str, args: dict, protected: ProtectedPaths) -> list[PathFinding]:
+def classify_paths(
+    tool_name: str,
+    args: dict,
+    protected: ProtectedPaths,
+    spec: ToolSpec | None = None,
+) -> list[PathFinding]:
     """按保护清单分类所有"形如绝对路径"的参数值（修正 D：不认硬编码字段名）。
 
     扫描方式：递归遍历 args 的所有标量值，凡以 ASCII '/' 开头的均视为路径候选。
@@ -93,19 +101,19 @@ def classify_paths(tool_name: str, args: dict, protected: ProtectedPaths) -> lis
                 PathFinding(
                     raw,
                     path,
-                    "deny" if _tool_is_change(tool_name) else "confirm",
-                    "R4" if _tool_is_change(tool_name) else "R2",
+                    "deny" if _tool_is_change(tool_name, spec) else "confirm",
+                    "R4" if _tool_is_change(tool_name, spec) else "R2",
                     "PATH_ROOT",
                     "路径参数指向文件系统根，影响范围过大。",
                     "限定到具体子目录，并先做观测/ dry-run。",
-                    None if _tool_is_change(tool_name) else "operator",
+                    None if _tool_is_change(tool_name, spec) else "operator",
                 )
             )
             continue
 
         # forbid_modify：仅对变更类工具 deny；只读工具访问 /etc 等靠具体规则（FILE001 等）
         for base in protected.forbid_modify:
-            if _tool_is_change(tool_name) and _is_under(path, base):
+            if _tool_is_change(tool_name, spec) and _is_under(path, base):
                 findings.append(
                     PathFinding(
                         raw,
@@ -118,8 +126,10 @@ def classify_paths(tool_name: str, args: dict, protected: ProtectedPaths) -> lis
                 )
                 break
         else:
+            # forbid_delete：与 forbid_modify 对称，仅对变更类工具生效（D-6）；
+            # 只读工具扫描 DB 数据目录不触发 admin confirm
             for base in protected.forbid_delete:
-                if _is_under(path, base):
+                if _tool_is_change(tool_name, spec) and _is_under(path, base):
                     findings.append(
                         PathFinding(
                             raw,
@@ -135,7 +145,7 @@ def classify_paths(tool_name: str, args: dict, protected: ProtectedPaths) -> lis
                     break
             else:
                 for base in protected.rotate_only:
-                    if _is_under(path, base) and _tool_is_change(tool_name):
+                    if _is_under(path, base) and _tool_is_change(tool_name, spec):
                         findings.append(
                             PathFinding(
                                 raw,
@@ -165,3 +175,25 @@ def classify_paths(tool_name: str, args: dict, protected: ProtectedPaths) -> lis
                             )
                             break
     return findings
+
+
+def real_path_violation(tool_name: str, real_path: str, policy: PolicySet) -> str | None:
+    """对 realpath 解析后的真实路径重跑保护路径 + 参数级 deny 规则校验。
+
+    供 Executor 在 symlink 解析改变路径时调用（判执一致兜底）：策略引擎在词法层
+    裁决，从未见过真实目标；若真实目标命中保护路径（deny/confirm）或 FILE001 等
+    参数级 deny 规则，必须拒绝执行——审批（若有）针对的是词法路径，不能迁移到
+    一个策略层从未评估过的真实目标上。
+
+    返回违规说明字符串（"<rule_id>: <reason>"）；无违规返回 None。
+    """
+    for finding in classify_paths(tool_name, {"path": real_path}, policy.protected_paths):
+        if finding.decision in ("deny", "confirm"):
+            return f"{finding.rule_id}: {finding.reason}"
+    args = {"path": real_path}
+    for rule in policy.rules:
+        if rule.action != "deny" or rule.match.any_arg_matches is None:
+            continue
+        if rule_matches(rule, tool_name=tool_name, tool_risk="R0", args=args):
+            return f"{rule.id}: {rule.reason}"
+    return None

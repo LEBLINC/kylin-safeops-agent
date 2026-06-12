@@ -24,15 +24,17 @@ DEFAULT_POLICY_DICT: dict = {
         "forbid_delete": ["/var/lib/mysql", "/var/lib/pgsql"],
         "confirm_required": ["/home"],
         "rotate_only": ["/var/log"],
-        "cleanable_limited": ["/tmp"],
     },
     "rules": [
         # ---- 注入/参数级危险模式（来自 Build-Guide §3.3）------------------
+        # NOTE(advisory): CMD001-003 为防御纵深，非命令拦截主防线。本架构不让
+        # LLM 产生裸 shell 命令（args 是 schema 约束的结构化字段，命令只来自
+        # COMMAND_TEMPLATES 白名单且 Executor 无 shell），正则仅覆盖典型样本
+        # （如 rm -rf /<空白>），不追求穷举 `//`、`/*`、`-fr` 等变体。
         {
             "id": "CMD001",
             "name": "dangerous_rm_root",
             "description": "rm -rf 作用于文件系统根（S001）。",
-            "where": "tool_args",
             "match": {"any_arg_matches": [r"rm\s+-rf\s+/(\s|$)"]},
             "action": "deny",
             "severity": "critical",
@@ -43,7 +45,6 @@ DEFAULT_POLICY_DICT: dict = {
             "id": "CMD002",
             "name": "curl_pipe_shell",
             "description": "curl|sh 远程脚本直执（S004）。",
-            "where": "tool_args",
             "match": {"any_arg_matches": [r"(curl|wget).*(\||bash|sh)"]},
             "action": "deny",
             "severity": "critical",
@@ -53,7 +54,6 @@ DEFAULT_POLICY_DICT: dict = {
             "id": "CMD003",
             "name": "chmod_777_system",
             "description": "对系统敏感文件 chmod 777（S003）。",
-            "where": "tool_args",
             "match": {
                 "any_arg_matches": [r"chmod\s+(0?7{3}|a\+rwx).*/(etc|usr|bin|sbin|lib|boot)"]
             },
@@ -65,7 +65,6 @@ DEFAULT_POLICY_DICT: dict = {
             "id": "FILE001",
             "name": "sensitive_shadow_passwd",
             "description": "访问/修改 /etc/shadow 或 /etc/passwd。",
-            "where": "tool_args",
             "match": {"any_arg_matches": [r"/etc/(shadow|passwd)(\b|$)"]},
             "action": "deny",
             "severity": "critical",
@@ -75,7 +74,6 @@ DEFAULT_POLICY_DICT: dict = {
             "id": "DBLOG001",
             "name": "db_binlog_delete",
             "description": "误删数据库 binlog（S006）：拒绝直删，要求高级确认/改压缩轮转。",
-            "where": "tool_args",
             "match": {"any_arg_matches": [r"/var/lib/mysql/.*bin\.\d+"]},
             "action": "confirm",
             "severity": "high",
@@ -89,7 +87,6 @@ DEFAULT_POLICY_DICT: dict = {
             "id": "PI001",
             "name": "prompt_injection_ignore_rules",
             "description": "提示词注入：要求忽略/覆盖安全规则（S001/S005）。",
-            "where": "tool_args",  # TODO(BLOCKED-ON-L): 切到 user_input 闸后改为 'any'
             "match": {"any_arg_matches": [r"(忽略|忘记|覆盖).*(规则|限制|安全)"]},
             "action": "deny",
             "severity": "high",
@@ -100,7 +97,6 @@ DEFAULT_POLICY_DICT: dict = {
             "id": "RISK_R4_DENY",
             "name": "r4_always_deny",
             "description": "R4 工具永远 deny（CLAUDE.md §3.5）。",
-            "where": "tool_risk",
             "match": {"risk_in": ["R4"]},
             "action": "deny",
             "severity": "critical",
@@ -110,7 +106,6 @@ DEFAULT_POLICY_DICT: dict = {
             "id": "RISK_R3_ADMIN_CONFIRM",
             "name": "r3_admin_confirm",
             "description": "R3 工具需管理员审批（S007 重启服务）。",
-            "where": "tool_risk",
             "match": {"risk_in": ["R3"]},
             "action": "confirm",
             "severity": "high",
@@ -121,7 +116,6 @@ DEFAULT_POLICY_DICT: dict = {
             "id": "RISK_R2_OPERATOR_CONFIRM",
             "name": "r2_operator_confirm",
             "description": "R2 可逆变更需运维员审批。",
-            "where": "tool_risk",
             "match": {"risk_in": ["R2"]},
             "action": "confirm",
             "severity": "medium",

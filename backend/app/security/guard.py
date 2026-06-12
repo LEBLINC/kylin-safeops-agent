@@ -17,7 +17,7 @@ from typing import cast
 
 from backend.app.contracts.intent import CandidateTool
 from backend.app.contracts.policy import Decision, PolicyVerdict
-from backend.app.contracts.tool import RiskLevel
+from backend.app.contracts.tool import RiskLevel, ToolSpec
 from backend.app.mcp.registry import ToolRegistry
 from backend.app.security.path_policy import PathFinding, classify_paths
 from backend.app.security.policy_loader import DEFAULT_POLICY
@@ -92,7 +92,7 @@ class RuleBasedPolicyEngine:
 
         hits: list[_Hit] = []
         hits.extend(_hits_from_rules(self._policy.rules, tool.name, spec.risk, tool.args))
-        hits.extend(_hits_from_paths(tool.name, tool.args, self._policy))
+        hits.extend(_hits_from_paths(tool.name, tool.args, self._policy, spec))
 
         # 兜底：无任何命中 → 按 spec.risk 给默认裁决（DEFAULT_POLICY 的 RISK_* 通常先命中）
         if not hits:
@@ -136,8 +136,12 @@ def _risk_for_rule(rule: PolicyRule, tool_risk: RiskLevel) -> RiskLevel:
     return max_risk(tool_risk, floor)
 
 
-def _hits_from_paths(tool_name: str, args: dict, policy: PolicySet) -> list[_Hit]:
-    return [_hit_from_path(f) for f in classify_paths(tool_name, args, policy.protected_paths)]
+def _hits_from_paths(
+    tool_name: str, args: dict, policy: PolicySet, spec: ToolSpec | None = None
+) -> list[_Hit]:
+    return [
+        _hit_from_path(f) for f in classify_paths(tool_name, args, policy.protected_paths, spec)
+    ]
 
 
 def _hit_from_path(finding: PathFinding) -> _Hit:

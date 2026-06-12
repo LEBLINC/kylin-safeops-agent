@@ -191,19 +191,19 @@ def test_sanitize_arg_resolves_symlink_to_realpath() -> None:
     """_sanitize_arg 在 Linux 上通过 os.path.realpath 将 symlink 解析为真实路径。
 
     防御分层（职责边界）：
-    - Executor 职责：normalize_path（词法）+ os.path.realpath（真实路径）→ 返回真实目标
-    - PolicyEngine 职责：对返回的真实路径做 forbid_modify 等保护路径评估
-    此处只验证 Executor 端 realpath 解析行为（将 symlink 暴露给 Policy 层的前置步骤）。
-    Executor 自身不拦 forbid_modify——那是 PolicyEngine 的事。
+    - PolicyEngine：词法路径裁决（无 IO，确定性）。
+    - Executor：realpath 解析 symlink；若真实目标 != 词法路径，对真实目标重跑
+      保护路径 + deny 规则校验（real_path_violation），命中即拒绝执行。
+    /etc 对只读工具不在拒绝面（与策略层对词法路径 /etc 的裁决一致），故放行并返回真实路径。
     """
     ex = PrivilegeExecutor()
     with (
         patch("os.path.realpath", return_value="/etc"),
         patch("platform.system", return_value="Linux"),
     ):
-        resolved = ex._sanitize_arg("/tmp/link_to_etc")
+        resolved = ex._sanitize_arg("/tmp/link_to_etc", "disk.large_files")
 
-    assert resolved == "/etc", "symlink 应被解析为真实路径 /etc，供 PolicyEngine 评估"
+    assert resolved == "/etc", "symlink 应被解析为真实路径 /etc"
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="symlink 测试需 Linux 环境")
@@ -221,7 +221,75 @@ def test_sanitize_arg_dotdot_after_realpath_blocked() -> None:
         patch("platform.system", return_value="Linux"),
     ):
         with pytest.raises(_PathTraversalError):
-            ex._sanitize_arg("/tmp/weird_link")
+            ex._sanitize_arg("/tmp/weird_link", "disk.large_files")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlink 测试需 Linux 环境")
+def test_sanitize_arg_symlink_to_protected_file_blocked() -> None:
+    """symlink 解析到受保护文件（/etc/shadow，FILE001）→ _PathTraversalError 拒绝。"""
+    from backend.app.executor.privilege_executor import _PathTraversalError
+
+    ex = PrivilegeExecutor()
+    with (
+        patch("os.path.realpath", return_value="/etc/shadow"),
+        patch("platform.system", return_value="Linux"),
+    ):
+        with pytest.raises(_PathTraversalError, match="FILE001"):
+            ex._sanitize_arg("/tmp/evil_link", "disk.large_files")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlink 测试需 Linux 环境")
+def test_real_executor_symlink_escape_guarded(tmp_path) -> None:
+    """真 symlink（无 mock 解析）：/tmp 下链接指向 /etc/shadow → 执行被拦。
+
+    策略层对词法路径（tmp 下的链接）裁决 allow；Executor 在执行时 realpath 发现
+    真实目标是 /etc/shadow（FILE001 deny 面），必须拒绝且不得起任何子进程。
+    """
+    link = tmp_path / "evil"
+    link.symlink_to("/etc/shadow")
+
+    ex = PrivilegeExecutor()
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
+        result = asyncio.run(ex.execute(_tool("disk.large_files", {"path": str(link)})))
+
+    mock_exec.assert_not_called()
+    assert result.exit_code != 0
+    assert "FILE001" in result.stdout_truncated
+    assert result.is_untrusted is True
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlink 测试需 Linux 环境")
+def test_real_executor_toctou_not_exploitable(tmp_path) -> None:
+    """TOCTOU：评估时是普通目录，执行前被换成指向 /home（confirm_required）的 symlink → 拦。
+
+    Executor 在执行时刻（而非评估时刻）做 realpath + 真实路径校验，
+    评估与执行之间的偷换不可利用（真实目标命中 PATH_CONFIRM_REQUIRED 即拒绝：
+    审批针对的是评估时的词法路径，不能迁移到策略层从未见过的目标）。
+    """
+    from backend.app.mcp.registry import ToolRegistry
+    from backend.app.security.guard import RuleBasedPolicyEngine
+    from mcp_servers.os_ops import all_specs
+
+    target = tmp_path / "scan_me"
+    target.mkdir()
+
+    # 评估时刻：词法路径是普通目录，策略层 allow
+    engine = RuleBasedPolicyEngine(registry=ToolRegistry(all_specs()))
+    verdict = engine.evaluate(_tool("disk.large_files", {"path": str(target)}))
+    assert verdict.decision == "allow"
+
+    # 执行前偷换：同一路径变成指向 confirm_required 保护目录的 symlink
+    target.rmdir()
+    target.symlink_to("/home")
+
+    ex = PrivilegeExecutor()
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
+        result = asyncio.run(ex.execute(_tool("disk.large_files", {"path": str(target)})))
+
+    mock_exec.assert_not_called()
+    assert result.exit_code != 0
+    assert "PATH_CONFIRM_REQUIRED" in result.stdout_truncated
+    assert result.is_untrusted is True
 
 
 # ---- 端到端策略拦截哨兵（D-1d）-------------------------------------------
