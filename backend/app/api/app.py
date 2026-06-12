@@ -22,12 +22,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.agent.ports import AuditSink
+from backend.app.agent.rca import RCAEngine
 from backend.app.api._fakes import build_fake_audit, build_fake_gateway, build_fake_llm
 from backend.app.api.event_bus import EventBus
 from backend.app.api.session_registry import SessionRegistry
 from backend.app.api.session_store import SessionStore
 from backend.app.llm.adapter import LLMAdapter
 from backend.app.mcp.gateway import MCPGateway
+from mcp_servers.rca import DefaultRCAEngine
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +83,16 @@ def get_audit() -> AuditSink:
     （唯一接线点，见 _fakes.py 注入点替换清单 ③）。
     """
     return build_fake_audit()
+
+
+def get_rca() -> RCAEngine:
+    """获取 RCAEngine（已接 X 的 mcp_servers/rca.DefaultRCAEngine）。
+
+    非单例：DefaultRCAEngine 是无状态确定性规则引擎（不执行命令、不改系统、不持句柄），
+    每请求新建即可。注入 Orchestrator 后，一条 chat 链跑完若产非空报告即 emit "rca" 事件；
+    独立 RCA 端点（routers/rca.py）亦消费同一引擎。
+    """
+    return DefaultRCAEngine()
 
 
 # ============================================================

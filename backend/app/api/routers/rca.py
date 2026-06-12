@@ -1,10 +1,11 @@
 """增量6：RCA 端点（独立分析入口，不走完整 chat 链路）。
 
-POST /api/rca/analyze：建 trace_id，当前用 NullRCA 产空报告并暂存。
+POST /api/rca/analyze：建 trace_id，按 problem_type/description 产报告并暂存。
 GET /api/rca/{trace_id}：取回该 trace 的 RCA 报告。
 
-TODO(BLOCKED-ON-X): RCA playbook（证据采集模板 + 根因推断）归 X 的 mcp_servers/rca/；
-本轮仅搭端点 + 调起点 + 桩报告，report 真实结构待 X 定。
+已接 X 的 mcp_servers/rca.DefaultRCAEngine（确定性 playbook 规则引擎，不执行命令、
+不改系统，只据不可信证据产报告）。独立端点空证据 + 明确 problem_type → 产"采集建议"
+型非空报告，前端 RCA 页可对真后端联调。
 """
 
 from __future__ import annotations
@@ -13,13 +14,13 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from backend.app.agent.rca import NullRCA
 from backend.app.api.deps import verify_token
 from backend.app.api.schemas import (
     RCAAnalyzeRequest,
     RCAAnalyzeResponse,
     RCAReportResponse,
 )
+from mcp_servers.rca import DefaultRCAEngine
 
 router = APIRouter(prefix="/api/rca", tags=["rca"])
 
@@ -27,8 +28,8 @@ router = APIRouter(prefix="/api/rca", tags=["rca"])
 # TODO: 报告生命周期/持久化待定；本轮内存版让前端能拉取。
 _reports: dict[str, dict] = {}
 
-# 桩 RCA 引擎（待 X 在 mcp_servers/rca/ 实现真编排器替换）
-_rca_engine = NullRCA()
+# RCA 引擎（X 的 DefaultRCAEngine：无状态确定性规则引擎）。
+_rca_engine = DefaultRCAEngine()
 
 
 @router.post("/analyze", response_model=RCAAnalyzeResponse)
@@ -36,14 +37,14 @@ async def analyze(
     body: RCAAnalyzeRequest,
     _user: str = Depends(verify_token),
 ) -> RCAAnalyzeResponse:
-    """RCA 分析入口（独立于 chat）：当前产空报告并暂存，返回 trace_id。
+    """RCA 分析入口（独立于 chat）：按 problem_type/description 产报告并暂存，返回 trace_id。
 
-    TODO(BLOCKED-ON-X): 接真实 RCA playbook——按 problem_type 选模板、
-    经 gateway 调只读工具采集证据、交 RCAEngine 推断根因。
+    空证据 + 明确 problem_type 时，DefaultRCAEngine 返回"采集建议"型报告（非空）；
+    RCA 只产报告，不执行任何工具/命令（红线：本端点不触发执行）。
     """
     trace_id = uuid.uuid4().hex
-    # NullRCA 对空证据产空报告；真实现按 problem_type/description 编排
-    report = _rca_engine.analyze([])
+    # 独立端点无 chat 链路证据，按 problem_type/description 编排"采集建议"报告
+    report = _rca_engine.analyze_problem(body.problem_type, body.description)
     _reports[trace_id] = report
     return RCAAnalyzeResponse(trace_id=trace_id)
 

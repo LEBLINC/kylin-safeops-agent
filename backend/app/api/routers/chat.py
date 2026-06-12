@@ -19,11 +19,13 @@ from fastapi.responses import StreamingResponse
 
 from backend.app.agent.orchestrator import Orchestrator
 from backend.app.agent.ports import AuditSink
+from backend.app.agent.rca import RCAEngine
 from backend.app.api.app import (
     get_audit,
     get_bus,
     get_gateway,
     get_llm,
+    get_rca,
     get_registry,
     get_session_store,
 )
@@ -48,6 +50,7 @@ async def post_chat(
     gateway: MCPGateway = Depends(get_gateway),
     llm: LLMAdapter = Depends(get_llm),
     audit: AuditSink = Depends(get_audit),
+    rca: RCAEngine = Depends(get_rca),
     store: SessionStore = Depends(get_session_store),
 ) -> ChatResponse:
     """建会话请求：装配 orchestrator，后台跑 run，立即返回 trace_id。"""
@@ -59,6 +62,7 @@ async def post_chat(
         gateway=gateway,
         audit=audit,
         events=SSEEventSink(bus, trace_id),
+        rca=rca,
         trace_id=trace_id,
     )
     session = OrchestratorSession(trace_id=trace_id, orchestrator=orchestrator)
