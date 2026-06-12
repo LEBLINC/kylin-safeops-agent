@@ -95,9 +95,11 @@ class PolicyRule(BaseModel):
 class ProtectedPaths(BaseModel):
     """路径保护清单（手册 §6.4 / Build-Guide §3.3）。
 
-    路径参数经 canonicalize（os.path.realpath）+ 禁 .. 后比对；按以下层级取最严：
-    - forbid_modify:       禁修改（命中即 deny）
-    - forbid_delete:       禁删除（命中删除类工具即 deny）
+    路径参数经 normalize_path（posixpath.normpath，纯词法）+ 禁 .. 后大小写敏感比对；
+    真实 realpath/symlink 兜底在 Executor（evaluate 无 IO，不调 realpath，确定性铁律）。
+    按以下层级取最严：
+    - forbid_modify:       禁修改（变更类工具命中即 deny）
+    - forbid_delete:       禁删除（变更类工具命中即 deny）
     - confirm_required:    需要确认（命中即 confirm）
     - rotate_only:         可轮转/压缩，禁直接删（删除工具命中 → deny；轮转工具 → allow/confirm）
     - cleanable_limited:   可有限清理（结合工具语义裁定）
