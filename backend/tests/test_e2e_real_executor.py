@@ -55,6 +55,7 @@ _EXECUTOR_SYMBOLS = (
     "get_executor",
     "Executor",
     "LocalExecutor",
+    "PrivilegeExecutor",
     "PrivilegedExecutor",
     "SandboxExecutor",
     "SystemdExecutor",
