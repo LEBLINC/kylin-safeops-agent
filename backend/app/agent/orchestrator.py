@@ -3,8 +3,8 @@
 职责边界（铁律）：
 - 只规划/编排，不直接执行命令（执行经注入的 MCPGateway 走完整三道闸 + 结果闸）。
 - 每个状态转移点产契约5 AuditRecord（哈希链）并 append；同时 emit 契约6 audit_appended。
-- 阶段性前端事件按状态**逐点判定** EventType，不套公式（state 与 EventType 非一一对应：
-  RECEIVED/REJECTED/FINISHED 无独立前端事件，仅产审计）。
+- 阶段性前端事件按状态**逐点判定** EventType（state 与 EventType 非一一对应）：
+  RECEIVED/FINISHED 无独立前端事件仅产审计；REJECTED 终态显式 emit "rejected"（L-6 方案B）。
 - 工具结果回喂前强制 is_untrusted 包裹（结果闸；gateway 已强制，orchestrator 不再裸调 executor）。
 - 高危(confirm)必经 WAIT_APPROVAL，等外部审批回执再 EXECUTING；deny→REJECTED 终止。
 - 方案 B：执行失败以 ToolResult.exit_code 承载，由 VERIFIED 判定，不新增失败状态。
@@ -265,6 +265,15 @@ class Orchestrator:
             self._append_audit(
                 {"decision": "deny", "approval_required": False, "denied_tools": denied}
             )
+            # L-6 方案B：REJECTED 终态显式结论事件（策略 deny），让前端/任意消费者收尾。
+            self._emit(
+                "rejected",
+                {
+                    "reason": batch_verdict.reason,
+                    "cause": "policy_deny",
+                    "denied_tools": denied,
+                },
+            )
             return self.state
 
         # 非 deny：批次内不含 deny 工具，执行集 = 全部候选工具
@@ -295,6 +304,15 @@ class Orchestrator:
         if not approved:
             self._goto(State.REJECTED)
             self._append_audit({"decision": "deny", "approval_required": True})
+            # L-6 方案B：REJECTED 终态显式结论事件（用户拒批）。
+            self._emit(
+                "rejected",
+                {
+                    "reason": "operator rejected the plan",
+                    "cause": "user_reject",
+                    "denied_tools": [],
+                },
+            )
             return self.state
         return await self._execute_batch(approved=True)
 

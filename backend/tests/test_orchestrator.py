@@ -291,6 +291,10 @@ def test_deny_goes_rejected_no_execution() -> None:
     assert end is State.REJECTED
     assert ex.calls == []
     assert "executing" not in events.types()
+    # L-6 方案B：REJECTED 终态显式 emit rejected(cause=policy_deny)
+    assert "rejected" in events.types()
+    rej = [e for e in events.events if e.type == "rejected"][0]
+    assert rej.data["cause"] == "policy_deny"
     _assert_chain_intact(audit)
 
 
@@ -314,13 +318,17 @@ def test_confirm_pauses_then_resume_approved() -> None:
 
 
 def test_confirm_then_resume_rejected() -> None:
-    orch, audit, _events, ex = _build(
+    orch, audit, events, ex = _build(
         _llm_returning(_intent_json()), _verdict("confirm", role="admin")
     )
     asyncio.run(orch.run([{"role": "user", "content": "x"}]))
     end = asyncio.run(orch.resume(approved=False))
     assert end is State.REJECTED
     assert ex.calls == []
+    # L-6 方案B：用户拒批 → 显式 emit rejected(cause=user_reject)
+    assert "rejected" in events.types()
+    rej = [e for e in events.events if e.type == "rejected"][0]
+    assert rej.data["cause"] == "user_reject"
     _assert_chain_intact(audit)
 
 
