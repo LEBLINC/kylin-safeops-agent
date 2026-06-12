@@ -1,29 +1,33 @@
-/**
- * RCA 支持的问题类型。
- * 该类型不在 stream.py 中强约束；stream.py 只规定 rca -> { report: dict }。
+﻿/**
+ * RCA supported problem types.
+ * Five formal scenarios + unknown fallback.
+ * Aliases service_abnormal / service_failed map to service_failure in Python backend.
  */
 export type RcaProblemType =
   | 'disk_full'
   | 'zombie_process'
   | 'io_high'
   | 'config_drift'
-  | 'service_abnormal'
-  | 'service_failed'
+  | 'service_failure'
   | 'unknown'
 
-/** 根因候选项。 */
+/** Root cause candidate. */
 export interface RcaCandidate {
-  /** 根因描述。 */
   cause: string
-  /** 置信度，0~1。 */
   confidence: number
-  /** 直接证据文本。 */
   evidence: string[]
-  /** 对 evidence_chain 中证据节点的引用 ID。 */
   evidence_refs?: string[]
 }
 
-/** EvidenceTree 组件使用的树形节点。 */
+/** An action that requires approval before execution. */
+export interface ApprovalRequiredAction {
+  action: string
+  reason: string
+  approval_role: string
+  risk_level: string
+}
+
+/** EvidenceTree component tree node. */
 export interface RcaEvidenceNode {
   id: string
   label: string
@@ -32,21 +36,16 @@ export interface RcaEvidenceNode {
   children?: RcaEvidenceNode[]
 }
 
-/** RCA 证据链中的一条证据。 */
+/** A single evidence item in evidence_chain. */
 export interface RcaEvidenceItem {
-  /** 证据 ID。 */
   id: string
-  /** 证据来自哪个工具，例如 disk.usage / process.zombie_check。 */
   source_tool: string
-  /** 证据标题。 */
   title: string
-  /** 证据详情。 */
   detail: string
-  /** 是否不可信。来自工具输出/日志的证据必须标记为 true。 */
   is_untrusted: boolean
 }
 
-/** 被拒绝的危险操作。 */
+/** Rejected dangerous action. */
 export interface RejectedDangerousAction {
   action: string
   reason: string
@@ -56,43 +55,58 @@ export interface RejectedDangerousAction {
 /**
  * RcaReport
  *
- * rca 事件 data.report 的建议结构。
- * 说明：stream.py 目前只规定 report 是 dict，没有展开字段；
- * 这里是前端与 mcp_servers/rca/ 建议对齐的结构。
+ * rca event data.report structure.
+ * stream.py specifies report is a dict; this is the recommended alignment
+ * between frontend and mcp_servers/rca/.
  */
 export interface RcaReport {
+  /** Problem type. */
   problem_type: RcaProblemType
+  /** Analysis summary. */
   summary: string
+  /** Primary root cause (derived from top candidate). */
+  root_cause: string
+  /** Root cause candidates. */
   root_cause_candidates: RcaCandidate[]
+  /** Confidence of the primary root cause (0-1). */
+  confidence: number
+  /** All evidence references from candidates. */
+  evidence_refs: string[]
+  /** Evidence chain (untrusted). */
   evidence_chain: RcaEvidenceItem[]
+  /** Human-readable recommendations. */
+  recommendations: string[]
+  /** Safe read-only or low-risk actions. */
   safe_actions: string[]
+  /** Actions requiring approval before execution. */
+  approval_required_actions: ApprovalRequiredAction[]
+  /** Dangerous actions rejected by safety policy. */
   dangerous_actions_rejected: RejectedDangerousAction[]
+  /** Risk notes and caveats. */
+  risk_notes: string[]
+  /** Recommended next steps (legacy compat). */
   recommended_next_steps: string[]
 }
 
 /**
  * RcaResult
  *
- * 独立 RCA 页面接口返回结构。
- * 这里兼容旧 EvidenceTree 的 evidence_tree，同时也兼容新的 RcaReport 字段。
+ * Standalone RCA page interface return structure.
  */
 export interface RcaResult {
-  /** RCA 任务 ID。 */
   trace_id: string
-  /** 问题类型。 */
   problem_type: RcaProblemType
-  /** 分析摘要。 */
+  root_cause?: string
   summary?: string
-  /** 根因候选。 */
   root_cause_candidates: RcaCandidate[]
-  /** 安全建议。 */
+  confidence?: number
+  evidence_refs?: string[]
+  recommendations?: string[]
   safe_actions: string[]
-  /** 被拒绝的危险操作，兼容旧 string[] 与新版对象数组。 */
+  approval_required_actions?: ApprovalRequiredAction[]
   dangerous_actions_rejected: string[] | RejectedDangerousAction[]
-  /** 旧版树形证据结构。 */
+  risk_notes?: string[]
   evidence_tree?: RcaEvidenceNode[]
-  /** 新版证据链结构。 */
   evidence_chain?: RcaEvidenceItem[]
-  /** 推荐下一步操作。 */
   recommended_next_steps?: string[]
 }

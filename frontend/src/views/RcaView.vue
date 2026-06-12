@@ -84,7 +84,7 @@ async function analyze() {
           <el-option label="僵尸进程" value="zombie_process" />
           <el-option label="I/O 异常" value="io_high" />
           <el-option label="配置漂移" value="config_drift" />
-          <el-option label="服务异常" value="service_abnormal" />
+          <el-option label="服务异常" value="service_failure" />
         </el-select>
         <el-input v-model="description" />
         <el-button type="primary" :loading="loading" @click="analyze">开始分析</el-button>
