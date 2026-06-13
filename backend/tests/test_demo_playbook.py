@@ -38,7 +38,11 @@ def test_scenario3_disk_io_finished() -> None:
 
 
 def test_scenario4_config_drift_finished() -> None:
-    """场景④配置漂移：单段只读 hash_snapshot+diff(R0 allow)→FINISHED（无审批）。"""
+    """场景④配置漂移：单段只读 hash_snapshot+diff(R0 allow)→FINISHED（无审批）。
+
+    决策⑤：config.diff 在 mcp 层聚合（复用 config.hash_snapshot，不落执行器），
+    故 DemoExecutor 收到的是两次 config.hash_snapshot（第二次系 config.diff 聚合内部所发）。
+    """
     state, calls = asyncio.run(run_config_drift())
     assert state is State.FINISHED
-    assert calls == ["config.hash_snapshot", "config.diff"]
+    assert calls == ["config.hash_snapshot", "config.hash_snapshot"]

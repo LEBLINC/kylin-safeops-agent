@@ -6,6 +6,10 @@ tools/list 与 tools/call。tools/call 的执行**强制**经过三道闸，顺�
   3. 策略放行：过 D 的 PolicyEngine；非 allow 一律不执行。
 放行后才交注入的 Executor 执行；结果一律包成契约4 ToolResult(is_untrusted=True)。
 
+特例：``config.diff`` 在三道闸通过后于 **mcp 层聚合**（决策⑤），不落 D 的单命令执行器——
+复用 ``config.hash_snapshot`` 取真实快照后与基线对比（见 ``config_diff`` 模块），保 D 执行器
+"单命令模板"纯粹。
+
 本层不直接跑命令、不拼 shell（铁律2）；执行委托 Executor（D 实现）。
 """
 
@@ -18,9 +22,11 @@ from backend.app.contracts.intent import CandidateTool
 from backend.app.contracts.policy import PolicyEngine, PolicyVerdict
 from backend.app.contracts.tool import ToolSpec
 from backend.app.contracts.untrusted import ToolResult
+from backend.app.mcp import config_diff
 from backend.app.mcp.registry import ToolRegistry
 from backend.app.mcp.result_gate import seal_result
 from backend.app.mcp.schema_validator import validate_args
+from mcp_servers.os_ops.parsers import parse_sha256sum_output
 
 
 @runtime_checkable
@@ -80,6 +86,8 @@ class MCPGateway:
         self._registry = registry
         self._policy = policy
         self._executor = executor
+        # config.diff 的 mcp 层聚合基线（决策⑤；gateway 实例级内存基线，见 config_diff 模块）。
+        self._config_diff = config_diff.ConfigDiffAggregator()
 
     def list_tools(self) -> list[ToolSpec]:
         """tools/list：返回已注册工具规格。"""
@@ -138,7 +146,46 @@ class MCPGateway:
                 executed=False, verdict=verdict, reason="policy: confirm (needs approval)"
             )
 
+        # config.diff：mcp 层聚合（决策⑤）。三道闸已过，但**不**落 D 单命令执行器
+        # （config.diff 无单命令模板→127）；改复用 config.hash_snapshot 取真快照后与基线对比。
+        if spec.name == "config.diff":
+            return await self._aggregate_config_diff(tool, verdict)
+
         # 执行 + 结果闸：密封不可信（强制 is_untrusted=True + 标准 wrap_token）
         result = await self._executor.execute(tool)
         result = seal_result(result)
         return CallOutcome(executed=True, result=result, verdict=verdict)
+
+    async def _aggregate_config_diff(
+        self, tool: CandidateTool, verdict: PolicyVerdict
+    ) -> CallOutcome:
+        """config.diff mcp 层聚合：复用 config.hash_snapshot 取真快照 → 与基线对比 → ConfigDiff。
+
+        决策⑤：聚合只在 mcp 层，**绝不**把 config.diff 交给 D 单命令执行器（会 127）。
+        config.hash_snapshot 经真 Executor（路径 canonicalize/沙箱照常）；快照失败（exit≠0）
+        按方案 B 原样上抛该 ToolResult（密封后返回），不吞错、不伪造空 diff。
+        """
+        paths = tool.args.get("paths", [])
+        snapshot_tool = CandidateTool(name="config.hash_snapshot", args={"paths": paths})
+        snap = await self._executor.execute(snapshot_tool)
+        if snap.exit_code != 0:
+            # 方案 B：快照命令失败原样上抛（别吞错）；结果闸照常密封。
+            return CallOutcome(
+                executed=True,
+                result=seal_result(snap),
+                verdict=verdict,
+                reason="config.hash_snapshot failed (exit!=0)",
+            )
+
+        current = parse_sha256sum_output(snap.stdout_truncated)
+        key = config_diff.baseline_key(tool.args)
+        diff, established = self._config_diff.compute(key, current)
+        payload = config_diff.to_stdout(diff, baseline_established=established, key=key)
+        result = ToolResult(
+            tool="config.diff",
+            args=tool.args,
+            exit_code=0,
+            stdout_truncated=payload,
+            is_untrusted=True,
+        )
+        return CallOutcome(executed=True, result=seal_result(result), verdict=verdict)

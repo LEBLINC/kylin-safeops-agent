@@ -3,11 +3,12 @@
 覆盖：
 1. 切真后主链路 smoke：chat(system.info) → FINISHED，有 tool_result，result.is_untrusted=True
    + 标准 wrap_token（结果闸密封真命令输出）。win32 下命令可能 127，断言聚焦方案B 语义与密封。
-2. config.diff 安全降级：intent 提议 config.diff → 未注册被 gateway 闸1 拦 → REJECTED，真命令未起。
-3. config.diff 已从 /api/tools/registry 摘除。
+2. config.diff 已接回 + mcp 层聚合：intent 提议 config.diff → 已注册、经三道闸聚合（不再 gate1
+   降级 REJECTED）；产 tool_result（决策⑤，详见 test_config_diff_aggregation）。
+3. config.diff 已回到 /api/tools/registry（摘除恢复）。
 
 注：app 默认 build_gateway 装配真 PrivilegeExecutor；win32 真命令多 127（方案B 正常 return），
-真数据靠 CI ubuntu。本套件验证"接线正确 + 方案B 语义 + 结果闸密封 + config.diff 摘除"。
+真数据靠 CI ubuntu。本套件验证"接线正确 + 方案B 语义 + 结果闸密封 + config.diff 接回聚合"。
 """
 
 from __future__ import annotations
@@ -75,11 +76,16 @@ def test_chat_smoke_real_executor_sealed() -> None:
     asyncio.run(scenario())
 
 
-# ---- 2. config.diff 安全降级 ----------------------------------------------
+# ---- 2. config.diff 接回 + mcp 层聚合 -------------------------------------
 
 
-def test_config_diff_intent_safe_degraded() -> None:
-    """intent 提议未注册的 config.diff → gateway 闸1 拦 → REJECTED，真命令未起。"""
+def test_config_diff_intent_aggregated_not_degraded() -> None:
+    """intent 提议 config.diff → 已注册、经三道闸 + mcp 层聚合（不再 gate1 降级 REJECTED）。
+
+    决策⑤：config.diff 经 gateway 聚合复用 config.hash_snapshot，不落 D 单命令执行器。
+    win32 下内部快照可能 127（方案 B 原样上抛仍 executed），故断言"未被 REJECTED + 产 tool_result"，
+    跨平台稳健（结构化 diff 的确定性断言见 test_config_diff_aggregation）。
+    """
     intent_json = json.dumps(
         {
             "intent": "config_diff_attempt",
@@ -87,7 +93,7 @@ def test_config_diff_intent_safe_degraded() -> None:
             "need_observation": False,
             "candidate_tools": [{"name": "config.diff", "args": {"paths": ["/etc/hosts"]}}],
             "risk_hint": "low",
-            "justification": "试图调用已摘除的 config.diff",
+            "justification": "调用已接回的 config.diff",
         }
     )
 
@@ -99,17 +105,16 @@ def test_config_diff_intent_safe_degraded() -> None:
                 resp = await client.post("/api/chat", json={"message": "比对配置"})
                 events = await _consume_sse(client, resp.json()["stream_url"])
                 types = [t for t, _ in events]
-                # 未注册 → 安全降级：REJECTED（rejected 事件），无真执行
-                assert "rejected" in types
-                assert "tool_result" not in types
-                assert "executing" not in types
+                # 已注册 → 不再安全降级：不 REJECTED，且经聚合产 tool_result
+                assert "rejected" not in types
+                assert "tool_result" in types
         app.dependency_overrides.clear()
 
     asyncio.run(scenario())
 
 
-def test_config_diff_absent_from_registry() -> None:
-    """config.diff 已从 /api/tools/registry 摘除（_DEFERRED_TOOLS）。"""
+def test_config_diff_present_in_registry() -> None:
+    """config.diff 已接回 /api/tools/registry（决策⑤摘除恢复）。"""
 
     async def scenario() -> None:
         app = create_app()
@@ -117,7 +122,8 @@ def test_config_diff_absent_from_registry() -> None:
             async with _client(app) as client:
                 items = (await client.get("/api/tools/registry")).json()
                 names = {it["tool"] for it in items}
-                assert "config.diff" not in names
+                assert "config.diff" in names
+                assert "config.hash_snapshot" in names
                 # 其余 os_ops 工具仍在
                 assert "system.info" in names
                 assert "disk.usage" in names

@@ -22,8 +22,8 @@
 另含 LLM 注入桩（待接真实 LLM 端点，非 D 模块）：
      桩：build_fake_llm（本文件）；接线处：app.get_llm() provider。
 
-装配点：app.py 的 build_gateway / get_audit / get_llm 三个 provider；
-config.diff 暂缓注册见 _DEFERRED_TOOLS。
+装配点：app.py 的 build_gateway / get_audit / get_llm 三个 provider。
+config.diff 已在 mcp 层聚合接回 registry（决策⑤，见 _DEFERRED_TOOLS / config_diff 模块）。
 ═══════════════════════════════════════════════════════════════════
 """
 
@@ -43,10 +43,10 @@ from backend.app.security import DEFAULT_POLICY, PolicyEngine
 from mcp_servers.os_ops import all_specs
 
 #: app 注册集中暂缓注册的工具（L 域 registry 装配过滤，不碰 os_ops 工具声明本身）。
-#: config.diff 需快照基线聚合、无单命令模板，真执行会返 127——待 D 执行层支持或
-#: L 在 mcp 层做聚合后再注册。后果：config.diff 不在 /api/tools/registry；若 intent
-#: 提议它 → gateway 闸1（未注册）→ 安全降级 deny（已知会 X）。
-_DEFERRED_TOOLS = {"config.diff"}
+#: config.diff 已由 L 在 mcp 层聚合接回（决策⑤，见 backend/app/mcp/config_diff.py +
+#: gateway._aggregate_config_diff）——故不再在此摘除，registry/`/api/tools/registry` 重新含它。
+#: 本集合保留为空 + 过滤机制（future-proof：若再有"无单命令模板需 mcp 层特判"的工具可在此暂缓）。
+_DEFERRED_TOOLS: set[str] = set()
 
 
 class FakePolicyEngine:
@@ -94,14 +94,14 @@ def build_fake_audit() -> FakeAudit:
 def build_gateway() -> MCPGateway:
     """装配默认 MCPGateway：【真 registry + 真策略 + 真特权执行器】。
 
-    现状（全真，除 config.diff 暂缓注册）：
-    - registry：真 os_ops 工具集 all_specs()，过滤掉 _DEFERRED_TOOLS（config.diff）。
+    现状（全真，config.diff 经 mcp 层聚合接回）：
+    - registry：真 os_ops 工具集 all_specs()（_DEFERRED_TOOLS 现为空，全量注册含 config.diff）。
     - policy：D 的真 PolicyEngine(DEFAULT_POLICY, registry)——同一 registry 实例防漂移。
     - executor：D 的真 PrivilegeExecutor（无参构造，默认 timeout=30 + DEFAULT_POLICY）。
 
     切真后运行中的 app 会经特权代理跑真命令（方案B：失败用 exit_code 承载，仅系统级故障 raise）。
     LLM/审计经各自 provider（get_llm/get_audit）注入，不在本装配点。
-    config.diff 暂从注册集摘除（见 _DEFERRED_TOOLS）。
+    config.diff 经 gateway 三道闸后在 mcp 层聚合（决策⑤，见 config_diff 模块），不落 D 执行器。
     """
     specs = [s for s in all_specs() if s.name not in _DEFERRED_TOOLS]
     registry = ToolRegistry(specs)
