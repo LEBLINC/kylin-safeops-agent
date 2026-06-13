@@ -5,7 +5,6 @@ import {
   deleteSessionApi,
   getSessions,
   renameSessionApi,
-  searchSessionsApi,
   sendMessage as sendMessageApi,
   type ChatStreamConnection
 } from '@/api/chat'
@@ -292,11 +291,20 @@ export const useChatStore = defineStore('chat', {
       return session
     },
 
-    /** 切换会话，同时关闭当前事件流，避免旧 trace 事件写入新会话。 */
+    /** 切换会话。
+     *
+     * 最小方案：如果当前 trace 处于 pending approval，不关闭 SSE，
+     * 否则 resume 后续事件可能丢失。
+     * 长期优化建议：维护 streamsByTrace，每个 trace 单独管理 EventSource。
+     */
     switchSession(sessionId: string) {
       if (!sessionId || sessionId === this.currentSessionId) return
-      this.stream?.close()
-      this.stream = null
+      const _currentTraceId = this.activeTraceId
+      const _currentApproval = _currentTraceId ? this.approvalByTrace[_currentTraceId] : null
+      if (!_currentApproval || _currentApproval.status !== 'pending') {
+        this.stream?.close()
+        this.stream = null
+      }
       this.currentSessionId = sessionId
       this.messagesBySession[sessionId] ||= []
       this.traceIdsBySession[sessionId] ||= []
@@ -350,20 +358,12 @@ export const useChatStore = defineStore('chat', {
       this.persist()
     },
 
-    /** 搜索会话。优先调 api，失败时由 getter filteredSessions 完成本地过滤。 */
+    /** 搜索会话。真实模式下只做前端本地过滤，不调用后端 search 接口（后端未实现）。 */
     async searchSessions(keyword: string) {
       this.searchKeyword = keyword
       if (!keyword.trim()) return
-      try {
-        const remote = await searchSessionsApi(keyword)
-        if (remote?.length) {
-          const ids = new Set(this.sessions.map(sessionIdOf))
-          this.sessions = [...this.sessions, ...remote.map(normalizeSession).filter(item => !ids.has(sessionIdOf(item)))]
-          this.persist()
-        }
-      } catch {
-        // 本地 filteredSessions 已经可以完成搜索。
-      }
+      // Mock 模式：可以调后端 search 补充远程结果
+      // 真实模式：后端未实现 /api/chat/sessions/search，只做本地过滤（getter filteredSessions）
     },
 
     /** 向指定会话追加一条聊天消息。 */
@@ -595,11 +595,6 @@ export const useChatStore = defineStore('chat', {
         }
       }
 
-      if (event.type === 'done') {
-        this.loading = false
-        this.stopAssistantTyping(traceId)
-      }
-
       this._debouncedPersist()
     },
 
@@ -658,6 +653,11 @@ async sendMessage(content: string) {
               created_at: nowIso(),
               trace_id: traceId
             })
+          },
+          () => {
+            // onDone: SSE transport 结束，只负责清理状态，不写入业务事件
+            this.loading = false
+            this.stopAssistantTyping(traceId)
           }
         )
       } catch (error) {
@@ -672,9 +672,8 @@ async sendMessage(content: string) {
       }
     },
 
-    /** 对话内批准当前批次原子计划。 */
-    async approveInlinePlan(comment = '确认执行本批计划') {
-      const traceId = this.activeTraceId
+    /** 对话内批准当前批次原子计划。使用传入 traceId，禁止默认使用 activeTraceId。 */
+    async approveInlinePlan(traceId: string, comment = '确认执行本批计划') {
       const approval = traceId ? this.approvalByTrace[traceId] : null
       if (!traceId || !approval) return
       try {
@@ -696,9 +695,8 @@ async sendMessage(content: string) {
       }
     },
 
-    /** 对话内拒绝当前批次原子计划。 */
-    async rejectInlinePlan(comment = '拒绝执行本批计划') {
-      const traceId = this.activeTraceId
+    /** 对话内拒绝当前批次原子计划。使用传入 traceId。 */
+    async rejectInlinePlan(traceId: string, comment = '拒绝执行本批计划') {
       const approval = traceId ? this.approvalByTrace[traceId] : null
       if (!traceId || !approval) return
       try {
@@ -720,9 +718,8 @@ async sendMessage(content: string) {
       }
     },
 
-    /** 权限不足时，在对话中申请转管理员审批。 */
-    async escalateInlinePlan(reason = '当前用户权限不足，申请管理员审批') {
-      const traceId = this.activeTraceId
+    /** 权限不足时，在对话中申请转管理员审批。使用传入 traceId。 */
+    async escalateInlinePlan(traceId: string, reason = '当前用户权限不足，申请管理员审批') {
       const approval = traceId ? this.approvalByTrace[traceId] : null
       if (!traceId || !approval) return
       const response = await escalateApproval({ trace_id: traceId, comment: reason, tools: approval.tools })

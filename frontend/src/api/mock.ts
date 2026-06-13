@@ -204,7 +204,8 @@ export type MockChatStreamConnection = Pick<EventSource, 'close'>
 export function connectMockChatStream(
   traceId: string,
   onMessage: (event: StreamEvent) => void,
-  onError?: (error: Event) => void
+  onError?: (error: Event) => void,
+  onDone?: () => void
 ): MockChatStreamConnection {
   const record = mockTraces.get(traceId)
   let closed = false
@@ -240,7 +241,15 @@ export function connectMockChatStream(
     },
     async emitAfterApproval(approved: boolean) {
       await emitSequence(approved ? record.approvedEvents : record.rejectedEvents, 360)
+      onDone?.()
     }
+  }
+
+  // 如果没有 await_approval（无审批场景），初始事件发出后直接 onDone
+  const hasApproval = record.initialEvents.some(e => e.type === 'await_approval')
+  if (!hasApproval) {
+    void emitSequence(record.initialEvents, 420).then(() => onDone?.())
+    return controller
   }
 
   record.controller = controller
@@ -260,7 +269,7 @@ export async function mockResumeApproval(data: ResumeApprovalRequest): Promise<R
   await record?.controller?.emitAfterApproval(data.approved)
   return {
     trace_id: data.trace_id,
-    status: data.approved ? 'resumed' : 'rejected'
+    accepted: data.approved
   }
 }
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isMockEnabled } from '@/api/mock'
 import { onMounted, ref } from 'vue'
 import PageHeader from '@/layouts/PageHeader.vue'
 import PageSection from '@/components/PageSection.vue'
@@ -23,8 +24,8 @@ import type { PolicyRule } from '@/types/policy'
  * - 失败时保留本页面初始化的默认规则。
  *
  * 与 stream.py 的关系：
- * - stream.py 的 policy_verdict 只推送“某次请求命中了哪些规则”；
- * - 本页面展示的是“规则定义列表”，不属于 stream.py 强约束字段。
+ * - stream.py 的 policy_verdict 只推送"某次请求命中了哪些规则"；
+ * - 本页面展示的是"规则定义列表"，不属于 stream.py 强约束字段。
  */
 const rules = ref<PolicyRule[]>([
   { rule_id: 'PI001', name: '提示词注入：忽略规则', severity: 'high', action: 'deny', reason: '禁止用户要求绕过安全规则' },
@@ -32,6 +33,9 @@ const rules = ref<PolicyRule[]>([
   { rule_id: 'SVC001', name: '服务重启需管理员确认', severity: 'high', action: 'confirm', reason: '影响服务可用性' },
   { rule_id: 'DBLOG001', name: '数据库日志保护', severity: 'critical', action: 'confirm', reason: '数据库 binlog 涉及恢复链路' }
 ])
+
+/** 后端接口是否加载失败（真实模式下用于提示降级状态）。 */
+const apiLoadFailed = ref(false)
 
 /**
  * 页面初始化时加载策略规则。
@@ -43,6 +47,7 @@ onMounted(async () => {
   try {
     rules.value = await getPolicyRules()
   } catch {
+    apiLoadFailed.value = true
     // 后端策略规则接口不可用时保留默认规则。
   }
 })
@@ -51,6 +56,10 @@ onMounted(async () => {
 <template>
   <div class="ks-page">
     <PageHeader title="策略规则" subtitle="只读展示当前安全护栏规则、风险等级与保护路径" />
+
+    <el-alert v-if="apiLoadFailed && !isMockEnabled()" type="warning" show-icon :closable="false"
+      title="策略规则 API 尚未接入"
+      description="当前展示为前端示例规则，非后端真实策略数据" />
 
     <div class="risk-row">
       <PageSection title="风险等级">

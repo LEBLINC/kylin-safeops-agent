@@ -154,10 +154,11 @@ export function connectChatStream(
   traceId: string,
   streamUrl: string | undefined,
   onMessage: (event: StreamEvent) => void,
-  onError?: (error: Event) => void
+  onError?: (error: Event) => void,
+  onDone?: () => void
 ): ChatStreamConnection {
   if (isMockEnabled() || streamUrl?.startsWith('mock://')) {
-    return connectMockChatStream(traceId, onMessage, onError)
+    return connectMockChatStream(traceId, onMessage, onError, onDone)
   }
 
   const url = buildApiUrl(streamUrl || `/api/chat/${traceId}/events`)
@@ -175,7 +176,7 @@ export function connectChatStream(
   let isClosed = false
   source.addEventListener('done', () => {
     isClosed = true
-    onMessage({ trace_id: traceId, type: 'done', ts: Date.now(), data: {} } as StreamEvent)
+    onDone?.()
     source.close()
   })
 

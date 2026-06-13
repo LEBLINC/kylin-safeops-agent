@@ -98,14 +98,13 @@ export function rejectAction(approvalId: string, comment?: string) {
  * 请求方式：POST /api/approvals/resume
  * 使用位置：stores/chat.ts 的 approveInlinePlan / rejectInlinePlan
  *
- * 请求参数：
+ * 请求参数（禁止多加字段，后端 extra="forbid"）：
  * @param data.trace_id 当前等待审批的 trace_id。
  * @param data.approved true 表示批准整批原子计划；false 表示拒绝整批原子计划。
- * @param data.comment 审批备注。
  *
  * 返回数据：
  * @returns trace_id 对应 trace。
- * @returns status 后端处理状态，例如 resumed / rejected。
+ * @returns accepted 后端是否接受。
  *
  * 原子语义：
  * 这个接口不是逐工具审批，而是对 await_approval.data.tools 中的整批工具统一批准或拒绝。
