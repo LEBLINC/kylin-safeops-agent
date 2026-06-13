@@ -9,9 +9,12 @@
 - stdout 截断 8KB；stderr 追加 "--- stderr ---"。
 - ToolResult.is_untrusted=True。
 
-首版限制（CLAUDE.md §8 已确认）：
-- 不含 systemd-run / sudoers / wrapper（等麒麟 VM）。
-- Windows 上只能验证执行框架 + 方案 B 语义，真采集需 Linux。
+沙箱（PR2b）：
+- sandbox_enabled=True 时，命令经 systemd-run --scope 包裹执行，
+  沙箱属性见 sandbox.py（ProtectSystem/ProtectHome/NoNewPrivileges 等）。
+- sandbox_enabled=False（默认）时，行为与首版完全一致（无沙箱），现有测试零回归。
+- Windows 上无论设置如何均不包裹（systemd-run 不存在）。
+- 真沙箱验证待麒麟 VM；首版脚手架仅验证 argv 构建正确性。
 """
 
 from __future__ import annotations
@@ -60,10 +63,15 @@ class PrivilegeExecutor:
     """
 
     def __init__(
-        self, *, timeout: int = DEFAULT_TIMEOUT, policy: PolicySet = DEFAULT_POLICY
+        self,
+        *,
+        timeout: int = DEFAULT_TIMEOUT,
+        policy: PolicySet = DEFAULT_POLICY,
+        sandbox_enabled: bool = False,
     ) -> None:
         self._timeout = timeout
         self._policy = policy
+        self._sandbox_enabled = sandbox_enabled
 
     async def execute(self, tool: CandidateTool) -> ToolResult:
         """执行单个工具调用。"""
@@ -177,10 +185,24 @@ class PrivilegeExecutor:
         return argv
 
     async def _run_subprocess(self, tool: CandidateTool, argv: Sequence[str]) -> ToolResult:
-        """在子进程中执行命令（不用 shell）。"""
+        """在子进程中执行命令（不用 shell）。
+
+        sandbox_enabled=True 且非 Windows 时，将 argv 包裹进 systemd-run --scope；
+        否则原样执行（与首版一致）。包裹在路径校验之后进行（沙箱不改变判执语义）。
+        """
+        run_argv: list[str]
+        if self._sandbox_enabled and platform.system() != "Windows":
+            from backend.app.executor.sandbox import build_sandbox_argv, get_sandbox_profile
+
+            profile = get_sandbox_profile(tool.name)
+            use_sudo = os.geteuid() != 0 if hasattr(os, "geteuid") else False
+            run_argv = build_sandbox_argv(list(argv), profile, use_sudo=use_sudo)
+        else:
+            run_argv = list(argv)
+
         try:
             proc = await asyncio.create_subprocess_exec(
-                *argv,
+                *run_argv,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=SAFE_CWD,

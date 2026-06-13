@@ -1,0 +1,22 @@
+# Kylin SafeOps Agent — sudoers 白名单（PR2b）
+#
+# 用途：仅允许 Agent 运行用户（kylin-agent）无密码调用 systemd-run --scope，
+#       使 Agent 进程以低权限运行，但能通过受控 sudo 进入内核级沙箱执行。
+#
+# 最小权限原则：
+# - 仅允许 `/usr/bin/systemd-run --scope *`，不允许 --unit / --timer / 其他子命令。
+# - 不允许任何其他 sudo 命令。
+# - 通配 `*` 仅匹配 --scope 之后的属性/命令参数；命令内容由 Python executor
+#   层（command_templates 白名单 + 路径 canonicalize/realpath）兜底，sudoers 不做内容校验。
+#
+# 部署：
+#   cp deploy/sandbox/kylin-safeops-sudoers /etc/sudoers.d/kylin-safeops
+#   chmod 0440 /etc/sudoers.d/kylin-safeops
+#   chown root:root /etc/sudoers.d/kylin-safeops
+#   visudo -c -f /etc/sudoers.d/kylin-safeops   # 语法校验
+#
+# 待麒麟 V11 VM 验证：
+# - systemd-run 实际路径（`which systemd-run`，本模板假定 /usr/bin/systemd-run）。
+# - 将 kylin-agent 替换为实际运行用户名。
+
+kylin-agent ALL=(root) NOPASSWD: /usr/bin/systemd-run --scope *

@@ -1,0 +1,30 @@
+# Kylin SafeOps Agent — systemd transient scope 单元模板（PR2b）
+#
+# 说明：
+# systemd-run --scope 会在运行时自动创建 transient scope 单元，
+# 此文件作为配置参考与文档，记录 PR2b 设计的安全属性基线。
+# 实际部署中 systemd-run 不需要此文件——它是 transient 的。
+# 但若未来需要转为 persistent unit（如 systemd-run --unit），此文件可作为模板。
+#
+# 部署：仅文档用途。若需 persistent，cp 到
+#       /etc/systemd/system/kylin-safeops-scope@.service
+
+[Unit]
+Description=Kylin SafeOps Agent sandboxed command execution (%i)
+
+[Service]
+Type=oneshot
+# 安全属性（与 sandbox.py readonly profile 一致）
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadOnlyPaths=/
+# 超时由 executor 控制（TimeoutStartSec 作为 backstop）
+TimeoutStartSec=60
+
+[Install]
+# transient scope 不需要 install 段；保留作 persistent 转换参考

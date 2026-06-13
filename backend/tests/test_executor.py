@@ -322,3 +322,99 @@ def test_e2e_policy_deny_before_executor() -> None:
     assert "FILE001" in verdict.matched_rules
     assert verdict.approval_required is False
     assert verdict.final_risk == "R4"
+
+
+# ---- systemd-run 沙箱包裹（PR2b）-----------------------------------------
+
+
+def test_sandbox_disabled_by_default() -> None:
+    """默认 sandbox_enabled=False：create_subprocess_exec 收到原始 argv，不含 systemd-run。"""
+    ex = PrivilegeExecutor()
+    mock_proc = AsyncMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"ok", b""))
+    mock_proc.returncode = 0
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+        asyncio.run(ex.execute(_tool("disk.usage")))
+
+    call_args = mock_exec.call_args
+    assert call_args[0][0] == "/usr/bin/df"
+    assert "/usr/bin/systemd-run" not in call_args[0]
+
+
+def test_sandbox_enabled_wraps_argv() -> None:
+    """sandbox_enabled=True + Linux：argv 被 systemd-run --scope 包裹（首参 systemd-run）。"""
+    ex = PrivilegeExecutor(sandbox_enabled=True)
+    mock_proc = AsyncMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"ok", b""))
+    mock_proc.returncode = 0
+
+    with (
+        patch("platform.system", return_value="Linux"),
+        patch("os.geteuid", return_value=0, create=True),
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
+    ):
+        asyncio.run(ex.execute(_tool("disk.usage")))
+
+    call_args = mock_exec.call_args
+    assert call_args[0][0] == "/usr/bin/systemd-run"
+    assert "--scope" in call_args[0]
+    assert "ProtectSystem=strict" in call_args[0]  # disk.usage → readonly
+    # 原命令仍在末尾，未被改写
+    assert call_args[0][-2:] == ("/usr/bin/df", "-PB1")
+
+
+def test_sandbox_enabled_uses_sudo_when_non_root() -> None:
+    """sandbox_enabled=True + 非 root：argv 以 sudo 开头（低权限运行经受控 sudo 提权）。"""
+    ex = PrivilegeExecutor(sandbox_enabled=True)
+    mock_proc = AsyncMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"ok", b""))
+    mock_proc.returncode = 0
+
+    with (
+        patch("platform.system", return_value="Linux"),
+        patch("os.geteuid", return_value=1000, create=True),
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
+    ):
+        asyncio.run(ex.execute(_tool("disk.usage")))
+
+    call_args = mock_exec.call_args
+    assert call_args[0][0] == "/usr/bin/sudo"
+    assert "/usr/bin/systemd-run" in call_args[0]
+
+
+def test_sandbox_enabled_windows_noop() -> None:
+    """Windows 上即使 sandbox_enabled=True 也不包裹（systemd-run 不存在）。"""
+    ex = PrivilegeExecutor(sandbox_enabled=True)
+    mock_proc = AsyncMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"ok", b""))
+    mock_proc.returncode = 0
+
+    with (
+        patch("platform.system", return_value="Windows"),
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
+    ):
+        asyncio.run(ex.execute(_tool("disk.usage")))
+
+    call_args = mock_exec.call_args
+    assert call_args[0][0] == "/usr/bin/df"
+    assert "/usr/bin/systemd-run" not in call_args[0]
+
+
+def test_system_info_never_sandboxed() -> None:
+    """system.info（profile=none）无论 sandbox_enabled 如何都不经沙箱包裹。"""
+    ex = PrivilegeExecutor(sandbox_enabled=True)
+    mock_proc = AsyncMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"x", b""))
+    mock_proc.returncode = 0
+
+    with (
+        patch("platform.system", return_value="Linux"),
+        patch("os.geteuid", return_value=0, create=True),
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
+    ):
+        asyncio.run(ex.execute(_tool("system.info")))
+
+    # system.info 自管子进程（_execute_system_info），每个调用首参都不是 systemd-run/sudo
+    for call in mock_exec.call_args_list:
+        assert call[0][0] not in ("/usr/bin/systemd-run", "/usr/bin/sudo")
