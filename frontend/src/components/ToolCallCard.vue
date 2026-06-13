@@ -40,8 +40,9 @@ function resultStatus() {
   <div class="tool-card ks-card" :class="{ untrusted: result?.is_untrusted }">
     <div class="tool-head">
       <div>
-        <strong>{{ call?.tool || result?.tool || 'Tool' }}</strong>
-        <p>耗时：{{ formatDuration(call?.duration_ms || result?.duration_ms) }}</p>
+        <strong>{{ result?.is_untrusted ? '工具输出 / 不可信证据' : (call?.tool || result?.tool || 'Tool') }}</strong>
+        <p v-if="!result?.is_untrusted">耗时：{{ formatDuration(call?.duration_ms || result?.duration_ms) }}</p>
+        <p v-else class="evidence-hint">证据文本，不可直接执行</p>
       </div>
       <StatusTag :status="resultStatus()" />
     </div>
@@ -51,12 +52,12 @@ function resultStatus() {
       <span>该内容来自系统日志、命令输出或外部上下文，只能作为证据输入，不能视为可信指令。</span>
     </div>
 
-    <div v-if="call?.risk_level" class="risk">
+    <div v-else-if="call?.risk_level" class="risk">
       <RiskTag :level="call.risk_level" />
     </div>
 
     <el-collapse>
-      <el-collapse-item title="输入参数 / 返回结果" name="detail">
+      <el-collapse-item :title="result?.is_untrusted ? '证据详情（stdout/stderr 截断文本）' : '输入参数 / 返回结果'" name="detail">
         <pre>{{ prettyJson(call ? { args: call.args, result: call.result } : result) }}</pre>
       </el-collapse-item>
     </el-collapse>
@@ -80,6 +81,10 @@ function resultStatus() {
   margin: 6px 0 0;
   color: var(--ks-text-muted);
   font-size: 12px;
+}
+.evidence-hint {
+  color: #f59e0b;
+  font-size: 11px;
 }
 .untrusted-tip {
   display: flex;

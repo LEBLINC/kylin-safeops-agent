@@ -147,32 +147,32 @@ async function deleteSession(sessionId: string) {
 
 /**
  * 批准当前批次的原子计划。
- * 该方法由中间聊天区 ApprovalCard 触发，不由右侧触发。
+ * 使用传入的 traceId，禁止默认使用 activeTraceId，确保多审批卡正确路由。
  */
-async function approveBatch() {
-  await chat.approveInlinePlan('确认执行本批原子计划')
+async function approveBatch(traceId: string) {
+  await chat.approveInlinePlan(traceId, '确认执行本批原子计划')
 }
 
 /**
  * 拒绝当前批次的原子计划。
- * 拒绝后整批工具都不会执行。
+ * 使用传入的 traceId。
  */
-async function rejectBatch() {
+async function rejectBatch(traceId: string) {
   try {
     const result = await ElMessageBox.prompt('请输入拒绝原因，可留空', '拒绝整批计划', {
       confirmButtonText: '确认拒绝',
       cancelButtonText: '取消',
       inputValue: '风险较高，拒绝执行'
     })
-    await chat.rejectInlinePlan(result.value || '拒绝执行本批计划')
+    await chat.rejectInlinePlan(traceId, result.value || '拒绝执行本批计划')
   } catch {
     // 用户取消时不提示错误。
   }
 }
 
-/** 权限不足时，申请转管理员审批。 */
-async function escalateBatch() {
-  await chat.escalateInlinePlan('当前用户权限不足，申请管理员审批')
+/** 权限不足时，申请转管理员审批。使用传入 traceId。 */
+async function escalateBatch(traceId: string) {
+  await chat.escalateInlinePlan(traceId, '当前用户权限不足，申请管理员审批')
   ElMessage.success('已提交管理员审批')
 }
 </script>
@@ -241,9 +241,9 @@ async function escalateBatch() {
                 :inline="message.approval"
                 :current-role="chat.currentUserRole"
                 :can-approve="canApproveCurrentBatch"
-                @approve="approveBatch"
-                @reject="rejectBatch"
-                @escalate="escalateBatch"
+                @approve="(traceId: string) => approveBatch(traceId)"
+                @reject="(traceId: string) => rejectBatch(traceId)"
+                @escalate="(traceId: string) => escalateBatch(traceId)"
               />
               <template v-else>
                 {{ message.content }}<span v-if="message.status === 'streaming'" class="typing-cursor">▌</span>

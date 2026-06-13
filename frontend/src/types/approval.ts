@@ -62,22 +62,20 @@ export interface InlineApproval {
   status: ApprovalStatus
 }
 
-/** POST /api/approvals/resume 请求体。 */
+/** POST /api/approvals/resume 请求体。后端 ResumeRequest 设置了 extra="forbid"，禁止多余字段。 */
 export interface ResumeApprovalRequest {
   /** 要续跑或拒绝的 trace_id。 */
   trace_id: string
   /** true=批准整批执行；false=拒绝整批执行。 */
   approved: boolean
-  /** 审批备注。 */
-  comment?: string
 }
 
 /** POST /api/approvals/resume 返回体。 */
 export interface ResumeApprovalResponse {
   /** 对应 trace_id。 */
   trace_id: string
-  /** 后端返回状态，例如 resumed/rejected。 */
-  status: string
+  /** 后端是否接受。 */
+  accepted: boolean
 }
 
 /** POST /api/approvals/escalate 请求体。 */

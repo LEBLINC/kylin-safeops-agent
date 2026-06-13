@@ -62,5 +62,10 @@ onMounted(async () => {
   <div class="ks-page">
     <PageHeader title="工具调用详情" subtitle="查看单次 MCP Tool 的参数、结果、耗时与风险等级" />
     <ToolCallCard v-if="call" :call="call" />
+    <div v-else-if="!isMockEnabled()" class="ks-page-section">
+      <el-alert type="warning" show-icon :closable="false"
+        title="工具调用详情 API 尚未接入"
+        description="GET /api/tools/calls/{call_id} 后端未实现，X1 联调范围内不包含此接口" />
+    </div>
   </div>
 </template>

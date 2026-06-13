@@ -66,10 +66,21 @@ const overview = ref<SystemOverview>({
  * 3. 成功则用真实数据覆盖 overview；
  * 4. 失败则继续使用默认 Mock 数据。
  */
+/** 服务状态映射规则：running/active → success，failed/stopped → danger，其他 → warning。 */
+function serviceStatus(raw: string): string {
+  if (raw === 'running' || raw === 'active') return 'success'
+  if (raw === 'failed' || raw === 'stopped') return 'danger'
+  return 'warning'
+}
+
+/** 接口加载状态跟踪，用于降级提示。 */
+const overviewLoadFailed = ref(false)
+
 onMounted(async () => {
   try {
     overview.value = await getSystemOverview()
   } catch {
+    overviewLoadFailed.value = true
     // 后端未启动时保留默认 Mock 数据，保证演示页可用。
   }
 })
@@ -111,11 +122,15 @@ onMounted(async () => {
         </div>
       </PageSection>
 
+      <PageSection v-if="overviewLoadFailed" title="数据来源">
+        <el-alert type="warning" show-icon :closable="false" title="接口加载失败" description="系统概览接口暂不可用，当前展示为演示数据" />
+      </PageSection>
+
       <PageSection title="运行服务">
         <div class="service-list">
           <div v-for="service in overview.services" :key="service.name" class="service-row">
             <span>{{ service.name }}</span>
-            <StatusTag status="success" />
+            <StatusTag :status="serviceStatus(service.status)" />
           </div>
         </div>
       </PageSection>
