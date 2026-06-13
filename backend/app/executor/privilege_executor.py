@@ -15,9 +15,15 @@
   施加保护属性（ProtectSystem/ReadOnlyPaths/ProtectHome/PrivateTmp/NoNewPrivileges/...）。
   采用瞬态 service 而非 scope 是关键：scope 不经 fork/exec，Protect* 会被静默忽略。
 - 安全属性唯一事实来源在 wrapper；Python 仅选 profile + 拼 wrapper argv（sandbox.py）。
+- wrapper 闭合 -p 属性注入（O12）+ inner 命令白名单校验（洞2，仅放行 command_templates
+  生产二进制，禁 shell/解释器）；删除 none 分支消除经 sudo 的任意 root 执行死代码（洞1）。
+- system.info 不经沙箱（profile=none，由 _execute_system_info 直接执行），依赖其只读聚合性质。
 - sandbox_enabled=False（默认）时行为与首版完全一致（无沙箱），现有测试零回归。
 - Windows 上无论设置如何均不包裹。Linux+systemd 环境下集成测试真验证写拒绝；
-  麒麟 V11 待验证 LoongArch 特有项（systemd-run 绝对路径 / dbus 可达性等）。
+  麒麟 V11 待验证 LoongArch 特有项：
+  · systemd-run 绝对路径 / 麒麟 systemd 版本对 ProtectSystem=full/strict 的支持；
+  · service.restart：systemctl restart 在沙箱内（NoNewPrivileges + ProtectHome）能否触达
+    /run/dbus；若失败则 service.restart 需走 profile 例外。
 """
 
 from __future__ import annotations

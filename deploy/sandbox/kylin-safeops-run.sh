@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # kylin-safeops-run.sh — Kylin SafeOps Agent 沙箱唯一执行入口（PR2b-v2）
 #
-# 用法: kylin-safeops-run.sh <readonly|limited_write|none> -- <cmd> [args...]
+# 用法: kylin-safeops-run.sh <readonly|limited_write> -- <cmd> [args...]
 # 由 PrivilegeExecutor 通过 sudo 调用。
+#
+# 安全边界（洞1/洞2 闭合）：
+#   - 不接受 none profile（system.info 由 Python 直接执行、不经 wrapper）——删除攻击面死代码。
+#   - inner 命令经白名单校验（见 ALLOWED_CMDS），禁 shell/解释器，杜绝经 sudo 的任意 root 执行。
 #
 # 机制：systemd-run 瞬态 service（--pipe --wait --collect --quiet，非 --scope）。
 #   scope 只做 cgroup 登记、不经 fork/exec，mount-namespace 类保护属性
@@ -28,10 +32,42 @@
 # --quiet：抑制 systemd-run 自身输出
 set -euo pipefail
 
-PROFILE="${1:?用法: $0 <readonly|limited_write|none> -- <cmd> [args...]}"
+PROFILE="${1:?用法: $0 <readonly|limited_write> -- <cmd> [args...]}"
 shift
 [[ "${1:-}" == "--" ]] && shift
 [[ $# -eq 0 ]] && { echo "缺少命令" >&2; exit 1; }
+
+# ---- inner 命令白名单（与 command_templates.py 对齐，OS 级逃生边界）----
+# 仅允许 executor 合法使用的二进制；禁止 shell/解释器（sh/bash/python/perl/awk 等）。
+# 即使 agent 进程被攻陷，经 sudo 也只能以 root 跑以下命令（且受沙箱约束）。
+ALLOWED_CMDS=(
+    # COMMAND_TEMPLATES 生产二进制
+    /usr/bin/df
+    /usr/bin/find
+    /usr/bin/ps
+    /usr/sbin/ss
+    /usr/bin/netstat
+    /usr/bin/journalctl
+    /usr/sbin/lsof
+    /usr/bin/systemctl
+    /usr/bin/sha256sum
+    /usr/bin/gzip
+    # 集成测试 + 探测用（无害工具，非解释器）
+    /usr/bin/touch
+    /usr/bin/echo
+    /bin/true
+    /bin/false
+)
+
+CMD="$1"
+ALLOWED=false
+for allowed in "${ALLOWED_CMDS[@]}"; do
+    [[ "$CMD" == "$allowed" ]] && ALLOWED=true && break
+done
+if [[ "$ALLOWED" != "true" ]]; then
+    echo "命令不在白名单: $CMD" >&2
+    exit 1
+fi
 
 SYSTEMD_RUN=/usr/bin/systemd-run
 COMMON_PROPS=(
@@ -68,11 +104,8 @@ case "$PROFILE" in
             "${ENV_PROPS[@]}" \
             -- "$@"
         ;;
-    none)
-        exec "$@"
-        ;;
     *)
-        echo "未知 profile: $PROFILE" >&2
+        echo "未知或不允许的 profile: $PROFILE" >&2
         exit 1
         ;;
 esac

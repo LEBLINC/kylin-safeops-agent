@@ -28,6 +28,10 @@ SUDO_PATH = "/usr/bin/sudo"
 
 #: 工具 → profile 映射（显式注册；未注册默认 readonly，保守 fail-closed）。
 TOOL_SANDBOX_PROFILES: dict[str, SandboxProfile] = {
+    # system.info 不经沙箱：profile=none 使 build_sandbox_argv 直接返回原 argv
+    # （不经 wrapper/sudo），且 _execute_system_info 不走 _run_subprocess。
+    # 安全依赖其"只读多命令聚合"性质，非全工具内核兜底。
+    # wrapper 已删除 none 分支（洞1）：none 仅是 Python 侧的"不包裹"标记。
     "system.info": "none",
     "disk.usage": "readonly",
     "disk.large_files": "readonly",

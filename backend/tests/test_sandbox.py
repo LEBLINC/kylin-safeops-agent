@@ -226,3 +226,19 @@ def test_exit_code_passthrough() -> None:
     """--wait：inner 命令退出码被透传（方案 B 语义不破）。"""
     res = _run_via_wrapper("readonly", ["/bin/false"])
     assert res.returncode != 0, "false 的非零退出码未透传"
+
+
+@_integration
+def test_wrapper_rejects_none_profile() -> None:
+    """wrapper 拒绝 none profile（洞1 闭合：已删除 none 分支）。"""
+    res = _run_via_wrapper("none", ["/usr/bin/echo", "should-not-run"])
+    assert res.returncode != 0, f"wrapper 竟接受 none！stdout={res.stdout!r}"
+    assert "should-not-run" not in res.stdout
+
+
+@_integration
+def test_wrapper_rejects_non_whitelisted_binary() -> None:
+    """wrapper 拒绝非白名单二进制（洞2 闭合：禁 shell/解释器及任意命令）。"""
+    res = _run_via_wrapper("readonly", ["/bin/sh", "-c", "echo pwned"])
+    assert res.returncode != 0, f"wrapper 竟允许 /bin/sh！stdout={res.stdout!r}"
+    assert "pwned" not in res.stdout
