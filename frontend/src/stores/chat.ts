@@ -570,30 +570,34 @@ export const useChatStore = defineStore('chat', {
         })
       }
 
-      if (event.type === 'done') {
+      if (event.type === 'rejected') {
         this.loading = false
         this.stopAssistantTyping(traceId)
-        const verdict = this.policyVerdictByTrace[traceId]
-        const approval = this.approvalByTrace[traceId]
-        if (verdict?.decision === 'deny') {
+        const data = event.data as { reason: string; cause: string; denied_tools: string[] }
+        if (data.cause === 'policy_deny') {
           this.addMessage(sessionId, {
             id: uid('msg_denied'),
             role: 'system',
             status: 'done',
-            content: `操作被安全策略拒绝：${verdict.reason || '不允许执行'}`,
+            content: `⛔ 操作被安全策略拒绝：${data.reason || '不允许执行'}`,
             created_at: nowIso(),
             trace_id: traceId
           })
-        } else if (approval?.status === 'rejected') {
+        } else {
           this.addMessage(sessionId, {
             id: uid('msg_rejected'),
             role: 'system',
             status: 'done',
-            content: `用户已拒绝执行：${approval.reason || '未说明原因'}`,
+            content: `⛔ 审批被拒绝：${data.reason || '未说明原因'}`,
             created_at: nowIso(),
             trace_id: traceId
           })
         }
+      }
+
+      if (event.type === 'done') {
+        this.loading = false
+        this.stopAssistantTyping(traceId)
       }
 
       this._debouncedPersist()

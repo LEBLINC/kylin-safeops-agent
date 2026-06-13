@@ -23,6 +23,7 @@ interface StreamEvent {
 | `executing` | `{ tools: string[] }` | 当前批量执行的工具列表 |
 | `tool_result` | `{ result: ToolResult }` | 单个工具结果，支持“不可信输出”标记 |
 | `verified` | `{ summary: string }` | 执行后验证总结 |
+| `rejected` | `{ reason, cause: "policy_deny" \| "user_reject", denied_tools }` | 拒绝结论（策略拦截 / 用户拒批）⛔ |
 | `rca` | `{ report: RcaReport }` | RCA 证据链和根因候选 |
 | `audit_appended` | `{ seq: number, curr_hash: string }` | 哈希链新增节点 |
 | `error` | `{ message: string, phase: string }` | 错误阶段与原因 |

@@ -181,7 +181,7 @@ export async function mockSendMessage(data: SendMessageRequest): Promise<SendMes
     userMessage,
     initialEvents: buildInitialEvents(traceId, userMessage),
     approvedEvents: buildApprovedEvents(traceId),
-    rejectedEvents: buildRejectedEvents(traceId)
+    rejectedEvents: buildRejectedEvents(traceId, 'user_reject')
   })
 
   return {
@@ -435,10 +435,14 @@ function buildApprovedEvents(traceId: string): StreamEvent[] {
 }
 
 /** 构造审批拒绝后的事件流。 */
-function buildRejectedEvents(traceId: string): StreamEvent[] {
+function buildRejectedEvents(traceId: string, cause: 'policy_deny' | 'user_reject'): StreamEvent[] {
   return [
-    event(traceId, 'verified', { summary: '用户已拒绝本批原子计划，所有待执行工具均未执行。' }),
-    event(traceId, 'audit_appended', { seq: 2, curr_hash: 'a77f09c118ee20dd231b' })
+    event(traceId, 'rejected', {
+      reason: cause === 'policy_deny' ? '安全策略拦截：检测到高危操作' : 'operator rejected the plan',
+      cause,
+      denied_tools: cause === 'policy_deny' ? ['log.compress_rotate'] : [],
+    }),
+    event(traceId, 'audit_appended', { seq: 2, curr_hash: 'a77f09c118ee20dd231b' }),
   ]
 }
 
