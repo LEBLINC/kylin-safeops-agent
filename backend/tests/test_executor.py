@@ -322,3 +322,109 @@ def test_e2e_policy_deny_before_executor() -> None:
     assert "FILE001" in verdict.matched_rules
     assert verdict.approval_required is False
     assert verdict.final_risk == "R4"
+
+
+# ---- systemd 瞬态 service 沙箱包裹（PR2b-v2）------------------------------
+
+
+def test_sandbox_disabled_by_default() -> None:
+    """默认 sandbox_enabled=False：create_subprocess_exec 收原始 argv，不经 wrapper。"""
+    from backend.app.executor.sandbox import WRAPPER_PATH
+
+    ex = PrivilegeExecutor()
+    mock_proc = AsyncMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"ok", b""))
+    mock_proc.returncode = 0
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+        asyncio.run(ex.execute(_tool("disk.usage")))
+
+    call_args = mock_exec.call_args
+    assert call_args[0][0] == "/usr/bin/df"
+    assert WRAPPER_PATH not in call_args[0]
+
+
+def test_sandbox_enabled_calls_wrapper() -> None:
+    """sandbox_enabled=True + Linux：argv 经 wrapper 包裹（非 root 时前置 sudo）。"""
+    from backend.app.executor.sandbox import SUDO_PATH, WRAPPER_PATH
+
+    ex = PrivilegeExecutor(sandbox_enabled=True)
+    mock_proc = AsyncMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"ok", b""))
+    mock_proc.returncode = 0
+
+    with (
+        patch("platform.system", return_value="Linux"),
+        patch("os.geteuid", return_value=1000, create=True),
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
+    ):
+        asyncio.run(ex.execute(_tool("disk.usage")))
+
+    argv = mock_exec.call_args[0]
+    assert argv[0] == SUDO_PATH
+    assert WRAPPER_PATH in argv
+    assert "readonly" in argv  # disk.usage → readonly profile
+    # 原命令仍在末尾，未被改写；Python 侧不出现任何 -p 安全属性
+    assert argv[-2:] == ("/usr/bin/df", "-PB1")
+    assert "-p" not in argv
+
+
+def test_sandbox_enabled_root_no_sudo() -> None:
+    """sandbox_enabled=True + root：直接 wrapper 开头，无 sudo。"""
+    from backend.app.executor.sandbox import SUDO_PATH, WRAPPER_PATH
+
+    ex = PrivilegeExecutor(sandbox_enabled=True)
+    mock_proc = AsyncMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"ok", b""))
+    mock_proc.returncode = 0
+
+    with (
+        patch("platform.system", return_value="Linux"),
+        patch("os.geteuid", return_value=0, create=True),
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
+    ):
+        asyncio.run(ex.execute(_tool("disk.usage")))
+
+    argv = mock_exec.call_args[0]
+    assert argv[0] == WRAPPER_PATH
+    assert SUDO_PATH not in argv
+
+
+def test_sandbox_enabled_windows_noop() -> None:
+    """Windows 上即使 sandbox_enabled=True 也不包裹。"""
+    from backend.app.executor.sandbox import WRAPPER_PATH
+
+    ex = PrivilegeExecutor(sandbox_enabled=True)
+    mock_proc = AsyncMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"ok", b""))
+    mock_proc.returncode = 0
+
+    with (
+        patch("platform.system", return_value="Windows"),
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
+    ):
+        asyncio.run(ex.execute(_tool("disk.usage")))
+
+    argv = mock_exec.call_args[0]
+    assert argv[0] == "/usr/bin/df"
+    assert WRAPPER_PATH not in argv
+
+
+def test_system_info_not_sandboxed() -> None:
+    """system.info（profile=none）不走 _run_subprocess，不被沙箱包裹。"""
+    from backend.app.executor.sandbox import SUDO_PATH, WRAPPER_PATH
+
+    ex = PrivilegeExecutor(sandbox_enabled=True)
+    mock_proc = AsyncMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"x", b""))
+    mock_proc.returncode = 0
+
+    with (
+        patch("platform.system", return_value="Linux"),
+        patch("os.geteuid", return_value=0, create=True),
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
+    ):
+        asyncio.run(ex.execute(_tool("system.info")))
+
+    for call in mock_exec.call_args_list:
+        assert call[0][0] not in (WRAPPER_PATH, SUDO_PATH)

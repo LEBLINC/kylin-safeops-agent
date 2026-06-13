@@ -1,0 +1,18 @@
+# /etc/sudoers.d/kylin-safeops — Kylin SafeOps Agent 沙箱 sudoers（PR2b-v2）
+#
+# 部署：
+#   cp deploy/sandbox/kylin-safeops-sudoers /etc/sudoers.d/kylin-safeops
+#   chown root:root /etc/sudoers.d/kylin-safeops
+#   chmod 0440 /etc/sudoers.d/kylin-safeops
+#   visudo -c -f /etc/sudoers.d/kylin-safeops    # 语法校验
+#
+# 仅允许通过 wrapper 脚本执行（不允许裸 systemd-run -p），闭合 O12：
+#   Agent 进程即使被攻陷，也无法自行拼 systemd-run 参数削弱沙箱属性——
+#   属性硬编码在 wrapper 里，sudoers 只放行 wrapper 路径。
+#
+# %kylin-safeops 为 Agent 运行用户所属组（部署时创建：groupadd kylin-safeops &&
+# usermod -aG kylin-safeops <agent-user>）。
+#
+# 待麒麟 V11 VM 验证：wrapper 实际部署路径（本模板假定 /usr/local/sbin/kylin-safeops-run.sh）。
+
+%kylin-safeops ALL=(root) NOPASSWD: /usr/local/sbin/kylin-safeops-run.sh *
