@@ -225,7 +225,7 @@ export interface RejectedEventData {
   /** Reason text for rejection. */
   reason: string
   /** Rejection cause: policy_deny or user_reject. */
-  cause: 'policy_deny' | 'user_reject'
+  cause: 'policy_deny' | 'user_reject' | 'injection'
   /** Denied tools list (has values for policy_deny, empty for user_reject). */
   denied_tools: string[]
 }
