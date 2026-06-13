@@ -30,6 +30,9 @@ config.diff 已在 mcp 层聚合接回 registry（决策⑤，见 _DEFERRED_TOOL
 from __future__ import annotations
 
 import json
+import logging
+import os
+import platform
 
 from backend.app.contracts.audit import AuditRecord
 from backend.app.contracts.intent import CandidateTool
@@ -41,6 +44,11 @@ from backend.app.mcp.gateway import MCPGateway
 from backend.app.mcp.registry import ToolRegistry
 from backend.app.security import DEFAULT_POLICY, PolicyEngine
 from mcp_servers.os_ops import all_specs
+
+logger = logging.getLogger(__name__)
+
+#: 沙箱启用 env 开关名（值为 "1" 且平台非 Windows 才生效；默认关）。
+_SANDBOX_ENV = "KYLIN_SANDBOX_ENABLED"
 
 #: app 注册集中暂缓注册的工具（L 域 registry 装配过滤，不碰 os_ops 工具声明本身）。
 #: config.diff 已由 L 在 mcp 层聚合接回（决策⑤，见 backend/app/mcp/config_diff.py +
@@ -97,7 +105,13 @@ def build_gateway() -> MCPGateway:
     现状（全真，config.diff 经 mcp 层聚合接回）：
     - registry：真 os_ops 工具集 all_specs()（_DEFERRED_TOOLS 现为空，全量注册含 config.diff）。
     - policy：D 的真 PolicyEngine(DEFAULT_POLICY, registry)——同一 registry 实例防漂移。
-    - executor：D 的真 PrivilegeExecutor（无参构造，默认 timeout=30 + DEFAULT_POLICY）。
+    - executor：D 的真 PrivilegeExecutor，sandbox_enabled 按平台 + env 接通（见下）。
+
+    沙箱启用（L 仅接"开关"，不碰 executor/sandbox 实现）：
+    - sandbox_enabled = (非 Windows) 且 env KYLIN_SANDBOX_ENABLED=="1"；
+    - **默认关**（未设 env 或 Windows → False → 零行为改变、现有测试零回归）；
+    - 仅 Linux + 显式 KYLIN_SANDBOX_ENABLED=1 才开（麒麟部署由 systemd unit/env 设），
+      开时命令经 wrapper 跑 systemd 瞬态 service（D 的实现）。
 
     切真后运行中的 app 会经特权代理跑真命令（方案B：失败用 exit_code 承载，仅系统级故障 raise）。
     LLM/审计经各自 provider（get_llm/get_audit）注入，不在本装配点。
@@ -105,10 +119,17 @@ def build_gateway() -> MCPGateway:
     """
     specs = [s for s in all_specs() if s.name not in _DEFERRED_TOOLS]
     registry = ToolRegistry(specs)
+    sandbox_enabled = (
+        platform.system() != "Windows" and os.environ.get(_SANDBOX_ENV, "").strip() == "1"
+    )
+    if sandbox_enabled:
+        logger.info("沙箱已启用（systemd 瞬态 service，KYLIN_SANDBOX_ENABLED=1）")
+    else:
+        logger.info("沙箱默认关闭（零行为改变）；生产需 Linux + KYLIN_SANDBOX_ENABLED=1 才启用")
     return MCPGateway(
         registry=registry,
         policy=PolicyEngine(DEFAULT_POLICY, registry),
-        executor=PrivilegeExecutor(),  # type: ignore[arg-type]
+        executor=PrivilegeExecutor(sandbox_enabled=sandbox_enabled),  # type: ignore[arg-type]
     )
 
 
