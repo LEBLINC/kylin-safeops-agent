@@ -1,4 +1,4 @@
-"""特权执行器首版（D）— subprocess list 框架。
+"""特权执行器（D）— subprocess list 框架 + systemd 瞬态 service 沙箱（PR2b-v2）。
 
 铁律：
 - 绝不 shell=True；绝不拼命令字符串。
@@ -9,9 +9,15 @@
 - stdout 截断 8KB；stderr 追加 "--- stderr ---"。
 - ToolResult.is_untrusted=True。
 
-首版限制（CLAUDE.md §8 已确认）：
-- 不含 systemd-run / sudoers / wrapper（等麒麟 VM）。
-- Windows 上只能验证执行框架 + 方案 B 语义，真采集需 Linux。
+沙箱（PR2b-v2）：
+- sandbox_enabled=True 时，命令经 deploy/sandbox/kylin-safeops-run.sh wrapper 执行；
+  wrapper 内部以 systemd-run 瞬态 service（--pipe --wait --collect --quiet，非 --scope）
+  施加保护属性（ProtectSystem/ReadOnlyPaths/ProtectHome/PrivateTmp/NoNewPrivileges/...）。
+  采用瞬态 service 而非 scope 是关键：scope 不经 fork/exec，Protect* 会被静默忽略。
+- 安全属性唯一事实来源在 wrapper；Python 仅选 profile + 拼 wrapper argv（sandbox.py）。
+- sandbox_enabled=False（默认）时行为与首版完全一致（无沙箱），现有测试零回归。
+- Windows 上无论设置如何均不包裹。Linux+systemd 环境下集成测试真验证写拒绝；
+  麒麟 V11 待验证 LoongArch 特有项（systemd-run 绝对路径 / dbus 可达性等）。
 """
 
 from __future__ import annotations
@@ -32,6 +38,7 @@ from backend.app.executor.command_templates import (
     get_template,
     has_tool,
 )
+from backend.app.executor.sandbox import build_sandbox_argv, get_sandbox_profile
 from backend.app.security.normalize import has_dotdot, normalize_path
 from backend.app.security.path_policy import real_path_violation
 from backend.app.security.policy_loader import DEFAULT_POLICY
@@ -60,10 +67,15 @@ class PrivilegeExecutor:
     """
 
     def __init__(
-        self, *, timeout: int = DEFAULT_TIMEOUT, policy: PolicySet = DEFAULT_POLICY
+        self,
+        *,
+        timeout: int = DEFAULT_TIMEOUT,
+        policy: PolicySet = DEFAULT_POLICY,
+        sandbox_enabled: bool = False,
     ) -> None:
         self._timeout = timeout
         self._policy = policy
+        self._sandbox_enabled = sandbox_enabled
 
     async def execute(self, tool: CandidateTool) -> ToolResult:
         """执行单个工具调用。"""
@@ -177,10 +189,20 @@ class PrivilegeExecutor:
         return argv
 
     async def _run_subprocess(self, tool: CandidateTool, argv: Sequence[str]) -> ToolResult:
-        """在子进程中执行命令（不用 shell）。"""
+        """在子进程中执行命令（不用 shell）。
+
+        sandbox_enabled=True 且非 Windows 时，经 wrapper（systemd 瞬态 service）包裹；
+        包裹在路径校验（_sanitize_arg）之后进行，沙箱不改变判执语义。
+        """
+        final_argv = list(argv)
+        if self._sandbox_enabled and platform.system() != "Windows":
+            profile = get_sandbox_profile(tool.name)
+            use_sudo = os.geteuid() != 0 if hasattr(os, "geteuid") else False
+            final_argv = build_sandbox_argv(final_argv, profile, use_sudo=use_sudo)
+
         try:
             proc = await asyncio.create_subprocess_exec(
-                *argv,
+                *final_argv,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=SAFE_CWD,
