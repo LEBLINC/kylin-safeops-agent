@@ -39,6 +39,23 @@ from backend.app.mcp.gateway import MCPGateway
 # 裁决严格度排序：deny 最严，allow 最宽。聚合多候选工具时取最严。
 _DECISION_RANK: dict[Decision, int] = {"allow": 0, "confirm": 1, "deny": 2}
 
+# 审批角色严格度排序：admin 高于 operator（批准面板取最严，确保最高门槛者才能整批放行）。
+_ROLE_RANK: dict[str, int] = {"operator": 1, "admin": 2}
+
+
+def _most_restrictive_role(roles: Sequence[str | None]) -> str | None:
+    """从一批 confirm 工具的 approval_role 取最严的一个（admin > operator）。
+
+    fail-closed 加固：任一 role 未知/None → 整批返 None（下游 can_approve 对 None 一律拒绝），
+    避免"未知角色与 operator 混批被降格按 operator 放行"。空集 → None。
+    """
+    roles = list(roles)
+    if not roles:
+        return None
+    if any(r not in _ROLE_RANK for r in roles):
+        return None  # 任一未知/None → fail-closed，整批不可批
+    return max(roles, key=lambda r: _ROLE_RANK[r])  # type: ignore[index]  # 上面已排除未知
+
 
 def most_restrictive(verdicts: Sequence[PolicyVerdict]) -> PolicyVerdict:
     """从多个裁决里取最严的一个（deny > confirm > allow）。"""
@@ -76,8 +93,21 @@ class Orchestrator:
         self._max_observation_rounds = max(1, max_observation_rounds)
         # 暂存供 resume 使用的执行批次（原子计划：审批后整批执行）
         self._batch: list[CandidateTool] | None = None
+        # WAIT_APPROVAL 时本批次 confirm 工具的最严 approval_role（供 api 层 RBAC 强制；只读暴露）
+        self._pending_approval_role: str | None = None
         # 累积本次请求的所有不可信结果（观测+执行），供 RCA 接入点使用
         self._evidence: list[ToolResult] = []
+
+    @property
+    def pending_approval_role(self) -> str | None:
+        """当前待批批次 confirm 工具的最严 approval_role（admin>operator）。
+
+        仅在 WAIT_APPROVAL 有意义；非该状态返回 None。供 api 审批端点接 can_approve
+        做 fail-closed 授权（只读属性，不改状态机/裁决逻辑）。
+        """
+        if self.state is not State.WAIT_APPROVAL:
+            return None
+        return self._pending_approval_role
 
     # ---- 内部原语：转移 / 审计 / 事件（显式，不套公式）-------------------
 
@@ -285,6 +315,10 @@ class Orchestrator:
                 for t, v in per_tool
                 if v.decision == "confirm"
             ]
+            # 记录本批最严 approval_role，供 api 层 RBAC fail-closed 授权（只读暴露，不改裁决）
+            self._pending_approval_role = _most_restrictive_role(
+                [v.approval_role for _, v in per_tool if v.decision == "confirm"]
+            )
             self._goto(State.WAIT_APPROVAL)
             self._append_audit({"decision": "confirm", "approval_required": True})
             # 面板展示的 confirm 工具，正是批准后会执行的同一批的子集（消除错配）

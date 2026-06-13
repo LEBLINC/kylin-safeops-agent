@@ -38,16 +38,21 @@ jobs:
 
   frontend-build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend   # 所有 run 步骤在 frontend/ 内执行；
+                                       # 修复：原 `npx --prefix frontend vue-tsc` 中 npx 不认 --prefix，
+                                       # 会把坏参数喂给 vue-tsc → 打印 tsc 帮助并 exit 1（CI #36 frontend-build 红）。
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: frontend/package-lock.json   # uses 步骤，路径相对仓库根
       - name: Install frontend deps
-        run: npm ci --prefix frontend
+        run: npm ci
       - name: Type-check
-        run: npx --prefix frontend vue-tsc --noEmit
+        run: npx vue-tsc --noEmit
       - name: Build
-        run: npm run build --prefix frontend
+        run: npm run build

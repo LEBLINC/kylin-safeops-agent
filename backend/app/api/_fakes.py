@@ -3,29 +3,27 @@
 本文件所有内容均为【注入桩 / fake】，仅用于联调与空跑。
 
 ═══════════════════════════════════════════════════════════════════
-注入点替换清单（D 模块就绪后，改下列对应处即可，替换面收敛于此）
+注入点替换清单（接线状态留痕）
 ═══════════════════════════════════════════════════════════════════
-三个协作者注入桩，真实现均归 D（C3 越界红线：L 侧不实现 evaluate/execute/append）：
+三个协作者件，真实现均归 D（C3 越界红线：L 侧不实现 evaluate/execute/append）：
 
   ① PolicyEngine（策略裁决）✅ 已切真
-     现状：build_fake_gateway() 已注入 D 的真 PolicyEngine(DEFAULT_POLICY, registry)。
+     现状：build_gateway() 已注入 D 的真 PolicyEngine(DEFAULT_POLICY, registry)。
      桩 FakePolicyEngine 保留供测试按需注入 allow-all 场景。
 
-  ② Executor（特权代理执行）🔴 仍桩
-     桩：FakeExecutor.execute（本文件，返回成功空结果）
-     真模块：backend/app/executor（D 实现 Executor.execute，PR2）
-     接线处：build_fake_gateway() 的 executor=... → 换成 D 的 Executor 实例
+  ② Executor（特权代理执行）✅ 已切真
+     现状：build_gateway() 已注入 D 的真 PrivilegeExecutor（无参构造）。
+     桩 FakeExecutor 保留供测试按需注入（dependency_overrides）成功罐头场景。
 
-  ③ AuditSink（哈希链审计落库）🟡 落库仍桩
-     桩：FakeAudit.append（本文件，空操作）
-     真模块：backend/app/audit（D 实现 audit_logger）
-     接线处：app.get_audit() provider → 换成 D 的 AuditSink 实例
+  ③ AuditSink（哈希链审计落库）✅ 已切真
+     现状：app.get_audit() 返回 lifespan 单例 SqliteAuditSink（持 DB 句柄+链状态）。
+     桩 FakeAudit 保留供测试无落库场景。
 
 另含 LLM 注入桩（待接真实 LLM 端点，非 D 模块）：
      桩：build_fake_llm（本文件）；接线处：app.get_llm() provider。
 
-切换方式：app.py 的 build_fake_gateway / get_audit / get_llm 三个 provider 是唯一接线点，
-改它们的 import 指向真模块即可，不必在路由/lifespan 里翻找内联桩。
+装配点：app.py 的 build_gateway / get_audit / get_llm 三个 provider；
+config.diff 暂缓注册见 _DEFERRED_TOOLS。
 ═══════════════════════════════════════════════════════════════════
 """
 
@@ -37,17 +35,24 @@ from backend.app.contracts.audit import AuditRecord
 from backend.app.contracts.intent import CandidateTool
 from backend.app.contracts.policy import PolicyVerdict
 from backend.app.contracts.untrusted import ToolResult
+from backend.app.executor import PrivilegeExecutor
 from backend.app.llm.adapter import LLMAdapter, Message
 from backend.app.mcp.gateway import MCPGateway
 from backend.app.mcp.registry import ToolRegistry
 from backend.app.security import DEFAULT_POLICY, PolicyEngine
 from mcp_servers.os_ops import all_specs
 
+#: app 注册集中暂缓注册的工具（L 域 registry 装配过滤，不碰 os_ops 工具声明本身）。
+#: config.diff 需快照基线聚合、无单命令模板，真执行会返 127——待 D 执行层支持或
+#: L 在 mcp 层做聚合后再注册。后果：config.diff 不在 /api/tools/registry；若 intent
+#: 提议它 → gateway 闸1（未注册）→ 安全降级 deny（已知会 X）。
+_DEFERRED_TOOLS = {"config.diff"}
+
 
 class FakePolicyEngine:
     """注入桩：永远 allow。
 
-    注：默认 app 装配已切换为 D 的真 PolicyEngine（见 build_fake_gateway）；
+    注：默认 app 装配已切换为 D 的真 PolicyEngine（见 build_gateway）；
     本桩保留供测试按需注入（dependency_overrides）构造 allow-all 场景。
     """
 
@@ -62,7 +67,7 @@ class FakePolicyEngine:
 
 
 class FakeExecutor:
-    """注入桩：永远返回成功空结果。待 D 的 Executor 真实现替换（PR2）。"""
+    """注入桩：永远返回成功空结果。app 已切真 PrivilegeExecutor；本桩仅供测试注入。"""
 
     async def execute(self, tool: CandidateTool) -> ToolResult:
         return ToolResult(
@@ -75,32 +80,35 @@ class FakeExecutor:
 
 
 class FakeAudit:
-    """注入桩：审计落库空操作。待 D 的 audit_logger（哈希链落库）真实现替换。"""
+    """注入桩：审计落库空操作。app 已切真 SqliteAuditSink 单例；本桩仅供测试无落库场景。"""
 
     def append(self, record: AuditRecord) -> None:
         return None
 
 
 def build_fake_audit() -> FakeAudit:
-    """装配 fake AuditSink（注入桩，待 D 的 backend/app/audit 真实现替换）。"""
+    """装配 fake AuditSink（注入桩，仅供测试；app 已用真 SqliteAuditSink 单例）。"""
     return FakeAudit()
 
 
-def build_fake_gateway() -> MCPGateway:
-    """装配默认 MCPGateway：【真 registry + 真策略 + fake 执行器】。
+def build_gateway() -> MCPGateway:
+    """装配默认 MCPGateway：【真 registry + 真策略 + 真特权执行器】。
 
-    现状（非全 fake）：
-    - registry：真 os_ops 工具集 all_specs()（13 工具），策略闸据此实质裁决。
+    现状（全真，除 config.diff 暂缓注册）：
+    - registry：真 os_ops 工具集 all_specs()，过滤掉 _DEFERRED_TOOLS（config.diff）。
     - policy：D 的真 PolicyEngine(DEFAULT_POLICY, registry)——同一 registry 实例防漂移。
-    - executor：仍 FakeExecutor（D 的 Executor PR2 未合，本层不跑真命令）。
+    - executor：D 的真 PrivilegeExecutor（无参构造，默认 timeout=30 + DEFAULT_POLICY）。
 
-    待 D 的 Executor 合入后，仅需把 executor 换成真 Executor（唯一剩余切换点）。
+    切真后运行中的 app 会经特权代理跑真命令（方案B：失败用 exit_code 承载，仅系统级故障 raise）。
+    LLM/审计经各自 provider（get_llm/get_audit）注入，不在本装配点。
+    config.diff 暂从注册集摘除（见 _DEFERRED_TOOLS）。
     """
-    registry = ToolRegistry(all_specs())
+    specs = [s for s in all_specs() if s.name not in _DEFERRED_TOOLS]
+    registry = ToolRegistry(specs)
     return MCPGateway(
         registry=registry,
         policy=PolicyEngine(DEFAULT_POLICY, registry),
-        executor=FakeExecutor(),  # type: ignore[arg-type]
+        executor=PrivilegeExecutor(),  # type: ignore[arg-type]
     )
 
 

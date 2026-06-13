@@ -18,6 +18,7 @@ from backend.app.api.event_bus import EventBus
 from backend.app.api.runner import drive_resume
 from backend.app.api.schemas import ResumeRequest, ResumeResponse
 from backend.app.api.session_registry import SessionRegistry
+from backend.app.security.rbac import can_approve
 
 router = APIRouter(prefix="/api/approvals", tags=["approvals"])
 
@@ -25,14 +26,16 @@ router = APIRouter(prefix="/api/approvals", tags=["approvals"])
 @router.post("/resume", response_model=ResumeResponse)
 async def resume_approval(
     body: ResumeRequest,
-    _approver: str = Depends(verify_approval_role),
+    caller_role: str | None = Depends(verify_approval_role),
     bus: EventBus = Depends(get_bus),
     registry: SessionRegistry = Depends(get_registry),
 ) -> ResumeResponse:
     """续跑审批：批准→执行整批，拒绝→整批 REJECTED；事件续推同一 SSE。
 
-    TODO(BLOCKED-ON-D): 接 D 的 RBAC 校验调用者角色 == verdict.approval_role，
-    确保"谁能批"由确定性代码强制（当前 verify_approval_role 仅占位放行）。
+    RBAC（人工确认闸）：取本批次最严 approval_role，经 can_approve 确定性强制——
+    调用者角色不足/未知/缺失 → 403 fail-closed，不 resume、不执行。授权检查置于重入锁之前
+    （拒绝时不占用锁）。注：当前仅审批**授权**，调用者角色来自演示态头，身份**认证**仍未接入
+    （见 deps.verify_approval_role；真实认证源待 L 拍板）。
     """
     session = registry.get(body.trace_id)
     if session is None:
@@ -41,6 +44,18 @@ async def resume_approval(
         raise HTTPException(
             status_code=409,
             detail=f"trace not awaiting approval (state={session.orchestrator.state.value})",
+        )
+
+    # RBAC fail-closed：本批最严 approval_role 由 orchestrator 只读暴露；can_approve 确定性裁决。
+    # 置于 begin_resume 之前——拒绝时不占用重入锁，会话仍可被有权角色再次 resume。
+    required_role = session.orchestrator.pending_approval_role
+    if not can_approve(caller_role, required_role):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"role '{caller_role}' cannot approve plan requiring '{required_role}' "
+                "(insufficient/unknown role; fail-closed)"
+            ),
         )
 
     # L-4：per-trace 重入保护。状态检查与置位之间无 await（asyncio 单线程原子），

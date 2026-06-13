@@ -23,15 +23,20 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.agent.ports import AuditSink
 from backend.app.agent.rca import RCAEngine
-from backend.app.api._fakes import build_fake_audit, build_fake_gateway, build_fake_llm
+from backend.app.api._fakes import build_fake_llm, build_gateway
 from backend.app.api.event_bus import EventBus
 from backend.app.api.session_registry import SessionRegistry
 from backend.app.api.session_store import SessionStore
+from backend.app.audit import SqliteAuditSink
 from backend.app.llm.adapter import LLMAdapter
 from backend.app.mcp.gateway import MCPGateway
 from mcp_servers.rca import DefaultRCAEngine
 
 logger = logging.getLogger(__name__)
+
+#: 审计库落库路径（L 域配置常量）。默认落仓库内 data/ 目录；connect() 会自动建父目录。
+#: 测试可经 dependency_overrides[get_audit] 或在 lifespan 前注入 SqliteAuditSink(":memory:") 覆盖。
+_AUDIT_DB_PATH = "./data/audit.db"
 
 # ============================================================
 # 全局单例（lifespan 中初始化，路由层通过 Depends 获取）
@@ -41,6 +46,7 @@ _bus: EventBus | None = None
 _registry: SessionRegistry | None = None
 _gateway: MCPGateway | None = None
 _session_store: SessionStore | None = None
+_audit: AuditSink | None = None
 _cleanup_task: asyncio.Task | None = None  # type: ignore[type-arg]
 
 
@@ -77,12 +83,14 @@ def get_llm() -> LLMAdapter:
 
 
 def get_audit() -> AuditSink:
-    """获取 AuditSink（当前为 fake 注入桩，待接 D 的 backend/app/audit）。
+    """获取 AuditSink 单例（已接 D 的真 SqliteAuditSink，lifespan 初始化）。
 
-    非单例：FakeAudit 无状态；D 真实现就位后改此 provider 返回真模块实例即可
-    （唯一接线点，见 _fakes.py 注入点替换清单 ③）。
+    **必须单例**：真 sink 持 DB 句柄 + 链状态（_seq/_prev_hash 由 orchestrator 实例内存续写，
+    但落库连接全局共享），per-request 新建会丢链/重复建连接。
+    测试可经 dependency_overrides[get_audit] 注入 SqliteAuditSink(":memory:") 覆盖。
     """
-    return build_fake_audit()
+    assert _audit is not None, "AuditSink not initialized (lifespan not started)"
+    return _audit
 
 
 def get_rca() -> RCAEngine:
@@ -130,7 +138,7 @@ async def _periodic_cleanup() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """应用生命周期：初始化全局单例，启动清理任务。"""
-    global _bus, _registry, _gateway, _session_store, _cleanup_task  # noqa: PLW0603
+    global _bus, _registry, _gateway, _session_store, _audit, _cleanup_task  # noqa: PLW0603
 
     logger.warning(
         "╔══════════════════════════════════════════════════╗\n"
@@ -141,8 +149,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     _bus = EventBus()
     _registry = SessionRegistry()
-    _gateway = build_fake_gateway()
+    _gateway = build_gateway()
     _session_store = SessionStore()
+    # 审计落库单例：真 SqliteAuditSink 持 DB 句柄 + 链状态，必须单例（决策2：真执行=真审计同批）。
+    _audit = SqliteAuditSink(db=_AUDIT_DB_PATH)
     _cleanup_task = asyncio.create_task(_periodic_cleanup())
 
     logger.info("API layer initialized: bus=%s, registry=%s", _bus, _registry)
@@ -152,10 +162,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Shutdown
     if _cleanup_task is not None:
         _cleanup_task.cancel()
+    if _audit is not None:
+        _audit.close()  # type: ignore[attr-defined]  # SqliteAuditSink 持 DB 句柄需显式关闭
     _bus = None
     _registry = None
     _gateway = None
     _session_store = None
+    _audit = None
     logger.info("API layer shutdown complete")
 
 
