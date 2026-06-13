@@ -36,6 +36,9 @@ class State(str, Enum):
 # 合法转移表：显式建模分支，不做线性链。
 #
 # 关键分支（须与契约3 Decision 对齐，供 orchestrator 接策略裁决时落地）：
+#   RECEIVED 两出口：
+#       正常        → INTENT_PARSED
+#       输入闸 deny  → REJECTED（D-10 提示注入检测命中 high，拦在 LLM plan 之前）
 #   POLICY_CHECKED 三出口：
 #       allow   → EXECUTING
 #       confirm → WAIT_APPROVAL
@@ -46,7 +49,7 @@ class State(str, Enum):
 #
 # 终态（无出边）：REJECTED、FINISHED。
 _TRANSITIONS: dict[State, frozenset[State]] = {
-    State.RECEIVED: frozenset({State.INTENT_PARSED}),
+    State.RECEIVED: frozenset({State.INTENT_PARSED, State.REJECTED}),
     State.INTENT_PARSED: frozenset({State.CONTEXT_COLLECTED, State.PLAN_GENERATED}),
     State.CONTEXT_COLLECTED: frozenset({State.PLAN_GENERATED}),
     State.PLAN_GENERATED: frozenset({State.POLICY_CHECKED}),

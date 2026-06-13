@@ -72,6 +72,22 @@ def _confirm_gateway() -> MCPGateway:
             reversible=True,
         )
     )
+    # fake planner 按"重启"关键词产 service.restart（任务丁）——注册它使 _ConfirmPolicy 可 confirm。
+    registry.register(
+        ToolSpec(
+            name="service.restart",
+            description="重启服务",
+            risk="R3",
+            input_schema={
+                "type": "object",
+                "properties": {"service_name": {"type": "string", "minLength": 1}},
+                "required": ["service_name"],
+                "additionalProperties": False,
+            },
+            requires_roles=["admin"],
+            reversible=False,
+        )
+    )
     return MCPGateway(registry, _ConfirmPolicy(), FakeExecutor())  # type: ignore[arg-type]
 
 

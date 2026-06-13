@@ -123,3 +123,66 @@ def test_config_diff_absent_from_registry() -> None:
                 assert "disk.usage" in names
 
     asyncio.run(scenario())
+
+
+# ---- 任务丁：fake planner 按关键词产 confirm 计划 -------------------------
+
+
+async def _wait_state(registry, trace_id: str, target: str, timeout: float = 5.0) -> None:  # noqa: ANN001
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
+        session = registry.get(trace_id)
+        if session is not None and session.orchestrator.state.value == target:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"timeout waiting for {target}")
+
+
+def _drain(queue) -> list:  # noqa: ANN001, ANN201
+    out = []
+    while not queue.empty():
+        ev = queue.get_nowait()
+        if ev is not None:
+            out.append(ev)
+    return out
+
+
+def test_fake_planner_restart_produces_confirm_plan() -> None:
+    """发"重启 nginx" → 真策略 confirm → WAIT_APPROVAL，await_approval 含 service.restart。"""
+    from backend.app.api import app as app_module
+
+    async def scenario() -> None:
+        app = create_app()
+        async with lifespan(app):
+            registry = app_module.get_registry()
+            bus = app_module.get_bus()
+            async with _client(app) as client:
+                trace_id = (
+                    await client.post("/api/chat", json={"message": "重启 nginx 服务"})
+                ).json()["trace_id"]
+                await _wait_state(registry, trace_id, "WAIT_APPROVAL")
+                assert registry.get(trace_id).orchestrator.pending_approval_role == "admin"
+                events = _drain(bus.get(trace_id))
+                await_ev = [e for e in events if e.type == "await_approval"]
+                assert await_ev, "应 emit await_approval"
+                tools = await_ev[0].data["tools"]
+                assert any(t["tool"] == "service.restart" for t in tools)
+
+    asyncio.run(scenario())
+
+
+def test_fake_planner_default_allow_no_regression() -> None:
+    """发"看下系统" → 仍 allow → verified（allow 路径无回归）。"""
+
+    async def scenario() -> None:
+        app = create_app()
+        async with lifespan(app):
+            async with _client(app) as client:
+                resp = await client.post("/api/chat", json={"message": "看下系统"})
+                events = await _consume_sse(client, resp.json()["stream_url"])
+                types = [t for t, _ in events]
+                assert "verified" in types
+                assert "await_approval" not in types
+
+    asyncio.run(scenario())

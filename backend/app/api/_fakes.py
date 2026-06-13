@@ -124,15 +124,68 @@ _FAKE_INTENT_JSON = json.dumps(
     }
 )
 
+# confirm 计划样例（任务丁）：让 fake planner 能产 WAIT_APPROVAL 链，解 X 审批联调阻塞。
+# 字段照契约：candidate_tools[].name 是 CandidateTool 字段（绝不可改成 tool）；args 须过 gate2。
+_FAKE_INTENT_RESTART = json.dumps(
+    {
+        "intent": "service_restart",
+        "confidence": 0.9,
+        "need_observation": False,
+        "candidate_tools": [{"name": "service.restart", "args": {"service_name": "nginx.service"}}],
+        "risk_hint": "high",
+        "justification": "重启服务（fake 规划，R3→confirm/admin）",
+    }
+)
+_FAKE_INTENT_ROTATE = json.dumps(
+    {
+        "intent": "log_compress_rotate",
+        "confidence": 0.9,
+        "need_observation": False,
+        "candidate_tools": [{"name": "log.compress_rotate", "args": {"path": "/var/log/app.log"}}],
+        "risk_hint": "medium",
+        "justification": "压缩轮转日志（fake 规划，R2→confirm/operator）",
+    }
+)
+
+# 关键词 → 意图 JSON（命中顺序：restart 优先于 rotate）。
+_RESTART_KEYWORDS = ("重启", "restart")
+_ROTATE_KEYWORDS = ("压缩", "轮转", "rotate", "清日志", "清理日志")
+
+
+def _last_user_content(messages: list[Message]) -> str:
+    """取最后一条 user 消息正文（fake planner 按它选意图）。"""
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            return str(msg.get("content", ""))
+    return ""
+
+
+def _intent_for_message(content: str) -> str:
+    """按关键词选 fake 意图：重启→confirm(admin)、压缩/轮转→confirm(operator)、其它→allow。"""
+    if any(kw in content for kw in _RESTART_KEYWORDS):
+        return _FAKE_INTENT_RESTART
+    if any(kw in content for kw in _ROTATE_KEYWORDS):
+        return _FAKE_INTENT_ROTATE
+    return _FAKE_INTENT_JSON
+
 
 def build_fake_llm(intent_json: str | None = None) -> LLMAdapter:
     """装配 fake LLMAdapter（注入桩，不联网，待接真实 LLM 端点替换）。
 
-    注入一个 completion_fn 永远返回固定 Intent JSON，使 orchestrator 可空跑主链路。
+    - 显式传 intent_json：completion_fn 永远返回它（测试用固定意图）。
+    - 不传：按最后一条 user 消息关键词选意图（任务丁）——含"重启/restart"→ service.restart(R3,
+      confirm/admin)；含"压缩/轮转/rotate/清日志"→ log.compress_rotate(R2, confirm/operator)；
+      其它 → system.info(R0, allow)。使状态机能真实进 WAIT_APPROVAL，解 X 审批联调阻塞。
     """
-    payload = intent_json or _FAKE_INTENT_JSON
+    if intent_json is not None:
+        payload = intent_json
 
-    async def _fixed_completion(messages: list[Message]) -> str:
-        return payload
+        async def _fixed_completion(messages: list[Message]) -> str:
+            return payload
 
-    return LLMAdapter(completion_fn=_fixed_completion)
+        return LLMAdapter(completion_fn=_fixed_completion)
+
+    async def _keyword_completion(messages: list[Message]) -> str:
+        return _intent_for_message(_last_user_content(messages))
+
+    return LLMAdapter(completion_fn=_keyword_completion)

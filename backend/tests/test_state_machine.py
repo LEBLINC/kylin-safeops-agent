@@ -59,6 +59,8 @@ def test_terminal_states() -> None:
 
 def test_valid_and_invalid_transitions() -> None:
     assert is_valid_transition(State.RECEIVED, State.INTENT_PARSED)
+    # 输入闸 deny（D-10 high 注入）：RECEIVED → REJECTED 是合法新增转移（拦在 LLM 之前）
+    assert is_valid_transition(State.RECEIVED, State.REJECTED)
     # INTENT_PARSED 可跳过观测直达规划，也可先采集上下文
     assert is_valid_transition(State.INTENT_PARSED, State.PLAN_GENERATED)
     assert is_valid_transition(State.INTENT_PARSED, State.CONTEXT_COLLECTED)

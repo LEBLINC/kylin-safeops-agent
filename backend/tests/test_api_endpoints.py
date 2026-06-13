@@ -61,6 +61,22 @@ def _confirm_gateway() -> MCPGateway:
             reversible=True,
         )
     )
+    # fake planner 现按"重启"产 service.restart（任务丁）——注册它使 _ConfirmPolicy 可 confirm。
+    registry.register(
+        ToolSpec(
+            name="service.restart",
+            description="重启服务",
+            risk="R3",
+            input_schema={
+                "type": "object",
+                "properties": {"service_name": {"type": "string", "minLength": 1}},
+                "required": ["service_name"],
+                "additionalProperties": False,
+            },
+            requires_roles=["admin"],
+            reversible=False,
+        )
+    )
     return MCPGateway(registry, _ConfirmPolicy(), FakeExecutor())  # type: ignore[arg-type]
 
 
@@ -169,6 +185,7 @@ def test_resume_unknown_trace_404() -> None:
             async with _client(app) as client:
                 rr = await client.post(
                     "/api/approvals/resume",
+                    headers={"X-User-Role": "admin"},
                     json={"trace_id": "nope", "approved": True},
                 )
                 assert rr.status_code == 404
@@ -247,6 +264,7 @@ def test_resume_non_wait_approval_409() -> None:
                 await _wait_terminal(registry, trace_id)
                 rr = await client.post(
                     "/api/approvals/resume",
+                    headers={"X-User-Role": "admin"},
                     json={"trace_id": trace_id, "approved": True},
                 )
                 assert rr.status_code == 409
