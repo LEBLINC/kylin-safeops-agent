@@ -50,7 +50,9 @@ export interface SystemOverview {
   memory_usage: number
   root_disk_usage: number
   zombie_processes: number
-  tool_calls_today: number
-  denied_today: number
-  services?: Array<{ name: string; status: string }>
+ tool_calls_today: number
+ denied_today: number
+ services?: Array<{ name: string; status: string }>
+  data_source: string
+  probed_tools: string[]
 }

@@ -26,6 +26,7 @@ env/
 htmlcov/
 
 # --- 前端（x86 build，不在本仓追踪产物） ---
+.npm-tmp-cache/
 node_modules/
 frontend/dist/
 frontend/.vite/

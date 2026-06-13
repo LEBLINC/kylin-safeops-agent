@@ -48,6 +48,8 @@ const overview = ref<SystemOverview>({
   zombie_processes: 3,
   tool_calls_today: 128,
   denied_today: 5,
+  data_source: 'stub_executor',
+  probed_tools: [],
   services: [
     { name: 'nginx', status: 'running' },
     { name: 'safeops-agent', status: 'running' },
@@ -79,6 +81,15 @@ onMounted(async () => {
       title="安全智能运维总览"
       subtitle="可对话、可管控、可追溯的麒麟安全智能运维平台"
     />
+
+
+    <div v-if="overview.data_source === 'stub_executor'" class="datasource-stub-badge">
+      <el-tag type="warning" size="small">桩数据</el-tag>
+      <span v-if="!overview.probed_tools?.length" class="stub-hint">采集管道未接通</span>
+    </div>
+    <div v-else-if="overview.data_source === 'real'" class="datasource-real-badge">
+      <el-tag type="success" size="small">真实采集</el-tag>
+    </div>
 
     <div class="metric-grid">
       <MetricCard title="CPU 使用率" :value="`${overview.cpu_usage}%`" />
@@ -157,5 +168,19 @@ onMounted(async () => {
   .content-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+.datasource-stub-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.datasource-real-badge {
+  margin-bottom: 12px;
+}
+.stub-hint {
+  color: var(--ks-text-secondary, #999);
+  font-size: 12px;
 }
 </style>
