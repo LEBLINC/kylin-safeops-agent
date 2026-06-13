@@ -26,14 +26,20 @@ const props = defineProps<{
  */
 function tag() {
   const map: Record<string, { label: string; type: 'success' | 'warning' | 'danger' | 'info' | 'primary' }> = {
-    success: { label: '成功', type: 'success' },
+    // 服务运行状态（DashboardView.serviceStatus() 转换后传入）
+    success: { label: '运行中', type: 'success' },
+    danger: { label: '已停止', type: 'danger' },
+    warning: { label: '异常', type: 'warning' },
+    // 工具执行状态
     failed: { label: '失败', type: 'danger' },
     error: { label: '错误', type: 'danger' },
     running: { label: '执行中', type: 'primary' },
+    // 审批流状态
     pending: { label: '待处理', type: 'warning' },
     approved: { label: '已通过', type: 'success' },
     rejected: { label: '已拒绝', type: 'danger' },
     escalated: { label: '已转审批', type: 'warning' },
+    // 安全策略裁决
     allow: { label: '允许', type: 'success' },
     deny: { label: '拒绝', type: 'danger' },
     confirm: { label: '需确认', type: 'warning' }
