@@ -4,10 +4,10 @@
 - 创建 FastAPI 实例，挂载全局中间件（CORS 联调用）。
 - lifespan 中初始化全局单例（EventBus、SessionRegistry、MCPGateway fake 装配）。
 - 提供 get_bus / get_registry / get_gateway 供路由层 Depends 获取。
-- 启动日志显式标注"认证未接入，仅限内网/联调"。
+- 启动日志显式标注认证姿态（proxy 全量签名身份 / dev 联调放行）。
 
 安全红线：
-- 所有端点预留 verify_token 依赖（路由层加，此处只建框架）。
+- 所有端点经 verify_token 依赖认证（proxy 模式 fail-closed / dev 联调放行）。
 - CORS 仅联调期开放，部署时须收紧。
 """
 
@@ -140,12 +140,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """应用生命周期：初始化全局单例，启动清理任务。"""
     global _bus, _registry, _gateway, _session_store, _audit, _cleanup_task  # noqa: PLW0603
 
-    logger.warning(
-        "╔══════════════════════════════════════════════════╗\n"
-        "║  认证未接入，仅限内网/联调环境使用              ║\n"
-        "║  TODO(BLOCKED-ON-D): 接 D 的 RBAC 模块        ║\n"
-        "╚══════════════════════════════════════════════════╝"
-    )
+    from backend.app.api.deps import _auth_mode
+
+    if _auth_mode() == "dev":
+        logger.warning(
+            "╔══════════════════════════════════════════════════╗\n"
+            "║  DEV 认证模式：全量端点联调放行、审批角色取自    ║\n"
+            "║  裸 X-User-Role（可伪造）——仅限内网/联调，严禁生产！║\n"
+            "╚══════════════════════════════════════════════════╝"
+        )
+    else:
+        logger.info(
+            "认证模式 PROXY：全量端点要求反代签名身份（fail-closed 401）；"
+            "审批角色取自反代签名头。须由可信反代对所有入站请求注入签名身份头。"
+        )
 
     _bus = EventBus()
     _registry = SessionRegistry()
@@ -181,7 +189,7 @@ def create_app() -> FastAPI:
     """创建 FastAPI 应用实例。"""
     app = FastAPI(
         title="Kylin SafeOps Agent",
-        description="安全智能运维 Agent API（认证未接入，仅限内网/联调）",
+        description="安全智能运维 Agent API（proxy 模式全量端点要求反代签名身份 / dev 联调放行）",
         version="0.1.0",
         lifespan=lifespan,
     )

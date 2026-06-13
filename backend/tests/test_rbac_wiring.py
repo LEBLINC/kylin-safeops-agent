@@ -106,7 +106,14 @@ def _signed_headers(
 
 
 async def _post_chat_to_wait(client: httpx.AsyncClient, registry) -> str:  # noqa: ANN001
-    trace_id = (await client.post("/api/chat", json={"message": "重启服务"})).json()["trace_id"]
+    # 全量端点认证已接：proxy 模式下 /api/chat 也需签名身份（dev 模式忽略，无害）。
+    trace_id = (
+        await client.post(
+            "/api/chat",
+            headers=_signed_headers("system", "operator"),
+            json={"message": "重启服务"},
+        )
+    ).json()["trace_id"]
     await _wait_state(registry, trace_id, "WAIT_APPROVAL")
     return trace_id
 
