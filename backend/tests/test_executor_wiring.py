@@ -1,0 +1,125 @@
+"""任务乙 — Executor 切真验证（FakeExecutor → PrivilegeExecutor）+ config.diff 处置。
+
+覆盖：
+1. 切真后主链路 smoke：chat(system.info) → FINISHED，有 tool_result，result.is_untrusted=True
+   + 标准 wrap_token（结果闸密封真命令输出）。win32 下命令可能 127，断言聚焦方案B 语义与密封。
+2. config.diff 安全降级：intent 提议 config.diff → 未注册被 gateway 闸1 拦 → REJECTED，真命令未起。
+3. config.diff 已从 /api/tools/registry 摘除。
+
+注：app 默认 build_gateway 装配真 PrivilegeExecutor；win32 真命令多 127（方案B 正常 return），
+真数据靠 CI ubuntu。本套件验证"接线正确 + 方案B 语义 + 结果闸密封 + config.diff 摘除"。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+
+import httpx
+
+from backend.app.api._fakes import build_fake_llm
+from backend.app.api.app import create_app, get_llm, lifespan
+from backend.app.contracts.untrusted import UNTRUSTED_WRAP_TOKEN
+
+
+def _client(app: object) -> httpx.AsyncClient:
+    transport = httpx.ASGITransport(app=app)  # type: ignore[arg-type]
+    return httpx.AsyncClient(transport=transport, base_url="http://test")
+
+
+async def _consume_sse(client: httpx.AsyncClient, url: str) -> list[tuple[str, dict]]:
+    """消费 SSE 到 done，返回 [(event_type, data_dict), ...]。
+
+    普通事件序列化为 `data: {StreamEvent json}\\n\\n`（type 在 JSON 内）；
+    done 哨兵为 `event: done\\ndata: {}\\n\\n`。
+    """
+    events: list[tuple[str, dict]] = []
+    async with client.stream("GET", url) as r:
+        async for line in r.aiter_lines():
+            if "event: done" in line:
+                break
+            if line.startswith("data: "):
+                raw = line[len("data: ") :]
+                try:
+                    obj = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(obj, dict) and "type" in obj:
+                    events.append((obj["type"], obj.get("data", {})))
+    return events
+
+
+# ---- 1. 切真后主链路 smoke ------------------------------------------------
+
+
+def test_chat_smoke_real_executor_sealed() -> None:
+    """chat(system.info) 经真 PrivilegeExecutor → FINISHED + tool_result 被结果闸密封。"""
+
+    async def scenario() -> None:
+        app = create_app()
+        async with lifespan(app):
+            async with _client(app) as client:
+                resp = await client.post("/api/chat", json={"message": "看下系统"})
+                assert resp.status_code == 200
+                events = await _consume_sse(client, resp.json()["stream_url"])
+
+                types = [t for t, _ in events]
+                assert "verified" in types
+                tool_results = [d for t, d in events if t == "tool_result"]
+                assert tool_results, "应有 tool_result 事件（真执行器产结果）"
+                result = tool_results[0]["result"]
+                # 结果闸密封真命令输出（不强求 exit_code==0：win32 命令可能 127）
+                assert result["is_untrusted"] is True
+                assert result["wrap_token"] == UNTRUSTED_WRAP_TOKEN
+
+    asyncio.run(scenario())
+
+
+# ---- 2. config.diff 安全降级 ----------------------------------------------
+
+
+def test_config_diff_intent_safe_degraded() -> None:
+    """intent 提议未注册的 config.diff → gateway 闸1 拦 → REJECTED，真命令未起。"""
+    intent_json = json.dumps(
+        {
+            "intent": "config_diff_attempt",
+            "confidence": 0.9,
+            "need_observation": False,
+            "candidate_tools": [{"name": "config.diff", "args": {"paths": ["/etc/hosts"]}}],
+            "risk_hint": "low",
+            "justification": "试图调用已摘除的 config.diff",
+        }
+    )
+
+    async def scenario() -> None:
+        app = create_app()
+        app.dependency_overrides[get_llm] = lambda: build_fake_llm(intent_json)
+        async with lifespan(app):
+            async with _client(app) as client:
+                resp = await client.post("/api/chat", json={"message": "比对配置"})
+                events = await _consume_sse(client, resp.json()["stream_url"])
+                types = [t for t, _ in events]
+                # 未注册 → 安全降级：REJECTED（rejected 事件），无真执行
+                assert "rejected" in types
+                assert "tool_result" not in types
+                assert "executing" not in types
+        app.dependency_overrides.clear()
+
+    asyncio.run(scenario())
+
+
+def test_config_diff_absent_from_registry() -> None:
+    """config.diff 已从 /api/tools/registry 摘除（_DEFERRED_TOOLS）。"""
+
+    async def scenario() -> None:
+        app = create_app()
+        async with lifespan(app):
+            async with _client(app) as client:
+                items = (await client.get("/api/tools/registry")).json()
+                names = {it["tool"] for it in items}
+                assert "config.diff" not in names
+                # 其余 os_ops 工具仍在
+                assert "system.info" in names
+                assert "disk.usage" in names
+
+    asyncio.run(scenario())

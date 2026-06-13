@@ -19,7 +19,9 @@ import httpx
 
 from backend.app.api import app as app_module
 from backend.app.api._fakes import FakeExecutor
-from backend.app.api.app import create_app, get_gateway, lifespan
+from backend.app.api.app import create_app, get_audit, get_gateway, lifespan
+from backend.app.api.routers import system as system_router
+from backend.app.audit import SqliteAuditSink
 from backend.app.contracts.intent import CandidateTool
 from backend.app.contracts.policy import PolicyVerdict
 from backend.app.mcp.gateway import MCPGateway
@@ -141,6 +143,7 @@ def test_approval_resume_continues_same_sse() -> None:
                 # 打审批端点续跑
                 rr = await client.post(
                     "/api/approvals/resume",
+                    headers={"X-User-Role": "admin"},
                     json={"trace_id": trace_id, "approved": True},
                 )
                 assert rr.status_code == 200
@@ -199,10 +202,14 @@ def test_concurrent_resume_only_one_succeeds() -> None:
 
                 r1, r2 = await asyncio.gather(
                     client.post(
-                        "/api/approvals/resume", json={"trace_id": trace_id, "approved": True}
+                        "/api/approvals/resume",
+                        headers={"X-User-Role": "admin"},
+                        json={"trace_id": trace_id, "approved": True},
                     ),
                     client.post(
-                        "/api/approvals/resume", json={"trace_id": trace_id, "approved": True}
+                        "/api/approvals/resume",
+                        headers={"X-User-Role": "admin"},
+                        json={"trace_id": trace_id, "approved": True},
                     ),
                 )
                 statuses = sorted([r1.status_code, r2.status_code])
@@ -480,6 +487,60 @@ def test_system_overview_flat_fields() -> None:
                 # 任务D：采集管道真实经 gateway dispatch 只读工具（管道连通证据）
                 assert "system.info" in data["probed_tools"]
                 assert "disk.usage" in data["probed_tools"]
+
+    asyncio.run(scenario())
+
+
+def test_overview_does_not_produce_audit() -> None:
+    """GAP-1 方案 b：概览只读探针豁免哈希链审计——调用 overview 不新增任何审计记录。"""
+
+    async def scenario() -> None:
+        sink = SqliteAuditSink(":memory:")
+        app = create_app()
+        app.dependency_overrides[get_audit] = lambda: sink
+        async with lifespan(app):
+            async with _client(app) as client:
+                resp = await client.get("/api/system/overview")
+                assert resp.status_code == 200
+                # 概览路径不经 orchestrator → 不落审计（有界豁免成立）
+                count = sink._conn.execute("SELECT COUNT(*) AS c FROM audit_records").fetchone()[
+                    "c"
+                ]
+                assert count == 0
+        app.dependency_overrides.clear()
+
+    asyncio.run(scenario())
+
+
+def test_overview_probes_only_readonly_tools() -> None:
+    """概览只 dispatch 只读工具：probed_tools ⊆ 已知 R0 探针集（硬只读护栏）。"""
+
+    async def scenario() -> None:
+        app = create_app()
+        async with lifespan(app):
+            async with _client(app) as client:
+                data = (await client.get("/api/system/overview")).json()
+                probed = set(data["probed_tools"])
+                assert probed <= {"system.info", "disk.usage", "process.list"}
+
+    asyncio.run(scenario())
+
+
+def test_overview_skips_change_tool_defense_in_depth(monkeypatch) -> None:  # noqa: ANN001
+    """硬只读护栏（方案 b 基石）：即便策略 allow-all 且探针表混入变更工具，概览也不 dispatch 它。"""
+    # 把变更工具混入探针表（模拟误配），并用 allow-all 策略 gateway
+    monkeypatch.setattr(system_router, "_OVERVIEW_PROBE_TOOLS", ("service.restart",))
+    monkeypatch.setattr(system_router, "_overview_cache", None)
+
+    async def scenario() -> None:
+        app = create_app()
+        app.dependency_overrides[get_gateway] = _change_tool_gateway
+        async with lifespan(app):
+            async with _client(app) as client:
+                data = (await client.get("/api/system/overview")).json()
+                # 变更工具被 is_read_only 护栏拦下，绝不出现在 probed_tools
+                assert "service.restart" not in data["probed_tools"]
+        app.dependency_overrides.clear()
 
     asyncio.run(scenario())
 

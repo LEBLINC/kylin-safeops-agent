@@ -42,21 +42,23 @@ async def verify_token(
 
 
 async def verify_approval_role(
-    authorization: str | None = Header(default=None),
-) -> str:
-    """审批端点专用：校验调用者是否有审批权限。
+    x_user_role: str | None = Header(default=None),
+) -> str | None:
+    """审批端点专用：解析调用者角色（演示态），归一为内部小写返回。
 
-    当前占位放行。正式环境须校验 approval_role 匹配。
+    人工确认闸的**授权**入口：从请求头 ``X-User-Role`` 取调用者角色（前端演示态现用构建期
+    env 角色），大小写归一为内部小写（``Admin``→``admin`` / ``Operator``→``operator``）。
+    未知/拼错/缺失角色保留归一后原值或 None，交给下游 ``can_approve`` 失败关闭（fail-closed）。
 
-    WARNING: 审批回传端点是人工确认闸入口，绝不可裸暴露。
-    TODO(BLOCKED-ON-D): 接 D 的 RBAC 校验 approval_role。
+    返回的是 caller_role（替换原"永远放行"占位），由 approvals.resume 接 can_approve 强制。
+
+    WARNING: 本步只接**审批授权**，不等于接入了**身份认证**——调用者声称的角色未经任何
+    可信凭证验证（演示态）。"认证未接入"全局告警仍然有效。
+    TODO(待 L 拍板): 真实认证源（JWT/Token/标准 header）与角色可信来源待定。
     """
-    # TODO(BLOCKED-ON-D): 接 D 的 RBAC 校验 approval_role
-    # user = await d_rbac.verify(authorization)
-    # if "approver" not in user.roles:
-    #     raise HTTPException(status_code=403, detail="insufficient role")
-    logger.debug(
-        "verify_approval_role: 审批角色占位放行 (authorization=%s)",
-        authorization,
-    )
-    return "anonymous"
+    if x_user_role is None:
+        logger.debug("verify_approval_role: 缺角色头 → None（下游 can_approve fail-closed）")
+        return None
+    caller_role = x_user_role.strip().lower()
+    logger.debug("verify_approval_role: 演示态角色头归一 caller_role=%s", caller_role)
+    return caller_role or None
