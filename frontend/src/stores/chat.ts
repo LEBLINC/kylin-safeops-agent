@@ -583,6 +583,15 @@ export const useChatStore = defineStore('chat', {
             created_at: nowIso(),
             trace_id: traceId
           })
+        } else if (data.cause === 'injection') {
+          this.addMessage(sessionId, {
+            id: uid('msg_inject'),
+            role: 'system',
+            status: 'done',
+            content: `⛔ 输入被安全策略拦截：${data.reason || '不允许执行'}`,
+            created_at: nowIso(),
+            trace_id: traceId
+          })
         } else {
           this.addMessage(sessionId, {
             id: uid('msg_rejected'),
