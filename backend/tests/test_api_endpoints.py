@@ -500,8 +500,9 @@ def test_system_overview_flat_fields() -> None:
                 ):
                     assert key in data
                 assert isinstance(data["services"], list)
-                # 任务D：来源态显式标注（桩执行器下绝不冒充真实数据）
-                assert data["data_source"] == "stub_executor"
+                # 任务D/戊：来源态显式标注据实（real/partial/stub_executor，按平台真实采集情况而定；
+                # 绝不"填示例值却标 real"）。本端点用真 executor，跨平台结果不同，断言取值合法集合。
+                assert data["data_source"] in {"stub_executor", "partial", "real"}
                 # 任务D：采集管道真实经 gateway dispatch 只读工具（管道连通证据）
                 assert "system.info" in data["probed_tools"]
                 assert "disk.usage" in data["probed_tools"]

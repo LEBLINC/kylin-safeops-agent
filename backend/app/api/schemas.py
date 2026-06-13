@@ -125,18 +125,28 @@ class ServiceStatus(BaseModel):
 class SystemOverview(BaseModel):
     """GET /api/system/overview 响应体（扁平指标，Dashboard 渲染）。"""
 
-    cpu_usage: float = Field(..., description="CPU 使用率（百分比）")
-    memory_usage: float = Field(..., description="内存使用率（百分比）")
-    root_disk_usage: float = Field(..., description="根分区使用率（百分比）")
-    zombie_processes: int = Field(..., description="僵尸进程数")
+    cpu_usage: float = Field(
+        ..., description="CPU 使用率（百分比）；暂无只读源，未采集时为 0.0（见 data_source）"
+    )
+    memory_usage: float = Field(
+        ..., description="内存使用率（百分比）；暂无只读源，未采集时为 0.0（见 data_source）"
+    )
+    root_disk_usage: float = Field(
+        ..., description="根分区使用率（百分比）；任务戊由 df 真实解析（未采集时 0.0）"
+    )
+    zombie_processes: int = Field(..., description="僵尸进程数；任务戊由 ps 真实统计（未采集时 0）")
     tool_calls_today: int = Field(..., description="今日工具调用次数")
     denied_today: int = Field(..., description="今日被策略拒绝次数")
     services: list[ServiceStatus] = Field(default_factory=list, description="关键服务状态列表")
-    # 任务D：数据来源态显式标注（防桩数据冒充真数据，审计红线）。
-    # "stub_executor"=当前 FakeExecutor 下为示例值；切真 Executor + 接 dispatch 解析后改 "real"。
+    # 任务D/戊：数据来源态显式标注（防桩数据冒充真数据，审计/诚实红线）。
+    # "stub_executor"=无任何字段从真实 stdout 还原；"partial"=部分字段（disk/zombie）已真、
+    # 其余仍缺真实源；"real"=全部上报数值均从真实 stdout 还原（cpu/memory 缺源前不可达）。
     data_source: str = Field(
         default="stub_executor",
-        description="数据来源态：stub_executor=桩执行器下为示例值；real=真实采集",
+        description=(
+            "数据来源态：stub_executor=无真实采集；partial=部分字段真实采集（disk/zombie）、"
+            "其余缺源；real=全部数值真实采集"
+        ),
     )
     probed_tools: list[str] = Field(
         default_factory=list,
