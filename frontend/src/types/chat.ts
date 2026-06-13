@@ -224,7 +224,7 @@ export interface StreamErrorData {
 export interface RejectedEventData {
   /** Reason text for rejection. */
   reason: string
-  /** Rejection cause: policy_deny or user_reject. */
+  /** Rejection cause: policy_deny（策略闸拦截）/ user_reject（用户拒批）/ injection（输入闸注入检测，D-10）。 */
   cause: 'policy_deny' | 'user_reject' | 'injection'
   /** Denied tools list (has values for policy_deny, empty for user_reject). */
   denied_tools: string[]
