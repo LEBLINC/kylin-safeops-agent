@@ -35,6 +35,7 @@ from backend.app.contracts.untrusted import ToolResult
 from backend.app.llm.adapter import LLMAdapter, Message
 from backend.app.llm.feedback import wrap_many_for_feedback
 from backend.app.mcp.gateway import MCPGateway
+from backend.app.security.injection_detector import detect_injection
 
 # 裁决严格度排序：deny 最严，allow 最宽。聚合多候选工具时取最严。
 _DECISION_RANK: dict[Decision, int] = {"allow": 0, "confirm": 1, "deny": 2}
@@ -154,6 +155,36 @@ class Orchestrator:
         # RECEIVED：仅审计，无独立前端事件
         self._append_audit({"user_intent": user_intent})
 
+        # 输入闸（D-10）：LLM 看到输入【之前】做确定性提示注入检测。防御纵深——只增限制、
+        # 不授信任、不短路下游任何闸；检测放行 ≠ 信任输入，策略/审批闸照常。
+        finding = detect_injection(user_intent)
+        if finding is not None and finding.severity == "high":
+            # high → 输入闸 deny：拦在 LLM plan 之前，转 REJECTED 终态（原文入审计）。
+            self._goto(State.REJECTED)
+            self._append_audit(
+                {
+                    "input_gate": "deny",
+                    "category": finding.category,
+                    "pattern_id": finding.pattern_id,
+                    "user_intent": user_intent,
+                }
+            )
+            self._emit(
+                "rejected",
+                {"reason": finding.reason, "cause": "injection", "denied_tools": []},
+            )
+            return self.state
+        if finding is not None and finding.severity == "medium":
+            # medium → 仅标记审计，继续正常流程（不拦、不改裁决）。
+            self._append_audit(
+                {
+                    "input_gate": "flagged",
+                    "category": finding.category,
+                    "pattern_id": finding.pattern_id,
+                    "user_intent": user_intent,
+                }
+            )
+
         # 规划：LLM 网络异常 → error 事件并终止（不静默降级）
         try:
             intent = await self._llm.plan(messages)
@@ -203,9 +234,17 @@ class Orchestrator:
 
         # 规划完成（行动计划 = action_intent 的候选工具）
         self._goto(State.PLAN_GENERATED)
-        tool_plan = [t.model_dump() for t in action_intent.candidate_tools]
-        self._append_audit({"tool_plan": tool_plan})
-        self._emit("plan_generated", {"candidate_tools": tool_plan})
+        # 前端事件工具名口径统一为 "tool"（与 per_tool / await_approval 一致）；
+        # 契约 CandidateTool 内部仍是 .name，此处仅整形展示用事件数据形状，不改 contracts。
+        self._append_audit({"tool_plan": [t.model_dump() for t in action_intent.candidate_tools]})
+        self._emit(
+            "plan_generated",
+            {
+                "candidate_tools": [
+                    {"tool": t.name, "args": t.args} for t in action_intent.candidate_tools
+                ]
+            },
+        )
 
         # 策略裁决：逐候选各自裁决（含注册+结构校验+策略）。
         # 无候选 → 合成 deny；有候选 → 整批决策 = 最严裁决（deny>confirm>allow）。

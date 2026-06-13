@@ -1,28 +1,33 @@
-"""任务丁 — RBAC 端到端接线验证（can_approve 进审批闸，fail-closed）。
+"""接线增量 — RBAC 真认证（反代签名身份）+ 拒批放宽 端到端验证（甲+乙）。
 
-覆盖（演示态 X-User-Role 头）：
-- operator 批 R2(operator) → 200 续跑；operator 批 R3(admin) → 403 且仍 WAIT_APPROVAL、未执行。
-- admin 批 R2/R3 → 200。
-- 缺角色头 / 未知角色 → 403（fail-closed）。
-- 大写头 Admin/Operator 归一后可批；拼错 → 403。
-- 403 后会话仍可被有权角色再次 resume（重入锁已释放）。
+覆盖：
+- proxy 模式（命门）：合法签名 admin 批 R3 → 200；operator 批 admin 门槛 → 403 且仍 WAIT；
+  无签名/过期/**篡改 roles（声称 admin 但签名是 operator 的）→ 401**（裸头伪造角色已无效）。
+- dev 模式（联调）：X-User-Role admin 批 R3 → 200；缺角色头 → 401；proxy 下裸 X-User-Role → 401。
+- 拒批放宽（乙）：operator 签名拒批 admin 门槛 → 200（REJECTED、未执行）；批准 → 403；无签名 → 401。
+- _most_restrictive_role fail-closed 单元 + 未知门槛端到端（任何角色 403）。
 
-注：本测试验证审批**授权**确定性强制；身份**认证**仍未接入（角色来自演示态头）。
+注：conftest 默认 KYLIN_AUTH_MODE=dev；proxy 用例 monkeypatch 覆盖回 proxy + 设共享密钥。
 """
 
 from __future__ import annotations
 
 import asyncio
+import time
 
 import httpx
+import pytest
 
 from backend.app.api import app as app_module
 from backend.app.api._fakes import FakeExecutor
 from backend.app.api.app import create_app, get_gateway, lifespan
+from backend.app.api.auth import sign_identity
 from backend.app.contracts.intent import CandidateTool
 from backend.app.contracts.policy import PolicyVerdict
 from backend.app.mcp.gateway import MCPGateway
 from backend.app.mcp.registry import ToolRegistry
+
+_SECRET = "test-proxy-secret"
 
 
 def _client(app: object) -> httpx.AsyncClient:
@@ -42,7 +47,7 @@ async def _wait_state(registry, trace_id: str, target: str, timeout: float = 5.0
 
 
 class _ConfirmPolicy:
-    """裁决 confirm，approval_role 由构造参数决定（驱动指定门槛的 WAIT_APPROVAL）。"""
+    """裁决 confirm，approval_role 由构造参数决定。"""
 
     def __init__(self, approval_role: str | None, risk: str) -> None:
         self._role = approval_role
@@ -66,17 +71,38 @@ def _gateway_factory(approval_role: str | None, risk: str):  # noqa: ANN201
         registry = ToolRegistry()
         registry.register(
             ToolSpec(
-                name="system.info",
-                description="获取系统基本信息",
-                risk="R0",
-                input_schema={"type": "object", "properties": {}, "additionalProperties": False},
-                requires_roles=["operator"],
-                reversible=True,
+                name="service.restart",
+                description="重启服务",
+                risk="R3",
+                input_schema={
+                    "type": "object",
+                    "properties": {"service_name": {"type": "string", "minLength": 1}},
+                    "required": ["service_name"],
+                    "additionalProperties": False,
+                },
+                requires_roles=["admin"],
+                reversible=False,
             )
         )
         return MCPGateway(registry, _ConfirmPolicy(approval_role, risk), FakeExecutor())  # type: ignore[arg-type]
 
     return _factory
+
+
+def _signed_headers(
+    user: str, roles_csv: str, *, sign_roles: str | None = None, ts: int | None = None
+) -> dict[str, str]:
+    """构造 proxy 签名头。sign_roles 不同于 roles_csv 时模拟篡改（声称 vs 实签）。"""
+    timestamp = str(ts if ts is not None else int(time.time()))
+    signature = sign_identity(
+        user, sign_roles if sign_roles is not None else roles_csv, timestamp, _SECRET
+    )
+    return {
+        "X-Auth-User": user,
+        "X-Auth-Roles": roles_csv,
+        "X-Auth-Timestamp": timestamp,
+        "X-Auth-Signature": signature,
+    }
 
 
 async def _post_chat_to_wait(client: httpx.AsyncClient, registry) -> str:  # noqa: ANN001
@@ -85,41 +111,15 @@ async def _post_chat_to_wait(client: httpx.AsyncClient, registry) -> str:  # noq
     return trace_id
 
 
-async def _resume(client: httpx.AsyncClient, trace_id: str, role: str | None) -> httpx.Response:
-    headers = {"X-User-Role": role} if role is not None else {}
-    return await client.post(
-        "/api/approvals/resume",
-        headers=headers,
-        json={"trace_id": trace_id, "approved": True},
-    )
+# ============================================================
+# proxy 模式（命门：裸头伪造角色无效）
+# ============================================================
 
 
-# ---- operator 门槛（R2/operator）------------------------------------------
-
-
-def test_operator_approves_operator_plan() -> None:
-    """operator 批 approval_role=operator 的计划 → 200 续跑到 FINISHED。"""
-
-    async def scenario() -> None:
-        app = create_app()
-        app.dependency_overrides[get_gateway] = _gateway_factory("operator", "R2")
-        async with lifespan(app):
-            registry = app_module.get_registry()
-            async with _client(app) as client:
-                tid = await _post_chat_to_wait(client, registry)
-                rr = await _resume(client, tid, "operator")
-                assert rr.status_code == 200
-                await _wait_state(registry, tid, "FINISHED")
-        app.dependency_overrides.clear()
-
-    asyncio.run(scenario())
-
-
-# ---- admin 门槛（R3/admin）------------------------------------------------
-
-
-def test_operator_cannot_approve_admin_plan_fail_closed() -> None:
-    """operator 批 approval_role=admin 的计划 → 403，仍 WAIT_APPROVAL、未执行。"""
+def test_proxy_admin_signature_approves_admin_plan(monkeypatch: pytest.MonkeyPatch) -> None:
+    """proxy：合法 admin 签名批 R3(admin) → 200 续跑到 FINISHED。"""
+    monkeypatch.setenv("KYLIN_AUTH_MODE", "proxy")
+    monkeypatch.setenv("KYLIN_PROXY_AUTH_SECRET", _SECRET)
 
     async def scenario() -> None:
         app = create_app()
@@ -128,17 +128,22 @@ def test_operator_cannot_approve_admin_plan_fail_closed() -> None:
             registry = app_module.get_registry()
             async with _client(app) as client:
                 tid = await _post_chat_to_wait(client, registry)
-                rr = await _resume(client, tid, "operator")
-                assert rr.status_code == 403
-                # fail-closed：未离开 WAIT_APPROVAL（真命令未执行）
-                assert registry.get(tid).orchestrator.state.value == "WAIT_APPROVAL"
+                rr = await client.post(
+                    "/api/approvals/resume",
+                    headers=_signed_headers("alice", "admin"),
+                    json={"trace_id": tid, "approved": True},
+                )
+                assert rr.status_code == 200
+                await _wait_state(registry, tid, "FINISHED")
         app.dependency_overrides.clear()
 
     asyncio.run(scenario())
 
 
-def test_admin_approves_admin_and_operator_plans() -> None:
-    """admin 可批 admin 门槛计划 → 200。"""
+def test_proxy_operator_cannot_approve_admin_plan(monkeypatch: pytest.MonkeyPatch) -> None:
+    """proxy：合法 operator 签名批 R3(admin 门槛) → 403 且仍 WAIT_APPROVAL。"""
+    monkeypatch.setenv("KYLIN_AUTH_MODE", "proxy")
+    monkeypatch.setenv("KYLIN_PROXY_AUTH_SECRET", _SECRET)
 
     async def scenario() -> None:
         app = create_app()
@@ -147,28 +152,11 @@ def test_admin_approves_admin_and_operator_plans() -> None:
             registry = app_module.get_registry()
             async with _client(app) as client:
                 tid = await _post_chat_to_wait(client, registry)
-                rr = await _resume(client, tid, "admin")
-                assert rr.status_code == 200
-                await _wait_state(registry, tid, "FINISHED")
-        app.dependency_overrides.clear()
-
-    asyncio.run(scenario())
-
-
-# ---- fail-closed：缺/未知/拼错角色 ---------------------------------------
-
-
-def test_missing_role_header_forbidden() -> None:
-    """缺 X-User-Role 头 → 403（fail-closed）。"""
-
-    async def scenario() -> None:
-        app = create_app()
-        app.dependency_overrides[get_gateway] = _gateway_factory("operator", "R2")
-        async with lifespan(app):
-            registry = app_module.get_registry()
-            async with _client(app) as client:
-                tid = await _post_chat_to_wait(client, registry)
-                rr = await _resume(client, tid, None)
+                rr = await client.post(
+                    "/api/approvals/resume",
+                    headers=_signed_headers("bob", "operator"),
+                    json={"trace_id": tid, "approved": True},
+                )
                 assert rr.status_code == 403
                 assert registry.get(tid).orchestrator.state.value == "WAIT_APPROVAL"
         app.dependency_overrides.clear()
@@ -176,24 +164,10 @@ def test_missing_role_header_forbidden() -> None:
     asyncio.run(scenario())
 
 
-def test_unknown_role_forbidden() -> None:
-    """未知角色（viewer）→ 403。"""
-
-    async def scenario() -> None:
-        app = create_app()
-        app.dependency_overrides[get_gateway] = _gateway_factory("operator", "R2")
-        async with lifespan(app):
-            registry = app_module.get_registry()
-            async with _client(app) as client:
-                tid = await _post_chat_to_wait(client, registry)
-                assert (await _resume(client, tid, "viewer")).status_code == 403
-        app.dependency_overrides.clear()
-
-    asyncio.run(scenario())
-
-
-def test_uppercase_role_normalized() -> None:
-    """大写头 Admin 归一为 admin 后可批 admin 门槛 → 200。"""
+def test_proxy_no_signature_unauthorized(monkeypatch: pytest.MonkeyPatch) -> None:
+    """proxy：无签名头 → 401（fail-closed），真命令未执行、仍 WAIT_APPROVAL。"""
+    monkeypatch.setenv("KYLIN_AUTH_MODE", "proxy")
+    monkeypatch.setenv("KYLIN_PROXY_AUTH_SECRET", _SECRET)
 
     async def scenario() -> None:
         app = create_app()
@@ -202,7 +176,86 @@ def test_uppercase_role_normalized() -> None:
             registry = app_module.get_registry()
             async with _client(app) as client:
                 tid = await _post_chat_to_wait(client, registry)
-                rr = await _resume(client, tid, "Admin")
+                rr = await client.post(
+                    "/api/approvals/resume", json={"trace_id": tid, "approved": True}
+                )
+                assert rr.status_code == 401
+                assert registry.get(tid).orchestrator.state.value == "WAIT_APPROVAL"
+        app.dependency_overrides.clear()
+
+    asyncio.run(scenario())
+
+
+def test_proxy_expired_timestamp_unauthorized(monkeypatch: pytest.MonkeyPatch) -> None:
+    """proxy：时间戳超窗（防重放）→ 401。"""
+    monkeypatch.setenv("KYLIN_AUTH_MODE", "proxy")
+    monkeypatch.setenv("KYLIN_PROXY_AUTH_SECRET", _SECRET)
+
+    async def scenario() -> None:
+        app = create_app()
+        app.dependency_overrides[get_gateway] = _gateway_factory("admin", "R3")
+        async with lifespan(app):
+            registry = app_module.get_registry()
+            async with _client(app) as client:
+                tid = await _post_chat_to_wait(client, registry)
+                stale = int(time.time()) - 400  # 超 300s 窗
+                rr = await client.post(
+                    "/api/approvals/resume",
+                    headers=_signed_headers("alice", "admin", ts=stale),
+                    json={"trace_id": tid, "approved": True},
+                )
+                assert rr.status_code == 401
+        app.dependency_overrides.clear()
+
+    asyncio.run(scenario())
+
+
+def test_proxy_tampered_roles_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """★命门：声称 admin（X-Auth-Roles=admin）但签名是 operator 的 → 401（伪造角色无效）。"""
+    monkeypatch.setenv("KYLIN_AUTH_MODE", "proxy")
+    monkeypatch.setenv("KYLIN_PROXY_AUTH_SECRET", _SECRET)
+
+    async def scenario() -> None:
+        app = create_app()
+        app.dependency_overrides[get_gateway] = _gateway_factory("admin", "R3")
+        async with lifespan(app):
+            registry = app_module.get_registry()
+            async with _client(app) as client:
+                tid = await _post_chat_to_wait(client, registry)
+                # 头声称 admin，但签名按 operator 计算 → HMAC 不匹配
+                headers = _signed_headers("mallory", "admin", sign_roles="operator")
+                rr = await client.post(
+                    "/api/approvals/resume",
+                    headers=headers,
+                    json={"trace_id": tid, "approved": True},
+                )
+                assert rr.status_code == 401
+                assert registry.get(tid).orchestrator.state.value == "WAIT_APPROVAL"
+        app.dependency_overrides.clear()
+
+    asyncio.run(scenario())
+
+
+# ============================================================
+# dev 模式（联调，conftest 默认）
+# ============================================================
+
+
+def test_dev_mode_user_role_approves() -> None:
+    """dev：X-User-Role admin 批 R3 → 200（证明 X 前端 dev 联调可用）。"""
+
+    async def scenario() -> None:
+        app = create_app()
+        app.dependency_overrides[get_gateway] = _gateway_factory("admin", "R3")
+        async with lifespan(app):
+            registry = app_module.get_registry()
+            async with _client(app) as client:
+                tid = await _post_chat_to_wait(client, registry)
+                rr = await client.post(
+                    "/api/approvals/resume",
+                    headers={"X-User-Role": "admin"},
+                    json={"trace_id": tid, "approved": True},
+                )
                 assert rr.status_code == 200
                 await _wait_state(registry, tid, "FINISHED")
         app.dependency_overrides.clear()
@@ -210,8 +263,8 @@ def test_uppercase_role_normalized() -> None:
     asyncio.run(scenario())
 
 
-def test_misspelled_role_forbidden() -> None:
-    """拼错角色（Admni）→ 归一 admni → 未知 → 403。"""
+def test_dev_mode_missing_role_unauthorized() -> None:
+    """dev：缺 X-User-Role → 401。"""
 
     async def scenario() -> None:
         app = create_app()
@@ -220,17 +273,19 @@ def test_misspelled_role_forbidden() -> None:
             registry = app_module.get_registry()
             async with _client(app) as client:
                 tid = await _post_chat_to_wait(client, registry)
-                assert (await _resume(client, tid, "Admni")).status_code == 403
+                rr = await client.post(
+                    "/api/approvals/resume", json={"trace_id": tid, "approved": True}
+                )
+                assert rr.status_code == 401
         app.dependency_overrides.clear()
 
     asyncio.run(scenario())
 
 
-# ---- 403 后会话仍可被有权角色 resume（重入锁已释放）----------------------
-
-
-def test_session_resumable_after_forbidden() -> None:
-    """operator 被 403 后，admin 仍可对同一会话 resume → 200（重入锁拒绝时未占用）。"""
+def test_proxy_mode_bare_user_role_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """proxy 模式下纯 X-User-Role（无签名）→ 401（dev 演示态头在生产无效）。"""
+    monkeypatch.setenv("KYLIN_AUTH_MODE", "proxy")
+    monkeypatch.setenv("KYLIN_PROXY_AUTH_SECRET", _SECRET)
 
     async def scenario() -> None:
         app = create_app()
@@ -239,17 +294,70 @@ def test_session_resumable_after_forbidden() -> None:
             registry = app_module.get_registry()
             async with _client(app) as client:
                 tid = await _post_chat_to_wait(client, registry)
-                assert (await _resume(client, tid, "operator")).status_code == 403
-                # 锁未被占用：有权角色仍可续跑
-                rr = await _resume(client, tid, "admin")
+                rr = await client.post(
+                    "/api/approvals/resume",
+                    headers={"X-User-Role": "admin"},
+                    json={"trace_id": tid, "approved": True},
+                )
+                assert rr.status_code == 401
+        app.dependency_overrides.clear()
+
+    asyncio.run(scenario())
+
+
+# ============================================================
+# 拒批放宽（乙）
+# ============================================================
+
+
+def test_reject_relaxed_any_authenticated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """乙：operator 签名**拒批** admin 门槛 → 200（取消放行），终态 REJECTED、未执行。"""
+    monkeypatch.setenv("KYLIN_AUTH_MODE", "proxy")
+    monkeypatch.setenv("KYLIN_PROXY_AUTH_SECRET", _SECRET)
+
+    async def scenario() -> None:
+        app = create_app()
+        app.dependency_overrides[get_gateway] = _gateway_factory("admin", "R3")
+        async with lifespan(app):
+            registry = app_module.get_registry()
+            async with _client(app) as client:
+                tid = await _post_chat_to_wait(client, registry)
+                rr = await client.post(
+                    "/api/approvals/resume",
+                    headers=_signed_headers("bob", "operator"),
+                    json={"trace_id": tid, "approved": False},
+                )
                 assert rr.status_code == 200
-                await _wait_state(registry, tid, "FINISHED")
+                await _wait_state(registry, tid, "REJECTED")
         app.dependency_overrides.clear()
 
     asyncio.run(scenario())
 
 
-# ---- _most_restrictive_role fail-closed 加固 ------------------------------
+def test_reject_still_requires_authentication(monkeypatch: pytest.MonkeyPatch) -> None:
+    """乙：拒批也要已认证——无签名拒批 → 401。"""
+    monkeypatch.setenv("KYLIN_AUTH_MODE", "proxy")
+    monkeypatch.setenv("KYLIN_PROXY_AUTH_SECRET", _SECRET)
+
+    async def scenario() -> None:
+        app = create_app()
+        app.dependency_overrides[get_gateway] = _gateway_factory("admin", "R3")
+        async with lifespan(app):
+            registry = app_module.get_registry()
+            async with _client(app) as client:
+                tid = await _post_chat_to_wait(client, registry)
+                rr = await client.post(
+                    "/api/approvals/resume", json={"trace_id": tid, "approved": False}
+                )
+                assert rr.status_code == 401
+        app.dependency_overrides.clear()
+
+    asyncio.run(scenario())
+
+
+# ============================================================
+# _most_restrictive_role fail-closed
+# ============================================================
 
 
 def test_most_restrictive_role_fail_closed() -> None:
@@ -263,19 +371,24 @@ def test_most_restrictive_role_fail_closed() -> None:
     assert _most_restrictive_role([]) is None
 
 
-def test_unknown_approval_role_blocks_everyone_fail_closed() -> None:
-    """端到端：confirm 裁决 approval_role=None → 任何角色（含 admin）均 403（fail-closed）。"""
+def test_unknown_approval_role_blocks_everyone(monkeypatch: pytest.MonkeyPatch) -> None:
+    """端到端：confirm 裁决 approval_role=None → 任何角色（含 admin 签名）批准均 403。"""
+    monkeypatch.setenv("KYLIN_AUTH_MODE", "proxy")
+    monkeypatch.setenv("KYLIN_PROXY_AUTH_SECRET", _SECRET)
 
     async def scenario() -> None:
         app = create_app()
-        # approval_role=None 模拟误配/未知门槛
         app.dependency_overrides[get_gateway] = _gateway_factory(None, "R3")
         async with lifespan(app):
             registry = app_module.get_registry()
             async with _client(app) as client:
                 tid = await _post_chat_to_wait(client, registry)
-                # 即便 admin 也无法批准未知门槛计划
-                assert (await _resume(client, tid, "admin")).status_code == 403
+                rr = await client.post(
+                    "/api/approvals/resume",
+                    headers=_signed_headers("alice", "admin"),
+                    json={"trace_id": tid, "approved": True},
+                )
+                assert rr.status_code == 403
                 assert registry.get(tid).orchestrator.state.value == "WAIT_APPROVAL"
         app.dependency_overrides.clear()
 

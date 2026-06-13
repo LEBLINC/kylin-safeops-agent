@@ -280,9 +280,9 @@ def test_observe_then_replan_uses_second_plan_tools() -> None:
     assert end is State.FINISHED
     called = [c.name for c in executor.calls]
     assert called == ["disk.usage", "disk.large_files"]  # 观测→行动，无重复执行 disk.usage
-    # plan_generated 事件反映的是二次规划的行动计划
+    # plan_generated 事件反映的是二次规划的行动计划（工具名口径统一为 "tool"）
     pg = [e for e in events.events if e.type == "plan_generated"][0]
-    assert pg.data["candidate_tools"][0]["name"] == "disk.large_files"
+    assert pg.data["candidate_tools"][0]["tool"] == "disk.large_files"
 
 
 def test_deny_goes_rejected_no_execution() -> None:

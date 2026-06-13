@@ -11,8 +11,11 @@
 from __future__ import annotations
 
 import logging
+import os
 
-from fastapi import Header
+from fastapi import Header, HTTPException
+
+from backend.app.api.auth import Principal, verify_proxy_identity
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +23,14 @@ logger = logging.getLogger(__name__)
 # 认证占位（铁律：绝不静默无防护）
 # ============================================================
 
-_AUTH_WARNING = "认证未接入，仅限内网/联调环境使用。" "TODO(BLOCKED-ON-D): 接 D 的 RBAC 校验。"
+_AUTH_WARNING = (
+    "审批闸 proxy 模式要求反代签名身份 / dev 模式演示态（角色可伪造，仅联调）；"
+    "其余端点仍内网 only，全量端点认证待后续。"
+)
+
+#: 认证模式环境变量名 + 默认值。proxy=生产（强制签名头校验，fail-closed）；
+#: dev=联调态（接受裸 X-User-Role，不验签，大声告警）。默认 proxy = 安全兜底。
+_AUTH_MODE_ENV = "KYLIN_AUTH_MODE"
 
 
 async def verify_token(
@@ -41,24 +51,38 @@ async def verify_token(
     return "anonymous"
 
 
-async def verify_approval_role(
+async def require_proxy_identity(
+    x_auth_user: str | None = Header(default=None),
+    x_auth_roles: str | None = Header(default=None),
+    x_auth_timestamp: str | None = Header(default=None),
+    x_auth_signature: str | None = Header(default=None),
     x_user_role: str | None = Header(default=None),
-) -> str | None:
-    """审批端点专用：解析调用者角色（演示态），归一为内部小写返回。
+) -> Principal:
+    """审批端点专用认证依赖：返回经验证的 Principal；非法 → 401（fail-closed）。
 
-    人工确认闸的**授权**入口：从请求头 ``X-User-Role`` 取调用者角色（前端演示态现用构建期
-    env 角色），大小写归一为内部小写（``Admin``→``admin`` / ``Operator``→``operator``）。
-    未知/拼错/缺失角色保留归一后原值或 None，交给下游 ``can_approve`` 失败关闭（fail-closed）。
+    按 ``KYLIN_AUTH_MODE`` 分支（默认 ``proxy`` = 安全兜底）：
+    - ``proxy``（生产）：从 4 个签名头 verify_proxy_identity，非法/缺失 → 401；合法 → Principal。
+    - ``dev``（联调）：接受裸 ``X-User-Role``（归一小写）不验签，**每次大声告警**；缺角色头 → 401。
+      dev 模式仅为不切断 X 前端审批联调（dev 无反代、签不出 HMAC）；**严禁用于生产**。
 
-    返回的是 caller_role（替换原"永远放行"占位），由 approvals.resume 接 can_approve 强制。
-
-    WARNING: 本步只接**审批授权**，不等于接入了**身份认证**——调用者声称的角色未经任何
-    可信凭证验证（演示态）。"认证未接入"全局告警仍然有效。
-    TODO(待 L 拍板): 真实认证源（JWT/Token/标准 header）与角色可信来源待定。
+    本依赖只接**审批授权来源**，不等于全量端点身份认证（其余端点仍内网态 verify_token）。
     """
-    if x_user_role is None:
-        logger.debug("verify_approval_role: 缺角色头 → None（下游 can_approve fail-closed）")
-        return None
-    caller_role = x_user_role.strip().lower()
-    logger.debug("verify_approval_role: 演示态角色头归一 caller_role=%s", caller_role)
-    return caller_role or None
+    mode = os.environ.get(_AUTH_MODE_ENV, "proxy").strip().lower()
+    if mode == "dev":
+        logger.warning("⚠ DEV 认证模式：审批角色取自裸 X-User-Role、可伪造，严禁用于生产！")
+        if not x_user_role:
+            raise HTTPException(
+                status_code=401, detail="missing X-User-Role (dev auth mode requires a role)"
+            )
+        return Principal(user="dev", roles=frozenset({x_user_role.strip().lower()}))
+
+    # proxy 模式（默认，fail-closed）
+    principal = verify_proxy_identity(
+        user=x_auth_user,
+        roles=x_auth_roles,
+        timestamp=x_auth_timestamp,
+        signature=x_auth_signature,
+    )
+    if principal is None:
+        raise HTTPException(status_code=401, detail="missing or invalid proxy-signed identity")
+    return principal
