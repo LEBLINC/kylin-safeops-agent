@@ -21,13 +21,15 @@ from pydantic import BaseModel, ConfigDict, Field
 #   executing       -> {"tools": list[str]}
 #   tool_result     -> {"result": ToolResult}
 #   verified        -> {"summary": str}
-#   rejected        -> {"reason": str, "cause": "policy_deny"|"user_reject", "denied_tools": list}
+#   rejected        -> {"reason": str, "cause": str, "denied_tools": list}
+#                       cause ∈ "injection" | "policy_deny" | "user_reject"
 #   rca             -> {"report": dict}
 #   audit_appended  -> {"seq": int, "curr_hash": str}
 #   error           -> {"message": str, "phase": str}
-# 注：rejected 是 REJECTED 终态的显式结论事件（L-6 方案B）——两条 REJECTED 路径
-#     （策略 deny / 用户拒批）在关流前各 emit 一次，让前端及任意 SSE 消费者能收尾出结论，
-#     不再依赖"回看历史状态推断"。
+# 注：rejected 是 REJECTED 终态的显式结论事件（L-6 方案B）——三条 REJECTED 路径
+#     （输入闸注入检测 high→deny / 策略 deny / 用户拒批）在关流前各 emit 一次，让前端及
+#     任意 SSE 消费者能收尾出结论，不再依赖"回看历史状态推断"。
+#     cause：injection=D-10 输入闸提示注入(high)；policy_deny=策略闸拒绝；user_reject=人工拒批。
 EventType = Literal[
     "intent_parsed",
     "observation",
