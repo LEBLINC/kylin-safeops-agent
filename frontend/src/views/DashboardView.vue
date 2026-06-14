@@ -98,6 +98,10 @@ onMounted(async () => {
       <el-tag type="warning" size="small">桩数据</el-tag>
       <span v-if="!overview.probed_tools?.length" class="stub-hint">采集管道未接通</span>
     </div>
+    <div v-else-if="overview.data_source === 'partial'" class="datasource-partial-badge">
+      <el-tag type="warning" size="small">部分采集</el-tag>
+      <span class="datasource-hint">disk/zombie 已真实采集，cpu/memory 暂缺源</span>
+    </div>
     <div v-else-if="overview.data_source === 'real'" class="datasource-real-badge">
       <el-tag type="success" size="small">真实采集</el-tag>
     </div>
@@ -191,8 +195,16 @@ onMounted(async () => {
   gap: 8px;
   margin-bottom: 12px;
 }
+.datasource-partial-badge {
+  margin-bottom: 12px;
+}
 .datasource-real-badge {
   margin-bottom: 12px;
+}
+.datasource-hint {
+  color: var(--ks-text-secondary, #999);
+  font-size: 12px;
+  margin-left: 8px;
 }
 .stub-hint {
   color: var(--ks-text-secondary, #999);
