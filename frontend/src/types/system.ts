@@ -53,6 +53,6 @@ export interface SystemOverview {
  tool_calls_today: number
  denied_today: number
  services?: Array<{ name: string; status: string }>
-  data_source: string
+  data_source: 'stub_executor' | 'partial' | 'real'
   probed_tools: string[]
 }

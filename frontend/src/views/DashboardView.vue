@@ -107,10 +107,25 @@ onMounted(async () => {
     </div>
 
     <div class="metric-grid">
-      <MetricCard title="CPU 使用率" :value="`${overview.cpu_usage}%`" />
-      <MetricCard title="内存使用率" :value="`${overview.memory_usage}%`" status="warning" />
-      <MetricCard title="根分区使用率" :value="`${overview.root_disk_usage}%`" status="danger" />
-      <MetricCard title="僵尸进程" :value="overview.zombie_processes" status="warning" />
+      <MetricCard
+        title="CPU 使用率"
+        :value="overview.data_source === 'real' ? `${overview.cpu_usage}%` : '暂未采集'"
+      />
+      <MetricCard
+        title="内存使用率"
+        :value="overview.data_source === 'real' ? `${overview.memory_usage}%` : '暂未采集'"
+        :status="overview.data_source === 'real' ? 'warning' : undefined"
+      />
+      <MetricCard
+        title="根分区使用率"
+        :value="overview.data_source === 'stub_executor' ? '桩数据' : `${overview.root_disk_usage}%`"
+        :status="overview.data_source === 'stub_executor' ? undefined : 'danger'"
+      />
+      <MetricCard
+        title="僵尸进程"
+        :value="overview.data_source === 'stub_executor' ? '桩数据' : overview.zombie_processes"
+        :status="overview.data_source === 'stub_executor' ? undefined : 'warning'"
+      />
       <MetricCard title="今日工具调用" :value="overview.tool_calls_today" />
       <MetricCard title="今日拦截" :value="overview.denied_today" status="danger" />
     </div>
@@ -135,6 +150,9 @@ onMounted(async () => {
           <div v-for="service in overview.services" :key="service.name" class="service-row">
             <span>{{ service.name }}</span>
             <StatusTag :status="serviceStatus(service.status)" />
+          </div>
+          <div v-if="!overview.services?.length" class="service-empty">
+            <span class="datasource-hint">暂无服务数据</span>
           </div>
         </div>
       </PageSection>
