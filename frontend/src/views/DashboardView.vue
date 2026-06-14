@@ -98,15 +98,34 @@ onMounted(async () => {
       <el-tag type="warning" size="small">桩数据</el-tag>
       <span v-if="!overview.probed_tools?.length" class="stub-hint">采集管道未接通</span>
     </div>
+    <div v-else-if="overview.data_source === 'partial'" class="datasource-partial-badge">
+      <el-tag type="warning" size="small">部分采集</el-tag>
+      <span class="datasource-hint">disk/zombie 已真实采集，cpu/memory 暂缺源</span>
+    </div>
     <div v-else-if="overview.data_source === 'real'" class="datasource-real-badge">
       <el-tag type="success" size="small">真实采集</el-tag>
     </div>
 
     <div class="metric-grid">
-      <MetricCard title="CPU 使用率" :value="`${overview.cpu_usage}%`" />
-      <MetricCard title="内存使用率" :value="`${overview.memory_usage}%`" status="warning" />
-      <MetricCard title="根分区使用率" :value="`${overview.root_disk_usage}%`" status="danger" />
-      <MetricCard title="僵尸进程" :value="overview.zombie_processes" status="warning" />
+      <MetricCard
+        title="CPU 使用率"
+        :value="overview.data_source === 'real' ? `${overview.cpu_usage}%` : '暂未采集'"
+      />
+      <MetricCard
+        title="内存使用率"
+        :value="overview.data_source === 'real' ? `${overview.memory_usage}%` : '暂未采集'"
+        :status="overview.data_source === 'real' ? 'warning' : undefined"
+      />
+      <MetricCard
+        title="根分区使用率"
+        :value="overview.data_source === 'stub_executor' ? '桩数据' : `${overview.root_disk_usage}%`"
+        :status="overview.data_source === 'stub_executor' ? undefined : 'danger'"
+      />
+      <MetricCard
+        title="僵尸进程"
+        :value="overview.data_source === 'stub_executor' ? '桩数据' : overview.zombie_processes"
+        :status="overview.data_source === 'stub_executor' ? undefined : 'warning'"
+      />
       <MetricCard title="今日工具调用" :value="overview.tool_calls_today" />
       <MetricCard title="今日拦截" :value="overview.denied_today" status="danger" />
     </div>
@@ -131,6 +150,9 @@ onMounted(async () => {
           <div v-for="service in overview.services" :key="service.name" class="service-row">
             <span>{{ service.name }}</span>
             <StatusTag :status="serviceStatus(service.status)" />
+          </div>
+          <div v-if="!overview.services?.length" class="service-empty">
+            <span class="datasource-hint">暂无服务数据</span>
           </div>
         </div>
       </PageSection>
@@ -191,8 +213,16 @@ onMounted(async () => {
   gap: 8px;
   margin-bottom: 12px;
 }
+.datasource-partial-badge {
+  margin-bottom: 12px;
+}
 .datasource-real-badge {
   margin-bottom: 12px;
+}
+.datasource-hint {
+  color: var(--ks-text-secondary, #999);
+  font-size: 12px;
+  margin-left: 8px;
 }
 .stub-hint {
   color: var(--ks-text-secondary, #999);
