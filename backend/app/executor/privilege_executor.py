@@ -190,7 +190,7 @@ class PrivilegeExecutor:
         if tool_name == "file.lsof_check":
             pid = args.get("pid")
             if pid is not None:
-                return ["/usr/sbin/lsof", "-p", str(int(pid))]
+                return ["/usr/bin/lsof", "-p", str(int(pid))]
             return [*argv, "--"]
         return argv
 
