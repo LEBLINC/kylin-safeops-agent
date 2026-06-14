@@ -152,13 +152,33 @@ _SKIP_REASON = _integration_skip_reason()
 _integration = pytest.mark.skipif(bool(_SKIP_REASON), reason=_SKIP_REASON)
 
 
-def _run_via_wrapper(profile: str, inner_cmd: list[str]) -> subprocess.CompletedProcess[str]:
-    """经真实 wrapper 脚本执行（systemd 瞬态 service），不依赖 wrapper 安装。"""
+def _run_via_wrapper(
+    profile: str,
+    inner_cmd: list[str],
+    *,
+    test_mode: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    """经真实 wrapper 脚本执行（systemd 瞬态 service），不依赖 wrapper 安装。
+
+    test_mode=True（默认）：注入 KYLIN_SANDBOX_TEST=1 使 wrapper 放行 touch/echo/true/false。
+    经 sudo -n 调用时 env 默认被清理，故显式 --preserve-env=KYLIN_SANDBOX_TEST 透传这一个变量；
+    root 直跑时 env 天然透传。
+    test_mode=False：模拟生产面——不设 KYLIN_SANDBOX_TEST、不 preserve-env，验证测试二进制被拒。
+    """
+    env = dict(os.environ)
+    sudo = _sudo_prefix()
+    if test_mode:
+        env["KYLIN_SANDBOX_TEST"] = "1"
+        if sudo:
+            sudo = [*sudo, "--preserve-env=KYLIN_SANDBOX_TEST"]
+    else:
+        env.pop("KYLIN_SANDBOX_TEST", None)
     return subprocess.run(
-        [*_sudo_prefix(), "bash", str(_WRAPPER_SRC), profile, "--", *inner_cmd],
+        [*sudo, "bash", str(_WRAPPER_SRC), profile, "--", *inner_cmd],
         capture_output=True,
         text=True,
         timeout=30,
+        env=env,
     )
 
 
@@ -242,3 +262,19 @@ def test_wrapper_rejects_non_whitelisted_binary() -> None:
     res = _run_via_wrapper("readonly", ["/bin/sh", "-c", "echo pwned"])
     assert res.returncode != 0, f"wrapper 竟允许 /bin/sh！stdout={res.stdout!r}"
     assert "pwned" not in res.stdout
+
+
+@_integration
+def test_wrapper_production_rejects_test_binary() -> None:
+    """生产面（不设 KYLIN_SANDBOX_TEST）拒绝测试二进制——证明最小权限分离。
+
+    干净 env 下 /usr/bin/touch 不在生产白名单，必须被拒；这也镜像了真实 sudoers
+    调用（不传 env），故生产环境永不放行测试工具。
+    """
+    target = f"/tmp/kylin-prod-reject-{uuid.uuid4().hex}"
+    res = _run_via_wrapper("readonly", ["/usr/bin/touch", target], test_mode=False)
+    assert (
+        res.returncode != 0
+    ), f"生产面竟放行 /usr/bin/touch！stdout={res.stdout!r} stderr={res.stderr!r}"
+    assert "命令不在白名单" in res.stderr
+    subprocess.run([*_sudo_prefix(), "/usr/bin/rm", "-f", target], check=False)

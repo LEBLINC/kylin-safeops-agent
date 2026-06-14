@@ -38,10 +38,10 @@ shift
 [[ $# -eq 0 ]] && { echo "缺少命令" >&2; exit 1; }
 
 # ---- inner 命令白名单（与 command_templates.py 对齐，OS 级逃生边界）----
-# 仅允许 executor 合法使用的二进制；禁止 shell/解释器（sh/bash/python/perl/awk 等）。
+# 仅允许 executor 合法使用的生产二进制；禁止 shell/解释器（sh/bash/python/perl/awk 等）。
 # 即使 agent 进程被攻陷，经 sudo 也只能以 root 跑以下命令（且受沙箱约束）。
+# 生产面只含 command_templates.py 的 10 个二进制，不含任何测试工具（最小权限）。
 ALLOWED_CMDS=(
-    # COMMAND_TEMPLATES 生产二进制
     /usr/bin/df
     /usr/bin/find
     /usr/bin/ps
@@ -52,12 +52,19 @@ ALLOWED_CMDS=(
     /usr/bin/systemctl
     /usr/bin/sha256sum
     /usr/bin/gzip
-    # 集成测试 + 探测用（无害工具，非解释器）
-    /usr/bin/touch
-    /usr/bin/echo
-    /bin/true
-    /bin/false
 )
+
+# 测试二进制仅在 KYLIN_SANDBOX_TEST=1 时追加（集成测试用 touch/echo/true/false）。
+# 铁律：此变量仅供测试注入；生产环境绝不设置。sudoers 不传任何 env（默认 reset_env），
+# 故经真实 sudoers 调用时本分支天然不生效——生产面永不含测试工具。
+if [[ "${KYLIN_SANDBOX_TEST:-}" == "1" ]]; then
+    ALLOWED_CMDS+=(
+        /usr/bin/touch
+        /usr/bin/echo
+        /bin/true
+        /bin/false
+    )
+fi
 
 CMD="$1"
 ALLOWED=false
