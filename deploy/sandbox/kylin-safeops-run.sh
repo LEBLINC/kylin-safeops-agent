@@ -48,7 +48,7 @@ ALLOWED_CMDS=(
     /usr/sbin/ss
     /usr/bin/netstat
     /usr/bin/journalctl
-    /usr/sbin/lsof
+    /usr/bin/lsof
     /usr/bin/systemctl
     /usr/bin/sha256sum
     /usr/bin/gzip

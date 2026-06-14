@@ -65,7 +65,7 @@ COMMAND_TEMPLATES: dict[str, dict[str, CommandTemplate]] = {
     },
     "file.lsof_check": {
         "default": CommandTemplate(
-            argv_prefix=["/usr/sbin/lsof"],
+            argv_prefix=["/usr/bin/lsof"],
             dynamic_args=["path"],
         ),
     },
