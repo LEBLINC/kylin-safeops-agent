@@ -540,7 +540,13 @@ def test_overview_probes_only_readonly_tools() -> None:
             async with _client(app) as client:
                 data = (await client.get("/api/system/overview")).json()
                 probed = set(data["probed_tools"])
-                assert probed <= {"system.info", "disk.usage", "process.list"}
+                assert probed <= {
+                    "system.info",
+                    "disk.usage",
+                    "process.list",
+                    "system.cpu_load",
+                    "system.mem_usage",
+                }
 
     asyncio.run(scenario())
 

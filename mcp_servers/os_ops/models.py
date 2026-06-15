@@ -184,3 +184,21 @@ class ConfigDiff(BaseModel):
     added: list[str] = Field(default_factory=list)
     removed: list[str] = Field(default_factory=list)
     changed: list[str] = Field(default_factory=list)
+
+
+class CpuLoad(BaseModel):
+    """CPU 使用率（vmstat 1 秒采样：usage = 100 - idle）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    usage_percent: float
+
+
+class MemUsage(BaseModel):
+    """内存使用率（free -b：used_percent = (total-available)/total*100，available 权威口径）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    total_bytes: int
+    available_bytes: int
+    used_percent: float
