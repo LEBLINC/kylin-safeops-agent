@@ -71,7 +71,7 @@
 |---|---|---|---|---|---|
 | [✅] | Chat | REST | `POST /api/chat` | 发送用户消息，返回 `trace_id` 与 `stream_url` | 已通过 |
 | [✅] | Chat | SSE | `GET /api/chat/{trace_id}/events` | 订阅同一 trace 的业务事件流 | 已通过 |
-| [⬜] | Chat | REST | `POST /api/approvals/resume` | 批准/拒绝后续跑同一 SSE | 批准路径 2026-06-15 联调通过；拒绝路径待后端接口完整接入后重验 |
+| [⬜] | Chat | REST | `POST /api/approvals/resume` | 批准/拒绝后续跑同一 SSE | 批准路径 2026-06-15 联调通过；拒绝路径后端已具备，卡在 await_approval 全流程需真实 LLM，非后端缺口 |
 | [✅] | Chat | REST | `GET /api/chat/sessions` | 拉取会话列表 | 已通过 |
 | [✅] | Chat | REST | `POST /api/chat/sessions` | 创建会话 | 已通过 |
 | [✅] | Chat | REST | `GET /api/chat/sessions/{id}` | 获取会话详情/元信息 | 已通过 |
@@ -92,7 +92,7 @@
 |---|---|---|---|---|---|---|---|---|---|
 | [✅] | POST | `/api/chat` | 发送用户自然语言消息 | `{message, session_id?}` | `{session_id?, trace_id, stream_url}` | 已实现 | 已调用 | 是 | 联调通过 |
 | [✅] | GET | `/api/chat/{trace_id}/events` | SSE 订阅业务事件 | path: `trace_id` | `StreamEvent`（不含 done） | 已实现 | 已修正 | 是 | 联调通过：8 类业务事件 + transport done |
-| [⬜] | POST | `/api/approvals/resume` | 批准/拒绝当前 trace 续跑 | `{trace_id, approved}` | `{trace_id, accepted}` | 已实现 | 已修正 | 是 | 批准路径 2026-06-15 全流程通过；拒绝路径待后端接口完整接入后重验 |
+| [⬜] | POST | `/api/approvals/resume` | 批准/拒绝当前 trace 续跑 | `{trace_id, approved}` | `{trace_id, accepted}` | 已实现 | 已修正 | 是 | 批准路径 2026-06-15 全流程通过；拒绝路径后端已具备，卡在 await_approval 全流程需真实 LLM，非后端缺口 |
 | [✅] | GET | `/api/chat/sessions` | 获取会话列表 | 无 | `ChatSessionDTO[]` | 已实现 | 已调用 | 是 | 联调通过 |
 | [✅] | POST | `/api/chat/sessions` | 创建会话 | `{title?}` | `ChatSessionDTO` | 已实现 | 已调用 | 是 | 联调通过 |
 | [✅] | GET | `/api/chat/sessions/{session_id}` | 获取会话元信息 | path: `session_id` | `ChatSessionDTO` | 已实现 | 已调用 | 是 | 联调通过 |
