@@ -4,6 +4,7 @@ import PageHeader from '@/layouts/PageHeader.vue'
 import ApprovalCard from '@/components/ApprovalCard.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { useApprovalStore } from '@/stores/approval'
+import { isMockEnabled } from '@/api/mock'
 
 /**
  * ApprovalView.vue
@@ -76,7 +77,18 @@ async function rejectById(id?: string) {
         @reject="rejectById"
       />
     </div>
-    <EmptyState v-else title="暂无待审批操作" description="高危操作出现时会自动进入此列表" />
+    <template v-else>
+      <el-alert
+        v-if="!isMockEnabled()"
+        type="info"
+        show-icon
+        :closable="false"
+        title="集中审批列表接口尚未接入"
+        description="当前 /api/approvals?status=pending 待后端实现；Chat 内联审批已可用。"
+        style="margin-bottom: 12px;"
+      />
+      <EmptyState title="暂无待审批操作" description="高危操作出现时会自动进入此列表" />
+    </template>
   </div>
 </template>
 
