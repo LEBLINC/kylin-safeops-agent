@@ -33,6 +33,8 @@ TOOL_SANDBOX_PROFILES: dict[str, SandboxProfile] = {
     # 安全依赖其"只读多命令聚合"性质，非全工具内核兜底。
     # wrapper 已删除 none 分支（洞1）：none 仅是 Python 侧的"不包裹"标记。
     "system.info": "none",
+    "system.cpu_load": "readonly",
+    "system.mem_usage": "readonly",
     "disk.usage": "readonly",
     "disk.large_files": "readonly",
     "process.list": "readonly",

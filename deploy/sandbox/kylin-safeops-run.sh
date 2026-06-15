@@ -40,7 +40,7 @@ shift
 # ---- inner 命令白名单（与 command_templates.py 对齐，OS 级逃生边界）----
 # 仅允许 executor 合法使用的生产二进制；禁止 shell/解释器（sh/bash/python/perl/awk 等）。
 # 即使 agent 进程被攻陷，经 sudo 也只能以 root 跑以下命令（且受沙箱约束）。
-# 生产面只含 command_templates.py 的 10 个二进制，不含任何测试工具（最小权限）。
+# 生产面只含 command_templates.py 的 12 个二进制，不含任何测试工具（最小权限）。
 ALLOWED_CMDS=(
     /usr/bin/df
     /usr/bin/find
@@ -52,6 +52,8 @@ ALLOWED_CMDS=(
     /usr/bin/systemctl
     /usr/bin/sha256sum
     /usr/bin/gzip
+    /usr/bin/vmstat
+    /usr/bin/free
 )
 
 # 测试二进制仅在 KYLIN_SANDBOX_TEST=1 时追加（集成测试用 touch/echo/true/false）。

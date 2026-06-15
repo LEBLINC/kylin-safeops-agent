@@ -39,6 +39,12 @@ def test_all_os_ops_tools_have_template() -> None:
         assert has_tool(spec.name), f"missing template for {spec.name}"
 
 
+def test_resource_tool_templates_registered() -> None:
+    """阶段 2B：cpu/mem 资源工具模板已注册（休眠态，待 L 接 ToolSpec 激活）。"""
+    assert has_tool("system.cpu_load")
+    assert has_tool("system.mem_usage")
+
+
 def test_unknown_tool_returns_127() -> None:
     ex = PrivilegeExecutor()
     result = asyncio.run(ex.execute(_tool("ghost.tool")))

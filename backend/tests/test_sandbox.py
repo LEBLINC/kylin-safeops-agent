@@ -80,6 +80,8 @@ def test_argv_no_shell_metachar() -> None:
 
 def test_profile_mappings() -> None:
     assert get_sandbox_profile("disk.usage") == "readonly"
+    assert get_sandbox_profile("system.cpu_load") == "readonly"
+    assert get_sandbox_profile("system.mem_usage") == "readonly"
     assert get_sandbox_profile("log.compress_rotate") == "limited_write"
     assert get_sandbox_profile("service.restart") == "limited_write"
     assert get_sandbox_profile("system.info") == "none"
