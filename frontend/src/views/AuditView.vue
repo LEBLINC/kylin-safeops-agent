@@ -6,6 +6,7 @@ import HashChainViewer from '@/components/HashChainViewer.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import RiskTag from '@/components/RiskTag.vue'
 import { useAuditStore } from '@/stores/audit'
+import { isMockEnabled } from '@/api/mock'
 import type { AuditTrace } from '@/types/audit'
 import { prettyJson } from '@/utils/format'
 import { formatTime } from '@/utils/time'
@@ -105,6 +106,15 @@ function handleTraceRowClick(row: AuditTrace) {
         :records="audit.verifyResult.records"
       />
     </div>
+
+    <el-alert
+      v-if="!isMockEnabled() && audit.traces.length === 0"
+      type="info"
+      show-icon
+      :closable="false"
+      title="审计 REST 查询接口尚未接入"
+      description="当前 /api/audit/* 系列接口待后端实现；Chat 页 SSE 的 audit_appended 实时展示已可用。"
+    />
 
     <PageSection title="审计记录详情">
       <el-table :data="audit.records">
