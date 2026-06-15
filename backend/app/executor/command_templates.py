@@ -34,6 +34,12 @@ COMMAND_TEMPLATES: dict[str, dict[str, CommandTemplate]] = {
             argv_prefix=["echo"],  # 占位；system.info 需要多命令聚合，executor 特殊处理
         ),
     },
+    "system.cpu_load": {
+        "default": CommandTemplate(argv_prefix=["/usr/bin/vmstat", "1", "2"]),
+    },
+    "system.mem_usage": {
+        "default": CommandTemplate(argv_prefix=["/usr/bin/free", "-b"]),
+    },
     "disk.usage": {
         "default": CommandTemplate(argv_prefix=["/usr/bin/df", "-PB1"]),
     },
