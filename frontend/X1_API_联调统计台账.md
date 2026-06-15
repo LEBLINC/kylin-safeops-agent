@@ -40,9 +40,9 @@
 | X1 必须 API 项 | 10 | Chat 主链路、审批续跑、会话 CRUD、Dashboard、Tools Registry |
 | 后端已实现 API 项 | 13 | 当前后端 routers 中存在的 REST 接口 |
 | 后端缺失 API 项 | 20 | 前端已有声明但后端当前未实现 |
-| 当前待修正项 | 2 | Item 2(resume 全流程)/Item 4(SSE 生命周期) 受 fake planner 限制无法真实验证；其余 5/7 已通过联调 |
-| 当前阻塞项 | 20 | 主要集中在 Approval 集中页、Audit、Policy、Demo、ToolDetail、System 详情接口 |
-| 已通过联调项 | 15 | 主链路 REST + SSE 8 类事件 + 会话 CRUD + Dashboard + Tools Registry |
+| 当前待修正项 | 1 | Item 4(SSE 生命周期 / await_approval 全流程，受 fake planner + 后端接口待接入限制) |
+| 当前阻塞项 | 20 | 主要集中在 Approval 集中页、Audit、Policy、Demo、ToolDetail、System 详情接口（均待后端接入） |
+| 已通过联调项 | 17 | 主链路 REST + SSE 8 类事件 + 会话 CRUD + Dashboard + Tools Registry + RCA REST 2 项（2026-06-15 新增） |
 
 ---
 
@@ -71,7 +71,7 @@
 |---|---|---|---|---|---|
 | [✅] | Chat | REST | `POST /api/chat` | 发送用户消息，返回 `trace_id` 与 `stream_url` | 已通过 |
 | [✅] | Chat | SSE | `GET /api/chat/{trace_id}/events` | 订阅同一 trace 的业务事件流 | 已通过 |
-| [⬜] | Chat | REST | `POST /api/approvals/resume` | 批准/拒绝后续跑同一 SSE | contract 格式已通过；全流程受 fake planner 限制 |
+| [⬜] | Chat | REST | `POST /api/approvals/resume` | 批准/拒绝后续跑同一 SSE | 批准路径 2026-06-15 联调通过；拒绝路径待后端接口完整接入后重验 |
 | [✅] | Chat | REST | `GET /api/chat/sessions` | 拉取会话列表 | 已通过 |
 | [✅] | Chat | REST | `POST /api/chat/sessions` | 创建会话 | 已通过 |
 | [✅] | Chat | REST | `GET /api/chat/sessions/{id}` | 获取会话详情/元信息 | 已通过 |
@@ -92,7 +92,7 @@
 |---|---|---|---|---|---|---|---|---|---|
 | [✅] | POST | `/api/chat` | 发送用户自然语言消息 | `{message, session_id?}` | `{session_id?, trace_id, stream_url}` | 已实现 | 已调用 | 是 | 联调通过 |
 | [✅] | GET | `/api/chat/{trace_id}/events` | SSE 订阅业务事件 | path: `trace_id` | `StreamEvent`（不含 done） | 已实现 | 已修正 | 是 | 联调通过：8 类业务事件 + transport done |
-| [⬜] | POST | `/api/approvals/resume` | 批准/拒绝当前 trace 续跑 | `{trace_id, approved}` | `{trace_id, accepted}` | 已实现 | 已修正 | 是 | contract 格式验证通过；全流程需真实 planner 触发 await_approval |
+| [⬜] | POST | `/api/approvals/resume` | 批准/拒绝当前 trace 续跑 | `{trace_id, approved}` | `{trace_id, accepted}` | 已实现 | 已修正 | 是 | 批准路径 2026-06-15 全流程通过；拒绝路径待后端接口完整接入后重验 |
 | [✅] | GET | `/api/chat/sessions` | 获取会话列表 | 无 | `ChatSessionDTO[]` | 已实现 | 已调用 | 是 | 联调通过 |
 | [✅] | POST | `/api/chat/sessions` | 创建会话 | `{title?}` | `ChatSessionDTO` | 已实现 | 已调用 | 是 | 联调通过 |
 | [✅] | GET | `/api/chat/sessions/{session_id}` | 获取会话元信息 | path: `session_id` | `ChatSessionDTO` | 已实现 | 已调用 | 是 | 联调通过 |
@@ -240,8 +240,8 @@ X1 处理建议：
 
 | 完成标识 | 方法 | API | 用途 | 请求体摘要 | 响应体摘要 | 后端状态 | 前端状态 | X1 必须 | 联调状态 / 备注 |
 |---|---|---|---|---|---|---|---|---|---|
-| [⬜] | POST | `/api/rca/analyze` | 发起 RCA 分析 | `{problem_type, description}` | `{trace_id}` | 已实现 | 已调用 | 否 | 可选联调 |
-| [⬜] | GET | `/api/rca/{trace_id}` | 获取 RCA 报告 | path: `trace_id` | `{trace_id, report}` | 已实现 | 已调用 | 否 | 可选联调 |
+| [✅] | POST | `/api/rca/analyze` | 发起 RCA 分析 | `{problem_type, description}` | `{trace_id}` | 已实现 | 已调用 | 否 | 2026-06-15 联调通过：返回 trace_id，DefaultRCAEngine 正常工作 |
+| [✅] | GET | `/api/rca/{trace_id}` | 获取 RCA 报告 | path: `trace_id` | `{trace_id, report}` | 已实现 | 已调用 | 否 | 2026-06-15 联调通过：14 字段齐全，disk_full 置信度 0.82，evidence_chain 全标 is_untrusted=true |
 
 说明：
 
