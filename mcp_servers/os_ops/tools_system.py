@@ -18,4 +18,26 @@ SYSTEM_INFO = ToolSpec(
     reversible=True,
 )
 
-SPECS: list[ToolSpec] = [SYSTEM_INFO]
+# system.cpu_load：vmstat 1 秒采样 CPU 使用率（只读、无参、无副作用）→ R0。
+# 命令模板/沙箱 profile=readonly/wrapper 白名单(/usr/bin/vmstat) 由 D 侧已就绪（阶段 2A）。
+SYSTEM_CPU_LOAD = ToolSpec(
+    name="system.cpu_load",
+    description="采集 CPU 使用率（vmstat 1 秒采样：usage = 100 - idle）。",
+    risk="R0",
+    input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+    requires_roles=["operator"],
+    reversible=True,
+)
+
+# system.mem_usage：free -b 内存使用率（只读、无参、无副作用）→ R0。
+# 命令模板/沙箱 profile=readonly/wrapper 白名单(/usr/bin/free) 由 D 侧已就绪（阶段 2A）。
+SYSTEM_MEM_USAGE = ToolSpec(
+    name="system.mem_usage",
+    description="采集内存使用率（free -b：used = (total-available)/total）。",
+    risk="R0",
+    input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+    requires_roles=["operator"],
+    reversible=True,
+)
+
+SPECS: list[ToolSpec] = [SYSTEM_INFO, SYSTEM_CPU_LOAD, SYSTEM_MEM_USAGE]

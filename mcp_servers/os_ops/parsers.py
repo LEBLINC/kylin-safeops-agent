@@ -14,6 +14,7 @@ from __future__ import annotations
 from mcp_servers.os_ops.models import (
     ConfigDiff,
     ConfigSnapshot,
+    CpuLoad,
     DiskUsage,
     FileEntry,
     FilesystemUsage,
@@ -25,6 +26,7 @@ from mcp_servers.os_ops.models import (
     LogFile,
     LsofEntry,
     LsofResult,
+    MemUsage,
     ProcessInfo,
     ProcessList,
     ServiceStatus,
@@ -352,3 +354,55 @@ def parse_listening_ports(stdout: str) -> ListeningPorts:
     if "Foreign Address" in stdout:
         return parse_netstat_listening(stdout)
     return parse_ss_listening(stdout)
+
+
+def parse_free_output(stdout: str) -> MemUsage | None:
+    """解析 `free -b` 输出为 MemUsage（本项目自写，按麒麟 VM 实测协议）。
+
+    取以 ``Mem:`` 开头的行，split 后 col[1]=total、col[6]=available；
+    **used_percent = (total-available)/total*100**（用 available 权威可用内存口径，
+    非 used/total）。无 Mem 行 / 列缺失 / total<=0 → 返回 None（缺真，绝不填假值）。
+    """
+    for line in stdout.splitlines():
+        parts = line.split()
+        if not parts or parts[0] != "Mem:":
+            continue
+        try:
+            total = int(parts[1])
+            available = int(parts[6])
+        except (IndexError, ValueError):
+            return None
+        if total <= 0:
+            return None
+        used_percent = round((total - available) / total * 100, 1)
+        return MemUsage(total_bytes=total, available_bytes=available, used_percent=used_percent)
+    return None
+
+
+def parse_vmstat_output(stdout: str) -> CpuLoad | None:
+    """解析 `vmstat 1 2` 输出为 CpuLoad（本项目自写，按麒麟 VM 实测协议）。
+
+    **按 header 行定位 ``id`` 列索引**（不硬编码列号——id 列位置随内核/有无 gu 列变）；
+    取**最后一个数据行**（第 2 行=1 秒采样；第 1 行是开机累计，丢弃）；
+    **usage_percent = 100 - id**。无 id 列 / 无数据行 / 取值非法 → 返回 None（缺真）。
+    """
+    lines = [ln for ln in stdout.splitlines() if ln.strip()]
+    id_idx: int | None = None
+    header_idx: int | None = None
+    for i, ln in enumerate(lines):
+        cols = ln.split()
+        if "id" in cols:
+            id_idx = cols.index("id")
+            header_idx = i
+            break
+    if id_idx is None or header_idx is None:
+        return None
+    data_lines = lines[header_idx + 1 :]
+    if not data_lines:
+        return None
+    last = data_lines[-1].split()  # 最后一行 = 1 秒采样（丢弃首行开机累计）
+    try:
+        idle = float(last[id_idx])
+    except (IndexError, ValueError):
+        return None
+    return CpuLoad(usage_percent=round(100.0 - idle, 1))

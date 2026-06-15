@@ -40,6 +40,10 @@ def parse_tool_result(result: ToolResult) -> BaseModel | None:
         return parsers.parse_ps_output(
             stdout, sort_by=str(args.get("sort_by", "cpu")), top_n=args.get("top_n")
         )
+    if tool == "system.cpu_load":
+        return parsers.parse_vmstat_output(stdout)
+    if tool == "system.mem_usage":
+        return parsers.parse_free_output(stdout)
     if tool == "network.ports":
         return parsers.parse_listening_ports(stdout)  # 自动兼容 ss/netstat（D14 降级）
     if tool == "log.journal_query":

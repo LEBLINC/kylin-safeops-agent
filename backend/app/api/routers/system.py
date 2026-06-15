@@ -1,20 +1,21 @@
-"""增量5 / 任务D / 任务戊：GET /api/system/overview（Dashboard 概览）。
+"""增量5 / 任务D / 任务戊 / 阶段2B：GET /api/system/overview（Dashboard 概览）。
 
 任务D：把"经 MCPGateway 调 os_ops 只读工具 → 聚合"的**采集管道**接起来（Executor 任务乙已切真，
 探针经特权代理跑真只读命令）。
-任务戊：把 dispatch.parse_tool_result 接进来，从密封真实 stdout 解析出指标——
-**哪些字段有真实只读源就据实填真**，并据实置 data_source：
-  - root_disk_usage ← disk.usage（df → DiskUsage，取根分区 "/" 的 use_percent）；✅ 转真
-  - zombie_processes ← process.list（ps → ProcessList，统计 STAT 以 "Z" 开头的进程数）；✅ 转真
-  - cpu_usage / memory_usage：**无现成只读工具**（ps aux 是 per-process 非系统总览；/proc/stat、
-    /proc/meminfo 需新建 R0 工具，列 backlog）→ 暂置 0.0、**视为未采集**，绝不冒充真数据；
-  - services：service.status 需 service_name、不在无参探针列 → 暂空（不硬塞示例服务）；
+任务戊：把 dispatch.parse_tool_result 接进来，从密封真实 stdout 解析出指标。
+阶段2B：cpu/memory 接真源（system.cpu_load=vmstat / system.mem_usage=free），可达 "real"。
+各字段来源：
+  - root_disk_usage ← disk.usage（df → DiskUsage，取根分区 "/" 的 use_percent）；✅ 真
+  - zombie_processes ← process.list（ps → ProcessList，统计 STAT 以 "Z" 开头的进程数）；✅ 真
+  - cpu_usage ← system.cpu_load（vmstat 1 秒采样：100-idle，CpuLoad）；✅ 真（阶段2B）
+  - memory_usage ← system.mem_usage（free -b：(total-available)/total，MemUsage）；✅ 真（阶段2B）
+  - services：service.status 需 service_name、不在无参探针列 → 暂空（不硬塞示例服务，backlog）；
   - tool_calls_today / denied_today：审计计数源未接（backlog）→ 暂置 0。
 data_source 据实（诚实红线）：
-  - "real"     —— 全部上报数值均从真实 stdout 还原（cpu/memory 仍缺源前**不可达**，保留给后续）；
-  - "partial"  —— 部分字段（disk/zombie）已从真实 stdout 还原，其余仍缺真实源；
+  - "real"     —— root_disk/zombie/cpu/memory **四项全部从真实 stdout 还原**（阶段2B 起可达）；
+  - "partial"  —— 部分字段已从真实 stdout 还原，其余仍缺真实源（如某探针 127/解析失败）；
   - "stub_executor" —— 无任何字段从真实 stdout 还原（探针未执行/未解析出）。
-**绝不**出现"填示例值却标 real"的撒谎；cpu/memory 一日无真实只读源，data_source 一日不进 "real"。
+**绝不**出现"填示例值却标 real"——任一字段缺真，data_source 即降级 partial/stub。
 
 ═══════════════════════════════════════════════════════════════════
 【GAP-1 审计口径 —— 已采方案 b（待 L 晨起最终签字；本方案可逆、低风险）】
@@ -43,14 +44,21 @@ from backend.app.contracts.intent import CandidateTool
 from backend.app.contracts.untrusted import ToolResult
 from backend.app.mcp.gateway import MCPGateway
 from mcp_servers.os_ops.dispatch import parse_tool_result
-from mcp_servers.os_ops.models import DiskUsage, ProcessList
+from mcp_servers.os_ops.models import CpuLoad, DiskUsage, MemUsage, ProcessList
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
 #: overview 采集探针：无必填参数的只读工具，经 gateway dispatch 验证管道连通。
-#: （system.info/disk.usage/process.list 均 R0 且 args 可空；
+#: （system.info/disk.usage/process.list/system.cpu_load/system.mem_usage 均 R0 且 args 可空；
 #:   service.status 需 service_name，故不入此列。）
-_OVERVIEW_PROBE_TOOLS = ("system.info", "disk.usage", "process.list")
+#: 阶段 2B：加 system.cpu_load(vmstat)/system.mem_usage(free) 真源，cpu/memory 转真。
+_OVERVIEW_PROBE_TOOLS = (
+    "system.info",
+    "disk.usage",
+    "process.list",
+    "system.cpu_load",
+    "system.mem_usage",
+)
 
 #: 概览节流（GAP-1 方案 b 的有界保障之一）：TTL 内复用上次结果，避免 Dashboard 高频轮询在
 #: Executor 切真后对靶机发起真实命令风暴。模块级缓存与 app.py 的 lifespan 单例同模式。
@@ -107,9 +115,9 @@ async def get_overview(
 ) -> SystemOverview:
     """系统概览（采集管道经 MCPGateway dispatch 只读工具 + dispatch 解析 + TTL 节流）。
 
-    任务戊：探针密封 stdout 经 parse_tool_result 解析，能还原的指标据实填真
-    （root_disk_usage←df、zombie_processes←ps），data_source 据实置 real/partial/stub。
-    cpu/memory 暂无只读源（backlog）→ 未采集(0.0)，故当前 data_source 最高为 partial。
+    任务戊/阶段2B：探针密封 stdout 经 parse_tool_result 解析，四项指标据实填真
+    （root_disk←df、zombie←ps、cpu←vmstat、memory←free）；data_source 据实置 real/partial/stub。
+    四项全真→real；部分真（探针 127/解析失败）→partial；全无→stub。诚实红线：任一缺真不标 real。
     GAP-1 方案 b：本只读概览路径显式豁免哈希链审计（见模块顶部决策）。
     """
     global _overview_cache  # noqa: PLW0603 模块级 TTL 缓存（与 lifespan 单例同模式）
@@ -134,14 +142,35 @@ async def get_overview(
     )
     zombies = _zombie_process_count(proc_parsed if isinstance(proc_parsed, ProcessList) else None)
 
-    # data_source 据实：cpu/memory/services/今日计数 暂无真实只读源 → 全真(real)当前不可达；
-    # 有任一字段从真实 stdout 还原 → partial；全无 → stub_executor。诚实红线：绝不假 real。
-    has_real_field = root_disk is not None or zombies is not None
-    data_source = "partial" if has_real_field else "stub_executor"
+    # 阶段 2B：cpu/memory 从真实 stdout 解析（vmstat/free）；解析失败/None → 缺真不填假值。
+    cpu_parsed = (
+        parse_tool_result(probe_results["system.cpu_load"])
+        if "system.cpu_load" in probe_results
+        else None
+    )
+    mem_parsed = (
+        parse_tool_result(probe_results["system.mem_usage"])
+        if "system.mem_usage" in probe_results
+        else None
+    )
+    cpu_usage = cpu_parsed.usage_percent if isinstance(cpu_parsed, CpuLoad) else None
+    memory_usage = mem_parsed.used_percent if isinstance(mem_parsed, MemUsage) else None
+
+    # data_source 据实（诚实红线：任一缺真不得标 real）：
+    #   real = root_disk/zombie/cpu/memory 四项全部从真实 stdout 还原；
+    #   partial = 有真但不全；stub_executor = 全无。
+    real_fields = (root_disk, zombies, cpu_usage, memory_usage)
+    num_real = sum(1 for f in real_fields if f is not None)
+    if num_real == len(real_fields):
+        data_source = "real"
+    elif num_real > 0:
+        data_source = "partial"
+    else:
+        data_source = "stub_executor"
 
     overview = SystemOverview(
-        cpu_usage=0.0,  # 暂无只读源（/proc/stat 工具未建，backlog）；未采集，data_source 体现
-        memory_usage=0.0,  # 暂无只读源（/proc/meminfo 工具未建，backlog）；未采集
+        cpu_usage=cpu_usage if cpu_usage is not None else 0.0,
+        memory_usage=memory_usage if memory_usage is not None else 0.0,
         root_disk_usage=root_disk if root_disk is not None else 0.0,
         zombie_processes=zombies if zombies is not None else 0,
         tool_calls_today=0,  # 审计计数源未接（backlog）
