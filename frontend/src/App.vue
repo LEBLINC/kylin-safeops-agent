@@ -12,3 +12,11 @@
 <template>
   <router-view />
 </template>
+
+<script setup lang="ts">
+import { onMounted } from 'vue'
+import { useChatStore } from '@/stores/chat'
+
+const chat = useChatStore()
+onMounted(() => { chat.fetchWhoami() })
+</script>
