@@ -25,6 +25,12 @@ from backend.app.contracts.audit import (
 )
 from backend.app.db.session import connect
 
+#: 终态相位字面值（== agent.state_machine.TERMINAL_STATES 的 .value）。
+#: retention 的终态闸据此判定一条 trace 是否已闭合；此处用字面常量而非 import
+#: agent 模块，保持 audit 域对编排层零运行时耦合（终态字面值已冻结，见 state_machine）。
+_TERMINAL_PHASES: tuple[str, ...] = ("FINISHED", "REJECTED")
+_TERMINAL_IN = ",".join("?" for _ in _TERMINAL_PHASES)
+
 
 class SqliteAuditSink:
     """agent.ports.AuditSink 的 SQLite 实现（结构化 duck-typing 满足 Protocol）。
@@ -102,6 +108,100 @@ class SqliteAuditSink:
             (trace_id,),
         ).fetchone()
         return row["curr_hash"] if row is not None else GENESIS_HASH
+
+    # ---- retention / rotation 支撑（3b，决策⑪；带外 maintenance 调用）------------
+
+    def iter_closed_traces(self, *, before_iso: str) -> list[str]:
+        """返回【已达终态且最新记录早于 before_iso】的 trace_id 列表（终态闸 + 时间缓冲）。
+
+        终态闸：trace 的 audit_records 含 phase IN ('FINISHED','REJECTED')。
+        时间缓冲：该 trace 的 MAX(created_at) < before_iso。
+        两条件 AND，一条 SQL 同时表达（不拆两趟查）。
+        in-flight / WAIT_APPROVAL / 无终态的 trace 绝不入列，无论多老。
+        返回按 trace_id 升序（确定性）。
+        """
+        rows = self._conn.execute(
+            "SELECT trace_id FROM audit_records GROUP BY trace_id "
+            f"HAVING SUM(CASE WHEN phase IN ({_TERMINAL_IN}) THEN 1 ELSE 0 END) > 0 "
+            "AND MAX(created_at) < ? ORDER BY trace_id ASC",
+            (*_TERMINAL_PHASES, before_iso),
+        ).fetchall()
+        return [row["trace_id"] for row in rows]
+
+    def count_in_flight_traces(self) -> int:
+        """未达终态的 trace 数（无 FINISHED/REJECTED 记录）。供 report.skipped_in_flight。"""
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM ("
+            "SELECT trace_id FROM audit_records GROUP BY trace_id "
+            f"HAVING SUM(CASE WHEN phase IN ({_TERMINAL_IN}) THEN 1 ELSE 0 END) = 0)",
+            _TERMINAL_PHASES,
+        ).fetchone()
+        return int(row["n"])
+
+    def export_trace(self, trace_id: str, dest_conn: sqlite3.Connection) -> int:
+        """把一条 trace 的全部 record 原样 INSERT 进 dest_conn（同 schema）。返回搬迁条数。
+
+        原样复制 7 列（trace_id/seq/phase/payload/prev_hash/curr_hash/created_at），
+        绝不重算 hash（S7）；id 为 AUTOINCREMENT，不复制。持 self._lock。
+        INSERT OR IGNORE：使再次导出幂等——上一轮 verify 失败(保守不删主库)或进程中途崩
+        留下的归档残留行不会触发 UNIQUE 冲突，避免一条坏 trace 让后续 retention 全部崩。
+        OR IGNORE 仅按 (trace_id, seq) 跳过已存在行，不改写 hash（仍不违 S7）。
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT trace_id, seq, phase, payload, prev_hash, curr_hash, created_at "
+                "FROM audit_records WHERE trace_id = ? ORDER BY seq ASC",
+                (trace_id,),
+            ).fetchall()
+            dest_conn.executemany(
+                "INSERT OR IGNORE INTO audit_records "
+                "(trace_id, seq, phase, payload, prev_hash, curr_hash, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        row["trace_id"],
+                        row["seq"],
+                        row["phase"],
+                        row["payload"],
+                        row["prev_hash"],
+                        row["curr_hash"],
+                        row["created_at"],
+                    )
+                    for row in rows
+                ],
+            )
+            dest_conn.commit()
+            return len(rows)
+
+    def delete_trace(self, trace_id: str) -> int:
+        """从主库删除一条 trace 的全部 record。返回删除条数。持 self._lock。
+
+        仅供 retention 在归档库 verify valid 后调用（先验后删）。
+        """
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM audit_records WHERE trace_id = ?", (trace_id,))
+            self._conn.commit()
+            return cur.rowcount
+
+    def db_size_bytes(self) -> int:
+        """主库在盘字节数（含 -wal/-shm 边车，反映真实占用）。:memory: 返回 0。
+
+        供 rotation 阈值判断与回收前后对比。读 PRAGMA database_list 取 main 库文件路径
+        （:memory: 时该路径为空串）。
+        """
+        main_file = None
+        for row in self._conn.execute("PRAGMA database_list").fetchall():
+            if row["name"] == "main":
+                main_file = row["file"]
+                break
+        if not main_file:
+            return 0
+        total = 0
+        for suffix in ("", "-wal", "-shm"):
+            sidecar = Path(main_file + suffix)
+            if sidecar.exists():
+                total += sidecar.stat().st_size
+        return total
 
     def close(self) -> None:
         """关闭底层连接（lifespan shutdown 时由 L 调用）。"""
