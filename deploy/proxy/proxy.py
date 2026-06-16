@@ -29,16 +29,24 @@ STRIP_HEADERS = {"x-auth-user","x-auth-roles","x-auth-timestamp","x-auth-signatu
 @app.api_route("/{path:path}", methods=["GET","POST","PUT","PATCH","DELETE"])
 async def proxy_route(request: Request, path: str):
     import base64
-    auth = request.headers.get("authorization","")
-    user, roles = "anonymous", "viewer"
-    if auth.startswith("Basic "):
-        try:
-            decoded = base64.b64decode(auth[6:]).decode()
-            u, _ = decoded.split(":", 1)
-            user = u
-            roles = USER_ROLE_MAP.get(u, "viewer")
-        except Exception:
-            pass
+    from fastapi.responses import Response as FastAPIResponse
+    auth = request.headers.get("authorization", "")
+    if not auth.startswith("Basic "):
+        return FastAPIResponse(
+            status_code=401,
+            content="authentication required",
+            headers={"WWW-Authenticate": 'Basic realm="Kylin SafeOps"'}
+        )
+    try:
+        decoded = base64.b64decode(auth[6:]).decode()
+        u, _ = decoded.split(":", 1)
+        user, roles = u, USER_ROLE_MAP.get(u, "viewer")
+    except Exception:
+        return FastAPIResponse(
+            status_code=401,
+            content="invalid credentials",
+            headers={"WWW-Authenticate": 'Basic realm="Kylin SafeOps"'}
+        )
     headers = {k: v for k, v in request.headers.items()
                if k.lower() not in STRIP_HEADERS and k.lower() != "host"}
     ts = str(int(time.time()))
