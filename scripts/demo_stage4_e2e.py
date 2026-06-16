@@ -217,7 +217,9 @@ async def scenario_c_confirm_r3_service_restart() -> dict[str, Any]:
     assert len(exec_events) == 1
     verified_events = [e for e in evs.events if e.type == "verified"]
     assert len(verified_events) == 1
-    # VM 上 "ok"，Windows 上 "one or more tools exited non-zero"
+    # VM 沙箱开启：service.restart 应成功（systemctl 可达 + 真重启）
+    # 非 VM 沙箱环境（含 Linux 无 env / Windows）：命令真跑，summary 可为 "ok"（Linux root 跑通）
+    # 或 "one or more tools exited non-zero"（Windows 无 systemctl）—— 两种都合法
     summary = verified_events[0].data["summary"]
     is_vm_sandbox = (
         platform.system() != "Windows"
@@ -226,9 +228,10 @@ async def scenario_c_confirm_r3_service_restart() -> dict[str, Any]:
     if is_vm_sandbox:
         assert summary == "ok", f"VM 沙箱开启时 service.restart 应成功，实际 summary={summary!r}"
     else:
-        assert (
-            summary != "ok"
-        ), f"非 VM 沙箱环境应报 non-zero（systemctl 不存在），实际 summary={summary!r}"
+        assert summary in ("ok", "one or more tools exited non-zero"), (
+            f"非 VM 沙箱 summary 应为 ok（Linux root 真跑通）"
+            f" 或 non-zero（Windows 无 systemctl），实际 summary={summary!r}"
+        )
 
     res = sink.verify_chain("stage4-C-service-restart")
     assert res.valid
@@ -281,9 +284,14 @@ async def scenario_d_confirm_r2_log_rotate() -> dict[str, Any]:
         and os.environ.get("KYLIN_SANDBOX_ENABLED", "").strip() == "1"
     )
     if is_vm_sandbox:
-        assert summary == "ok"
+        assert (
+            summary == "ok"
+        ), f"VM 沙箱开启时 log.compress_rotate 应成功，实际 summary={summary!r}"
     else:
-        assert summary != "ok", f"非 VM 沙箱应 non-zero，实际 {summary!r}"
+        assert summary in ("ok", "one or more tools exited non-zero"), (
+            f"非 VM 沙箱 summary 应为 ok（Linux root 真跑通）"
+            f" 或 non-zero（Windows 无权限），实际 summary={summary!r}"
+        )
 
     res = sink.verify_chain("stage4-D-log-rotate")
     assert res.valid
