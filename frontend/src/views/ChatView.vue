@@ -263,7 +263,7 @@ async function escalateBatch(traceId: string) {
             @keydown.ctrl.enter.prevent="submit"
           />
           <div class="input-actions">
-            <span class="ks-muted">Ctrl + Enter 发送 · 当前角色：{{ chat.currentUserRole }}</span>
+            <span class="ks-muted">Ctrl + Enter 发送 · 当前用户：{{ chat.currentUser || '未知' }}（{{ chat.currentUserRole }}）</span>
             <el-button type="primary" :loading="chat.loading" @click="submit">发送</el-button>
           </div>
         </div>

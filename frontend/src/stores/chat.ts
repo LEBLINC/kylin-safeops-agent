@@ -1,3 +1,4 @@
+import { request } from '@/api/request'
 import { defineStore } from 'pinia'
 import {
   connectChatStream,
@@ -12,6 +13,7 @@ import { escalateApproval, resumeApproval } from '@/api/approval'
 import type { InlineApproval } from '@/types/approval'
 import type { UserRole } from '@/types/policy'
 import type { AuditAppendedData, ChatMessage, ChatSession, StreamEvent } from '@/types/chat'
+import { isMockEnabled } from '@/api/mock'
 import type { PolicyVerdict } from '@/types/policy'
 import type { RcaReport } from '@/types/rca'
 import type { ToolResult } from '@/types/tool'
@@ -129,6 +131,8 @@ export const useChatStore = defineStore('chat', {
     loading: false,
     /** 当前用户角色。暂时从环境变量读取，后续可接登录态。 */
     currentUserRole: (import.meta.env.VITE_CURRENT_USER_ROLE || 'viewer') as string,
+    currentUser: '' as string,
+    currentUserRoles: [] as string[],
     /**
      * 打字机定时器。
      * key=trace_id，value=window.setInterval 返回值。
@@ -623,6 +627,20 @@ export const useChatStore = defineStore('chat', {
     _debouncedPersist() {
       if (_persistTimer) clearTimeout(_persistTimer)
       _persistTimer = setTimeout(() => { this.persist(); _persistTimer = null }, 1500)
+    },
+
+    async fetchWhoami() {
+      if (isMockEnabled()) return
+      try {
+        const res = await request.get<{ user: string; roles: string[]; mode: string }>('/api/auth/whoami')
+        this.currentUser = res.data.user
+        this.currentUserRoles = res.data.roles
+        const rank: Record<string, number> = { viewer: 1, auditor: 1, operator: 2, admin: 3 }
+        this.currentUserRole = res.data.roles.reduce(
+          (top: string, r: string) => (rank[r] ?? 0) > (rank[top] ?? 0) ? r : top,
+          'viewer'
+        )
+      } catch { }
     },
 
 async sendMessage(content: string) {
