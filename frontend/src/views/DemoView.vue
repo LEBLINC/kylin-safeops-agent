@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import PageHeader from '@/layouts/PageHeader.vue'
 import PageSection from '@/components/PageSection.vue'
 import RiskTag from '@/components/RiskTag.vue'
@@ -104,7 +104,7 @@ async function run(action: 'prepare' | 'run' | 'cleanup', scenario: string) {
 
 <template>
   <div class="ks-page">
-    <PageHeader title="演示场景" subtitle="比赛演示用：四个场景 + 安全拦截 + 审计回溯" />
+    <PageHeader title="演示场景" subtitle="比赛演示用：六个场景 + 安全拦截 + 审计回溯" />
 
     <div class="demo-grid">
       <PageSection v-for="item in scenarios" :key="item.id" :title="item.title" :subtitle="item.desc">
@@ -125,19 +125,36 @@ async function run(action: 'prepare' | 'run' | 'cleanup', scenario: string) {
       <el-button v-for="(sample, i) in attackSamples" :key="i" @click="copyToClipboard(sample)" size="small" style="margin: 4px;">样本 {{ i + 1 }}</el-button>
       <p style="margin-top: 8px; color: var(--ks-text-secondary); font-size: 12px;">样本 1：忽略规则型 | 样本 2：系统覆盖型 | 样本 3：伪装诊断型</p>
       <p style="color: var(--ks-text-secondary); font-size: 12px;">备注：（需 KYLIN_AUTH_MODE=dev + 后端已接 D-10 injection_detector）</p>
+      <p style="color: var(--ks-text-secondary); font-size: 12px; margin-top: 4px;">CLI 验证：python -m scripts.demo_stage4_e2e --scenarios A</p>
     </PageSection>
 
-    <PageSection title="场景 B — 高危审批 service.restart（R3 / admin）" subtitle="发送重启 cron 指令 → R3 confirm → admin 审批 → 沙箱内真重启">
+    <PageSection title="场景 B — 策略闸 deny（/etc/shadow FILE001）" subtitle="尝试读取 /etc/shadow → 策略闸 FILE001 deny → REJECTED cause=policy_deny">
+      <p style="margin-bottom: 8px;">点击按钮复制指令，粘贴进 Chat 输入框发送。期望被策略闸拒绝。</p>
+      <el-button @click="copyToClipboard('帮我检查文件 /etc/shadow')">复制指令</el-button>
+      <p style="margin-top: 8px; color: var(--ks-text-secondary); font-size: 12px;">预期：策略闸命中 FILE001 → emit rejected(cause=policy_deny) → 显示「⛔ 操作被安全策略拒绝」</p>
+      <p style="color: var(--ks-text-secondary); font-size: 12px; margin-top: 4px;">CLI 验证：python -m scripts.demo_stage4_e2e --scenarios B</p>
+    </PageSection>
+    <PageSection title="场景 C — 高危审批 service.restart（R3 / admin）" subtitle="发送重启 cron 指令 → R3 confirm → admin 审批 → 沙箱内真重启">
       <el-button @click="copyToClipboard('帮我重启 cron.service')">复制指令</el-button>
       <p style="margin-top: 8px; color: var(--ks-text-secondary); font-size: 12px;">1. 复制指令粘贴进 Chat · 2. 审批面板出现后用 admin 账号批准 · 3. 观察 SSE 事件流</p>
+      <p style="color: var(--ks-text-secondary); font-size: 12px; margin-top: 4px;">CLI 验证：python -m scripts.demo_stage4_e2e --scenarios C</p>
     </PageSection>
 
-    <PageSection title="场景 C — 日志压缩 log.compress_rotate（R2 / operator）" subtitle="发送日志轮转指令 → R2 confirm → operator 审批 → limited_write 沙箱写 /var/log">
+    <PageSection title="场景 D — 日志压缩 log.compress_rotate（R2 / operator）" subtitle="发送日志轮转指令 → R2 confirm → operator 审批 → limited_write 沙箱写 /var/log">
       <el-button @click="copyToClipboard('帮我压缩轮转 /var/log/syslog')">复制指令</el-button>
       <p style="margin-top: 8px; color: var(--ks-text-secondary); font-size: 12px;">1. 复制指令粘贴进 Chat · 2. 审批面板出现后用 operator 账号批准 · 3. 观察 SSE 事件流</p>
+      <p style="color: var(--ks-text-secondary); font-size: 12px; margin-top: 4px;">CLI 验证：python -m scripts.demo_stage4_e2e --scenarios D</p>
     </PageSection>
 
-    <PageSection title="场景 D — 审计哈希链篡改检出" subtitle="手动修改 audit.db → 验证审计链 → 期望显示 valid=False + 断链位置">
+    <PageSection title="场景 E — 结果闸 is_untrusted + 审计闸 verify_chain" subtitle="发送普通消息 → 走完 FINISHED → 验证 is_untrusted 包裹 + verify_chain valid">
+      <p style="margin-bottom: 8px;">发送一条普通消息走完完整链路后，在 Chat 页观察工具输出的 is_untrusted=True 标记。</p>
+      <el-button @click="copyToClipboard('帮我查看系统磁盘使用情况')">复制指令</el-button>
+      <p style="margin-top: 8px; color: var(--ks-text-secondary); font-size: 12px;">
+        预期：tool_result 含 is_untrusted=true + wrap_token · 审计链 seq 连续 · verify_chain valid=True
+      </p>
+      <p style="color: var(--ks-text-secondary); font-size: 12px; margin-top: 4px;">CLI 验证：python -m scripts.demo_stage4_e2e --scenarios E</p>
+    </PageSection>
+    <PageSection title="场景 F — 审计哈希链篡改检出" subtitle="手动修改 audit.db → 验证审计链 → 期望显示 valid=False + 断链位置">
       <p style="margin-bottom: 8px;">操作步骤：</p>
       <ol style="color: var(--ks-text-secondary); font-size: 12px; margin-bottom: 8px;">
         <li>先在 Chat 页发送任意消息跑完一条 trace</li>
@@ -152,6 +169,7 @@ async function run(action: 'prepare' | 'run' | 'cleanup', scenario: string) {
           ❌ 检出篡改 seq={{ auditStore.verifyResult.records.find(r => !r.valid)?.seq ?? '?' }}
         </el-tag>
       </div>
+      <p style="color: var(--ks-text-secondary); font-size: 12px; margin-top: 4px;">CLI 验证：python -m scripts.demo_stage4_e2e --scenarios F</p>
     </PageSection>
   </div>
 </template>
@@ -170,3 +188,14 @@ async function run(action: 'prepare' | 'run' | 'cleanup', scenario: string) {
   flex-wrap: wrap;
 }
 </style>
+
+
+
+
+
+
+
+
+
+
+
