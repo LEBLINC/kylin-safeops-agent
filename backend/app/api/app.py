@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -28,15 +29,22 @@ from backend.app.api.event_bus import EventBus
 from backend.app.api.session_registry import SessionRegistry
 from backend.app.api.session_store import SessionStore
 from backend.app.audit import SqliteAuditSink
+from backend.app.db.session import resolve_audit_db_path
 from backend.app.llm.adapter import LLMAdapter
 from backend.app.mcp.gateway import MCPGateway
 from mcp_servers.rca import DefaultRCAEngine
 
 logger = logging.getLogger(__name__)
 
-#: 审计库落库路径（L 域配置常量）。默认落仓库内 data/ 目录；connect() 会自动建父目录。
-#: 测试可经 dependency_overrides[get_audit] 或在 lifespan 前注入 SqliteAuditSink(":memory:") 覆盖。
-_AUDIT_DB_PATH = "./data/audit.db"
+#: 审计库落库路径（L 域配置常量，决策⑪ 3a）。
+#: proxy 模式（生产）：KYLIN_AUDIT_DB 必须是绝对路径，否则 fail-closed（拒启动）。
+#: dev 模式：未设 env 则默认 ./data/audit.db（零回归）。
+_require_abs = os.environ.get("KYLIN_AUTH_MODE", "proxy").strip().lower() == "proxy"
+_AUDIT_DB_PATH = resolve_audit_db_path(
+    os.environ.get("KYLIN_AUDIT_DB"), require_absolute=_require_abs
+)
+if _AUDIT_DB_PATH == "./data/audit.db":
+    logger.warning("审计库使用 dev 默认路径（./data/audit.db）——生产须设 KYLIN_AUDIT_DB 绝对路径")
 
 # ============================================================
 # 全局单例（lifespan 中初始化，路由层通过 Depends 获取）
