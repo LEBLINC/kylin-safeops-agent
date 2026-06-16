@@ -43,3 +43,9 @@ This demo uses the **direct injection** approach:
 
 - L must complete decision 12 wiring (D-10 input gate hookup in orchestrator)
 - Backend running in dev mode: `KYLIN_AUTH_MODE=dev uvicorn ...`
+
+
+## Frontend Demo Page Path
+
+Open Demo page -> find 'Injection Red Team' section -> click any attack sample button to copy -> paste into Chat input -> send.
+Expected: SSE receives ejected(cause="injection") -> frontend shows: Blocked by safety policy.
