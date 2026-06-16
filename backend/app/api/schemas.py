@@ -8,6 +8,19 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# ---- auth ----------------------------------------------------------------
+
+
+class WhoamiResponse(BaseModel):
+    """GET /api/auth/whoami 响应体（当前已验证身份）。"""
+
+    user: str = Field(..., description="已验证用户名（proxy：来自反代签名头；dev：固定 'dev'）")
+    roles: list[str] = Field(default_factory=list, description="已验证角色列表（排序后小写）")
+    mode: str = Field(
+        ..., description="认证模式：proxy=生产反代签名身份 / dev=联调放行（角色可伪造）"
+    )
+
+
 # ---- chat ----------------------------------------------------------------
 
 
