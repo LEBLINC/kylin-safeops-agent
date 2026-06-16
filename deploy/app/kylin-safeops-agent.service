@@ -1,0 +1,41 @@
+[Unit]
+Description=Kylin SafeOps Agent Backend (proxy 模式，仅监听 127.0.0.1)
+After=network.target
+# 确保 NTP 时钟已同步（防重放 ±300s 窗口依赖时钟准确）
+After=time-sync.target
+
+[Service]
+Type=simple
+User=kylin-safeops
+Group=kylin-safeops
+UMask=0077
+
+WorkingDirectory=/opt/kylin-safeops
+
+# 环境变量从受限文件读取（0600 root:kylin-safeops，含密钥，绝不入库）
+EnvironmentFile=/etc/kylin-safeops/agent.env
+
+# app 绑 127.0.0.1：只反代可达，杜绝直接对外暴露
+ExecStart=/opt/kylin-safeops/.venv/bin/uvicorn \
+    backend.app.api.app:create_app \
+    --factory \
+    --host 127.0.0.1 \
+    --port 8000
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kylin-safeops-agent
+
+# ── 安全加固 ──────────────────────────────────────────────
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+# app 需写审计库（KYLIN_AUDIT_DB 指向的目录）+ 可能的 data/ 目录
+ReadWritePaths=/opt/kylin-safeops /var/lib/kylin-safeops
+ReadOnlyPaths=/etc/kylin-safeops
+
+[Install]
+WantedBy=multi-user.target
