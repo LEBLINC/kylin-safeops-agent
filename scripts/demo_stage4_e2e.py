@@ -153,6 +153,10 @@ async def scenario_b_policy_deny() -> dict[str, Any]:
     # verify_chain
     res = sink.verify_chain("stage4-B-policy-deny")
     assert res.valid, f"verify_chain 期望 valid，实际 {res}"
+    # REJECTED 路径短（policy_deny），record_count 在 3-6 间；FINISHED 路径才到 9-10
+    assert (
+        3 <= res.record_count <= 6
+    ), f"policy_deny REJECTED 路径 record_count 期望 3-6，实际 {res.record_count}"
 
     return {
         "state": state.value,
@@ -235,6 +239,7 @@ async def scenario_c_confirm_r3_service_restart() -> dict[str, Any]:
 
     res = sink.verify_chain("stage4-C-service-restart")
     assert res.valid
+    assert res.record_count >= 9, f"record_count 期望 >= 9，实际 {res.record_count}"
 
     return {
         "state": state.value,
@@ -295,6 +300,7 @@ async def scenario_d_confirm_r2_log_rotate() -> dict[str, Any]:
 
     res = sink.verify_chain("stage4-D-log-rotate")
     assert res.valid
+    assert res.record_count >= 9, f"record_count 期望 >= 9，实际 {res.record_count}"
     return {
         "state": state.value,
         "pending_approval_role": orch.pending_approval_role,
@@ -354,7 +360,10 @@ async def scenario_e_result_and_audit() -> dict[str, Any]:
     # verify_chain
     res = sink.verify_chain("stage4-E-result-audit")
     assert res.valid
-    assert res.record_count == len(audit.records)
+    assert res.record_count >= 9, f"record_count 期望 >= 9，实际 {res.record_count}"
+    assert res.record_count == len(
+        audit.records
+    ), f"verify 与 sink 记录数一致，verify={res.record_count}, sink={len(audit.records)}"
 
     return {
         "state": state.value,
@@ -397,6 +406,7 @@ async def scenario_f_audit_tamper_detect() -> dict[str, Any]:
     # 先确认篡改前 valid
     res_before = sink.verify_chain("stage4-F-tamper")
     assert res_before.valid, f"篡改前应 valid，实际 {res_before}"
+    assert res_before.record_count >= 9, f"record_count 期望 >= 9，实际 {res_before.record_count}"
 
     # 真做 UPDATE：选 seq=1 的记录改 payload（直接改 canonical_json 字符串）
     target_seq = 1
