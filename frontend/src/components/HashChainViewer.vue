@@ -109,8 +109,8 @@ const normalized = computed(() => {
   border-radius: 999px;
   display: grid;
   place-items: center;
-  background: #0b1220;
-  color: #93c5fd;
+  background: #eef4ff;
+  color: var(--ks-primary);
 }
 p,
 .empty {

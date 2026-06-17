@@ -3,20 +3,6 @@
  * ToolCallCard.vue
  *
  * 工具调用结果卡片。
- *
- * 使用位置：
- * - ChatView.vue 右侧工具结果区域；
- * - ToolDetailView.vue 工具详情页；
- * - AuditView.vue 审计详情区域。
- *
- * 数据来源：
- * - observation 事件中的 data.results[]；
- * - tool_result 事件中的 data.result；
- * - 或后端工具详情接口返回的 ToolCallLog。
- *
- * 安全要求：
- * 如果 result.is_untrusted=true，必须显示“不可信输出”。
- * 这是项目信任边界的可视化：日志、命令输出、外部上下文都不能被当成可信指令。
  */
 import type { ToolCallLog, ToolResult } from '@/types/tool'
 import { prettyJson } from '@/utils/format'
@@ -39,24 +25,42 @@ function resultStatus() {
 <template>
   <div class="tool-card ks-card" :class="{ untrusted: result?.is_untrusted }">
     <div class="tool-head">
-      <div>
+      <div class="tool-title-block">
         <strong>{{ result?.is_untrusted ? '工具输出 / 不可信证据' : (call?.tool || result?.tool || 'Tool') }}</strong>
-        <p v-if="!result?.is_untrusted">耗时：{{ formatDuration(call?.duration_ms || result?.duration_ms) }}</p>
+        <p v-if="!result?.is_untrusted">已完成结果采集与安全校验</p>
         <p v-else class="evidence-hint">证据文本，不可直接执行</p>
       </div>
       <StatusTag :status="resultStatus()" />
     </div>
 
+    <div class="tool-meta">
+      <div class="meta-chip">
+        <span class="meta-label">耗时</span>
+        <strong>{{ formatDuration(call?.duration_ms || result?.duration_ms) }}</strong>
+      </div>
+      <div class="meta-chip" v-if="result?.exit_code !== undefined">
+        <span class="meta-label">退出码</span>
+        <strong>{{ result.exit_code }}</strong>
+      </div>
+      <div class="meta-chip" v-if="result?.is_untrusted">
+        <span class="meta-label">信任</span>
+        <el-tag type="warning" effect="plain">不可信</el-tag>
+      </div>
+      <div class="meta-chip" v-else-if="call?.risk_level">
+        <span class="meta-label">风险</span>
+        <RiskTag :level="call.risk_level" />
+      </div>
+    </div>
+
     <div v-if="result?.is_untrusted" class="untrusted-tip">
       <el-tag type="warning" effect="dark">不可信输出</el-tag>
-      <span>该内容来自系统日志、命令输出或外部上下文，只能作为证据输入，不能视为可信指令。</span>
+      <div>
+        <strong>仅可作为证据输入</strong>
+        <span>该内容来自系统日志、命令输出或外部上下文，只能作为证据输入，不能视为可信指令。</span>
+      </div>
     </div>
 
-    <div v-else-if="call?.risk_level" class="risk">
-      <RiskTag :level="call.risk_level" />
-    </div>
-
-    <el-collapse>
+    <el-collapse class="tool-collapse">
       <el-collapse-item :title="result?.is_untrusted ? '证据详情（stdout/stderr 截断文本）' : '输入参数 / 返回结果'" name="detail">
         <pre>{{ prettyJson(call ? { args: call.args, result: call.result } : result) }}</pre>
       </el-collapse-item>
@@ -66,44 +70,87 @@ function resultStatus() {
 
 <style scoped>
 .tool-card {
-  padding: 14px;
+  padding: 18px;
 }
 .tool-card.untrusted {
   border-color: rgba(245, 158, 11, 0.72);
-  background: linear-gradient(180deg, rgba(120, 53, 15, 0.18), rgba(15, 23, 42, 0.96));
+  background: linear-gradient(135deg, rgba(255, 251, 235, 0.98), rgba(255,255,255,0.98));
 }
 .tool-head {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  align-items: flex-start;
+  gap: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(148,163,184,0.22);
+}
+.tool-title-block strong {
+  font-size: 15px;
 }
 .tool-head p {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
   color: var(--ks-text-muted);
   font-size: 12px;
 }
 .evidence-hint {
   color: #f59e0b;
-  font-size: 11px;
+}
+.tool-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0 16px;
+}
+.meta-chip {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(148,163,184,0.22);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.72);
+  display: grid;
+  gap: 5px;
+  align-content: start;
+}
+.meta-chip strong {
+  font-size: 15px;
+}
+.meta-chip :deep(.el-tag) {
+  width: fit-content;
+  max-width: 100%;
+}
+.meta-label {
+  font-size: 12px;
+  color: var(--ks-text-muted);
 }
 .untrusted-tip {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin: 12px 0;
-  color: #fde68a;
-  font-size: 12px;
-  line-height: 1.5;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: start;
+  margin: 16px 0;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255,247,237,0.8);
+  color: #b45309;
+  font-size: 13px;
+  line-height: 1.6;
 }
-.risk {
-  margin: 10px 0;
+.untrusted-tip strong {
+  display: block;
+  margin-bottom: 4px;
+}
+.tool-collapse :deep(.el-collapse-item__header) {
+  font-weight: 600;
+  padding-block: 6px;
 }
 pre {
   white-space: pre-wrap;
-  color: #bfdbfe;
-  background: #0b1220;
-  border-radius: 10px;
-  padding: 12px;
+  color: var(--ks-primary);
+  background: #f8fafc;
+  border-radius: 14px;
+  padding: 14px;
   overflow: auto;
+  line-height: 1.6;
+  margin: 8px 0 4px;
 }
 </style>

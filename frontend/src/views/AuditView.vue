@@ -143,6 +143,6 @@ pre {
   white-space: pre-wrap;
   max-height: 120px;
   overflow: auto;
-  color: #bfdbfe;
+  color: var(--ks-primary);
 }
 </style>

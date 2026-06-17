@@ -104,6 +104,13 @@ async function submit() {
   await chat.sendMessage(content)
 }
 
+function handleComposerKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Enter') return
+  if (event.shiftKey) return
+  event.preventDefault()
+  submit()
+}
+
 /** 新建会话。 */
 async function createSession() {
   await chat.createLocalSession('新会话')
@@ -254,17 +261,19 @@ async function escalateBatch(traceId: string) {
         </div>
 
         <div class="input-area">
-          <el-input
-            v-model="input"
-            type="textarea"
-            :rows="3"
-            resize="none"
-            placeholder="输入运维需求，例如：检查根分区占用并给出安全清理建议"
-            @keydown.ctrl.enter.prevent="submit"
-          />
-          <div class="input-actions">
-            <span class="ks-muted">Ctrl + Enter 发送 · 当前用户：{{ chat.currentUser || '未知' }}（{{ chat.currentUserRole }}）</span>
-            <el-button type="primary" :loading="chat.loading" @click="submit">发送</el-button>
+          <div class="composer-shell">
+            <el-input
+              v-model="input"
+              type="textarea"
+              :rows="3"
+              resize="none"
+              placeholder="输入运维需求，例如：检查根分区占用并给出安全处理建议"
+              @keydown="handleComposerKeydown"
+            />
+            <div class="composer-overlay">
+              <span class="ks-muted">Enter 发送 · Shift + Enter 换行 · {{ chat.currentUser || '未知' }}（{{ chat.currentUserRole }}）</span>
+              <el-button type="primary" :loading="chat.loading" @click="submit">发送</el-button>
+            </div>
           </div>
         </div>
       </PageSection>
@@ -281,7 +290,9 @@ async function escalateBatch(traceId: string) {
         />
 
         <PageSection title="工具结果" v-if="toolResults.length">
-          <ToolCallCard v-for="(result, index) in toolResults" :key="`${result.tool}-${index}`" :result="result" />
+          <div class="tool-result-stack">
+            <ToolCallCard v-for="(result, index) in toolResults" :key="`${result.tool}-${index}`" :result="result" />
+          </div>
         </PageSection>
 
         <PageSection title="RCA 证据链" v-if="chat.currentRcaReport">
@@ -338,13 +349,14 @@ async function escalateBatch(traceId: string) {
   border: 1px solid var(--ks-border);
   margin-bottom: 10px;
   cursor: pointer;
-  background: rgba(15, 23, 42, 0.36);
+  background: rgba(255,255,255,0.84);
+  transition: transform 160ms ease, background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
-.session:hover { background: rgba(59, 130, 246, 0.1); }
-.session.active { background: rgba(59, 130, 246, 0.14); }
+.session:hover { background: linear-gradient(135deg, rgba(239,246,255,0.94), rgba(255,255,255,0.92)); transform: translateX(3px); box-shadow: 0 10px 24px rgba(37,99,235,0.08); }
+.session.active { background: linear-gradient(135deg, rgba(219,234,254,0.92), rgba(255,255,255,0.94)); border-color: rgba(37, 99, 235, 0.34); }
 .session-main { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
 .session-more { color: var(--ks-text-muted); padding: 2px 6px; border-radius: 8px; }
-.session-more:hover { color: var(--ks-text); background: rgba(148, 163, 184, 0.14); }
+.session-more:hover { color: var(--ks-primary); background: #eef4ff; }
 .session span { display: block; margin-top: 6px; color: var(--ks-text-muted); font-size: 12px; line-height: 1.4; }
 .session-tags { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
 .conversation :deep(.section-header) { flex: 0 0 auto; }
@@ -354,17 +366,19 @@ async function escalateBatch(traceId: string) {
   overflow-y: auto;
   padding-right: 8px;
 }
-.message { display: flex; margin: 12px 0; }
+.message { display: flex; margin: 14px 0; }
 .message.user { justify-content: flex-end; }
 .message.system { justify-content: center; }
 .bubble {
-  max-width: 76%;
-  line-height: 1.6;
-  padding: 12px 14px;
-  border-radius: 14px;
+  max-width: 78%;
+  line-height: 1.75;
+  padding: 14px 16px;
+  border-radius: 18px;
   white-space: pre-wrap;
-  background: #172033;
+  background: linear-gradient(135deg, rgba(248,250,252,0.98), rgba(255,255,255,0.98));
   border: 1px solid var(--ks-border);
+  box-shadow: 0 10px 24px rgba(15,23,42,0.05);
+  position: relative;
 }
 .bubble.approval {
   width: min(720px, 96%);
@@ -372,17 +386,86 @@ async function escalateBatch(traceId: string) {
   padding: 0;
   border: none;
   background: transparent;
+  box-shadow: none;
 }
-.message.user .bubble { background: linear-gradient(135deg, #2563eb, #7c3aed); }
-.message.system .bubble:not(.approval) { background: rgba(245, 158, 11, 0.08); border-color: rgba(245, 158, 11, 0.35); }
-.typing-cursor { display: inline-block; color: #93c5fd; animation: blink 1s steps(2, start) infinite; }
+.message.user .bubble {
+  color: #ffffff;
+  background: linear-gradient(135deg, #2563eb, #06b6d4);
+  border-color: transparent;
+  box-shadow: 0 16px 28px rgba(37,99,235,0.22);
+}
+.message.system .bubble:not(.approval) {
+  background: linear-gradient(135deg, rgba(255,247,237,0.98), rgba(255,255,255,0.98));
+  border-color: rgba(245, 158, 11, 0.35);
+}
+.message.assistant .bubble.streaming {
+  background: linear-gradient(135deg, rgba(239,246,255,0.98), rgba(255,255,255,0.98), rgba(236,254,255,0.98));
+}
+.message.assistant .bubble.streaming::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.65), transparent);
+  transform: translateX(-100%);
+  animation: shimmer 1.8s infinite;
+  pointer-events: none;
+}
+.typing-cursor { display: inline-block; color: var(--ks-primary); margin-left: 2px; animation: blink 1s steps(2, start) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
+@keyframes shimmer { 100% { transform: translateX(100%); } }
 .input-area {
   flex: 0 0 auto;
-  border-top: 1px solid var(--ks-border);
   padding-top: 14px;
 }
-.input-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; gap: 10px; }
+.composer-shell {
+  position: relative;
+  border: 1px solid rgba(37,99,235,0.18);
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(239,246,255,0.86), rgba(236,254,255,0.78));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 12px 28px rgba(37,99,235,0.08);
+  overflow: hidden;
+}
+.composer-shell :deep(.el-textarea__inner) {
+  border: none;
+  box-shadow: none;
+  background: rgba(255,255,255,0.94);
+  border-radius: 20px;
+  padding: 18px 132px 46px 18px;
+  line-height: 1.7;
+  min-height: 128px;
+}
+.composer-shell :deep(.el-textarea__inner:focus) {
+  box-shadow: inset 0 0 0 1px rgba(37,99,235,0.16);
+}
+.composer-overlay {
+  position: absolute;
+  left: 18px;
+  right: 14px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  pointer-events: none;
+}
+.composer-overlay .el-button {
+  pointer-events: auto;
+  border-radius: 12px;
+  min-width: 64px;
+}
+.composer-overlay .ks-muted {
+  font-size: 12px;
+  line-height: 1.4;
+  max-width: calc(100% - 92px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tool-result-stack {
+  display: grid;
+  gap: 16px;
+}
 .right-panel {
   min-height: 0;
   height: 100%;

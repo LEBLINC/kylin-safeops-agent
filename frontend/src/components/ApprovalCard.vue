@@ -136,7 +136,7 @@ const title = computed(() => props.inline ? '本批计划需要审批' : props.i
   display: flex;
   gap: 8px;
   align-items: center;
-  color: #fde68a;
+  color: #b45309;
   font-size: 12px;
   line-height: 1.5;
 }
@@ -164,7 +164,7 @@ const title = computed(() => props.inline ? '本批计划需要审批' : props.i
   gap: 12px;
   padding: 10px;
   border-radius: 10px;
-  background: rgba(15, 23, 42, 0.58);
+  background: #f8fafc;
   border: 1px solid var(--ks-border);
   font-size: 12px;
 }
@@ -173,8 +173,8 @@ const title = computed(() => props.inline ? '本批计划需要审批' : props.i
 }
 pre {
   white-space: pre-wrap;
-  color: #bfdbfe;
-  background: #0b1220;
+  color: var(--ks-primary);
+  background: #f8fafc;
   border-radius: 10px;
   padding: 12px;
 }
@@ -186,7 +186,7 @@ pre {
 }
 .permission-warning {
   margin: 10px 0 0;
-  color: #fbbf24;
+  color: #b45309;
   font-size: 12px;
 }
 </style>

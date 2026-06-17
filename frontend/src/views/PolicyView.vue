@@ -115,9 +115,9 @@ onMounted(async () => {
 }
 code {
   padding: 6px 10px;
-  background: #0b1220;
+  background: #f8fafc;
   border: 1px solid var(--ks-border);
   border-radius: 8px;
-  color: #93c5fd;
+  color: var(--ks-primary);
 }
 </style>
