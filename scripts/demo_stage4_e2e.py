@@ -5,6 +5,10 @@
   python -m scripts.demo_stage4_e2e --scenarios A,B,E
   python -m scripts.demo_stage4_e2e --scenarios C  # 需 VM + KYLIN_SANDBOX_ENABLED=1
 
+  # 真端点模式（需 env 注入 base_url/api_key/model，本机无密钥 → 待 VM）：
+  python -m scripts.demo_stage4_e2e --use-real-llm --user-intent "重启 nginx 服务"
+  python -m scripts.demo_stage4_e2e --use-real-llm --user-intent "查看磁盘占用情况"
+
 场景对照表（与 `docs/design/stage4-e2e-demo-testplan.md` §1 一一对应）：
   A 输入闸 deny：注入红队 high→REJECTED
   B 策略闸 deny：file.lsof_check(path=/etc/shadow) 命中 FILE001→REJECTED
@@ -12,12 +16,13 @@
   D 确认闸 resume R2：operator 批准 log.compress_rotate 真写 /var/log
   E 结果闸+审计闸：上述任一 FINISHED 后 is_untrusted/落库字段/verify_chain
   F 审计完整性：人工 UPDATE payload 改一字节 → verify_chain 报 valid=False
+  G 真端点模式（--use-real-llm）：RealLLMClient 产 intent → 五道闸全链跑通
 
 不做什么：
 - 不动 D 域实现（只 import 既有真件）；
 - 不动 X 域；
-- 不接真 LLM（阶段 5 单独做）；
-- 不录 VM 视频（C/D 在 Windows 上会因无 systemctl/gzip 命令报 exit_code≠0，**诚实不撒谎**）。
+- 真端点 api_key/base_url 走 env 注入，**禁止**硬编码（S9 红线）；
+- 本机无密钥时 fixture 模式顶替，标"待 VM 验证"。
 """
 
 from __future__ import annotations
@@ -469,6 +474,69 @@ async def scenario_f_audit_tamper_detect() -> dict[str, Any]:
 
 
 # ============================================================
+# 场景 G：真端点模式（--use-real-llm --user-intent "..."）
+# ============================================================
+async def scenario_real(user_intent: str) -> dict[str, Any]:
+    """真 LLM 端点（RealLLMClient）产 intent → 五道闸全链跑通。
+
+    - fixture 模式（KYLIN_LLM_PROVIDER 默认 fixture）：确定性 mock，CI 友好。
+    - real 模式（KYLIN_LLM_PROVIDER=real + base_url/api_key/model env 注入）：
+      调真端点，本机无密钥时标"待 VM 验证"。
+    - 输入闸天然在位：orchestrator.run 第 2 参 user_intent= 走 detect_injection，
+      **无需重复实现**。
+    - 打印：state / 每个 tool_result 事件 / audit record_count / verify_chain valid。
+    """
+    from backend.app.llm.real_client import load_real_llm_config_from_env
+
+    cfg = load_real_llm_config_from_env()
+    orch, evs, audit, sink = build_e2e(
+        trace_id="stage-G-real-llm",
+        use_real_llm=True,
+    )
+
+    print(f"  LLM 模式: {cfg.provider} / 模型: {cfg.model}")
+    print(f"  user_intent: {user_intent!r}")
+
+    state = await orch.run(
+        [{"role": "user", "content": user_intent}],
+        user_intent=user_intent,
+    )
+
+    if state is State.WAIT_APPROVAL:
+        print("  [!] 状态机暂停于 WAIT_APPROVAL，自动批准续跑（demo 模式）")
+        state = await orch.resume(approved=True)
+
+    tool_events = [e for e in evs.events if e.type == "tool_result"]
+    rejected_events = [e for e in evs.events if e.type == "rejected"]
+
+    res = sink.verify_chain("stage-G-real-llm")
+
+    result: dict[str, Any] = {
+        "state": state.value,
+        "llm_provider": cfg.provider,
+        "llm_model": cfg.model,
+        "tool_results": len(tool_events),
+        "all_is_untrusted": all(
+            e.data.get("result", {}).get("is_untrusted") is True for e in tool_events
+        )
+        if tool_events
+        else None,
+        "rejected": len(rejected_events) > 0,
+        "rejected_cause": rejected_events[0].data.get("cause") if rejected_events else None,
+        "audit_record_count": len(audit.records),
+        "verify_chain": {"valid": res.valid, "record_count": res.record_count},
+    }
+
+    if cfg.provider != "real":
+        result["_note"] = (
+            "KYLIN_LLM_PROVIDER 未设为 real，使用 fixture 模式；"
+            "设 KYLIN_LLM_PROVIDER=real 等 env 后可在 VM 跑真端点。"
+        )
+
+    return result
+
+
+# ============================================================
 # CLI 入口
 # ============================================================
 _SCENARIOS = {
@@ -524,29 +592,70 @@ def _is_sandbox_enabled_str() -> str:
     )
 
 
+async def _main_real(user_intent: str) -> None:
+    """真端点（场景 G）单步跑：user_intent → RealLLMClient → 五道闸 → 打印结果。"""
+    print("=" * 64)
+    print("阶段5 真端点 demo（场景 G）")
+    print(f"平台：{platform.system()}  沙箱开启：{_is_sandbox_enabled_str()}")
+    print("=" * 64)
+    try:
+        result = await scenario_real(user_intent)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        if "_note" in result:
+            print(f"\n[注] {result['_note']}")
+        print("\n全部跑通。")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ✗ {type(exc).__name__}: {exc}")
+        raise SystemExit(1) from exc
+
+
 def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="阶段4 端到端 demo")
+    p = argparse.ArgumentParser(description="阶段4/5 端到端 demo")
     p.add_argument(
         "--scenarios",
         type=str,
         default=None,
-        help="逗号分隔的场景列表（A/B/C/D/E/F）；不传则跑全 6 个",
+        help="逗号分隔的场景列表（A/B/C/D/E/F）；不传则跑全 6 个（不含 --use-real-llm 的 G 场景）",
     )
     p.add_argument(
         "--all",
         action="store_true",
-        help="显式跑全 6 个（与不传 --scenarios 等价）",
+        help="显式跑全 6 个 fixture 场景（与不传 --scenarios 等价）",
+    )
+    p.add_argument(
+        "--use-real-llm",
+        action="store_true",
+        dest="use_real_llm",
+        help="走 RealLLMClient（场景 G）；需同时传 --user-intent",
+    )
+    p.add_argument(
+        "--user-intent",
+        type=str,
+        default=None,
+        dest="user_intent",
+        help="真 LLM 模式下作为 user_intent（场景 G 专用）",
     )
     return p.parse_args()
 
 
 def main() -> None:
     args = _parse_args()
-    if args.scenarios:
-        scenarios = [s.strip().upper() for s in args.scenarios.split(",") if s.strip()]
+
+    if args.use_real_llm:
+        if not args.user_intent:
+            print(
+                "错误：--use-real-llm 需要同时传 --user-intent\n"
+                "示例：python -m scripts.demo_stage4_e2e"
+                " --use-real-llm --user-intent '查看磁盘占用情况'"
+            )
+            raise SystemExit(1)
+        asyncio.run(_main_real(args.user_intent))
     else:
-        scenarios = list(_SCENARIOS.keys())
-    asyncio.run(_main(scenarios))
+        if args.scenarios:
+            scenarios = [s.strip().upper() for s in args.scenarios.split(",") if s.strip()]
+        else:
+            scenarios = list(_SCENARIOS.keys())
+        asyncio.run(_main(scenarios))
 
 
 if __name__ == "__main__":
