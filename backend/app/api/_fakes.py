@@ -33,6 +33,7 @@ import json
 import logging
 import os
 import platform
+import re
 
 from backend.app.contracts.audit import AuditRecord
 from backend.app.contracts.intent import CandidateTool
@@ -171,6 +172,44 @@ _FAKE_INTENT_ROTATE = json.dumps(
 # 关键词 → 意图 JSON（命中顺序：restart 优先于 rotate）。
 _RESTART_KEYWORDS = ("重启", "restart")
 _ROTATE_KEYWORDS = ("压缩", "轮转", "rotate", "清日志", "清理日志")
+_LOOKUP_KEYWORDS = ("查", "查询", "lsof", "看", "看哪些进程在用")  # file.lsof_check 路径
+_DISK_KEYWORDS = ("查看磁盘", "磁盘占用", "disk")  # disk.usage
+
+# service_name 提取：取首个空白分词后、直到结尾或下一个非字母数字字符
+_SERVICE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@-]*")
+# path 提取：取首个 ^/... 形式的绝对路径
+_PATH_RE = re.compile(r"(/[A-Za-z0-9._/@-]+)")
+
+
+def _parse_service_name(content: str) -> str | None:
+    """从 `重启 <name>` / `restart <name>` 后的 token 里提取 service_name。
+
+    无 service_name（仅说"重启"）→ None（fallback：默认 cron.service 兜底，
+    与 demo `scenario_c(target_service=)` 默认值一致）。
+    """
+    for kw in _RESTART_KEYWORDS:
+        idx = content.find(kw)
+        if idx < 0:
+            continue
+        tail = content[idx + len(kw) :].strip()
+        # 跳过常见语气词
+        for filler in ("一下", "下", "服务", "服务吧", "吧", "服务下", "，", "。", ","):
+            if tail.startswith(filler):
+                tail = tail[len(filler) :].strip()
+        m = _SERVICE_NAME_RE.match(tail)
+        if m:
+            token = m.group(0)
+            # 若不含 .service/.socket 等后缀且纯字母数字 → 自动补 .service（Linux systemd 习惯）
+            if "." not in token and "_" not in token and "-" not in token:
+                return f"{token}.service"
+            return token
+    return None
+
+
+def _parse_path(content: str) -> str | None:
+    """从 message 里提取首个以 / 开头的绝对路径（不引入 NLP，CI 友好）。"""
+    m = _PATH_RE.search(content)
+    return m.group(1) if m else None
 
 
 def _last_user_content(messages: list[Message]) -> str:
@@ -182,11 +221,67 @@ def _last_user_content(messages: list[Message]) -> str:
 
 
 def _intent_for_message(content: str) -> str:
-    """按关键词选 fake 意图：重启→confirm(admin)、压缩/轮转→confirm(operator)、其它→allow。"""
+    """按关键词选 fake 意图（不再写死 service_name/path；解析 user message 提取）。
+
+    解析规则（CI 友好，不引入 NLP）：
+    - 含"重启/restart" → service.restart (R3 confirm/admin)，service_name 从 message 提取
+      （"重启 sshd" → sshd.service；"重启 cron.service" → cron.service；
+      仅"重启" → 默认 cron.service——保留 fallback 与 demo 默认兼容）
+    - 含"压缩/轮转/rotate/清日志" → log.compress_rotate (R2 confirm/operator)，
+      path 从 message 提取（"压缩 /var/log/app.log" → /var/log/app.log；
+      无 path → 默认 /var/log/app.log——保留 fallback 与 demo 默认兼容）
+    - 含"查/查询/lsof" + 路径 → file.lsof_check (R0 allow)
+    - 含"查看磁盘/磁盘占用" → disk.usage (R0 allow)
+    - 其它 → system.info (R0 allow，默认）
+    """
     if any(kw in content for kw in _RESTART_KEYWORDS):
-        return _FAKE_INTENT_RESTART
+        svc = _parse_service_name(content) or "cron.service"
+        return json.dumps(
+            {
+                "intent": "service_restart",
+                "confidence": 0.9,
+                "need_observation": False,
+                "candidate_tools": [{"name": "service.restart", "args": {"service_name": svc}}],
+                "risk_hint": "high",
+                "justification": f"重启 {svc}（fake 规划，R3→confirm/admin）",
+            }
+        )
     if any(kw in content for kw in _ROTATE_KEYWORDS):
-        return _FAKE_INTENT_ROTATE
+        path = _parse_path(content) or "/var/log/app.log"
+        return json.dumps(
+            {
+                "intent": "log_compress_rotate",
+                "confidence": 0.9,
+                "need_observation": False,
+                "candidate_tools": [{"name": "log.compress_rotate", "args": {"path": path}}],
+                "risk_hint": "medium",
+                "justification": f"压缩轮转 {path}（fake 规划，R2→confirm/operator）",
+            }
+        )
+    if any(kw in content for kw in _LOOKUP_KEYWORDS):
+        lsof_path = _parse_path(content)
+        if lsof_path is not None:
+            return json.dumps(
+                {
+                    "intent": "check_open_files",
+                    "confidence": 0.9,
+                    "need_observation": False,
+                    "candidate_tools": [{"name": "file.lsof_check", "args": {"path": lsof_path}}],
+                    "risk_hint": "low",
+                    "justification": f"lsof {lsof_path}（fake 规划，R0 allow）",
+                }
+            )
+    if any(kw in content for kw in _DISK_KEYWORDS):
+        return json.dumps(
+            {
+                "intent": "disk_usage",
+                "confidence": 0.9,
+                "need_observation": False,
+                "candidate_tools": [{"name": "disk.usage", "args": {}}],
+                "risk_hint": "low",
+                "justification": "查看磁盘占用（fake 规划，R0 allow）",
+            }
+        )
     return _FAKE_INTENT_JSON
 
 
