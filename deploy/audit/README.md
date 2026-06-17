@@ -129,3 +129,44 @@ WantedBy=timers.target
 
 `archived_traces` / `archived_records`（搬迁 trace 与记录数）、`skipped_in_flight`（因未达终态而跳过的 trace 数）、
 `freed_bytes` / `main_db_bytes_after`（回收前后主库在盘字节）、`archive_db_path`（归档库；无归档为空）。
+
+
+### 4.5 归档库查询与校验
+
+归档库与主库**同 schema**（`audit_records` 同 7 列），可直接用 `sqlite3` 离线查询，
+或用仓内 `SqliteAuditSink.verify_chain` 复算校验链完整性。归档库权限 0600，
+需以归档目录属主（如 `kylin-safeops`）身份读取。
+
+```bash
+# 列出某归档库内的全部 trace（按归档执行月分桶：audit.archive.YYYYMM.db）
+sqlite3 /var/lib/kylin-safeops/audit.archive.202606.db \
+  "SELECT DISTINCT trace_id FROM audit_records ORDER BY trace_id;"
+
+# 某 trace 的记录条数与相位序（确认整条链已整批搬迁）
+sqlite3 /var/lib/kylin-safeops/audit.archive.202606.db \
+  "SELECT seq, phase, created_at FROM audit_records WHERE trace_id='<trace_id>' ORDER BY seq;"
+
+# 跨库统计：主库与归档库各有多少 trace
+for db in audit.db audit.archive.202606.db; do
+  echo -n "$db: "
+  sqlite3 "/var/lib/kylin-safeops/$db" "SELECT COUNT(DISTINCT trace_id) FROM audit_records;"
+done
+```
+
+链完整性校验（复用 `verify_chain`，绝不另写序列化）：
+
+```bash
+KYLIN_AUDIT_DB=/var/lib/kylin-safeops/audit.archive.202606.db \
+python - <<'PY'
+import os
+from backend.app.audit import SqliteAuditSink
+sink = SqliteAuditSink(os.environ["KYLIN_AUDIT_DB"])
+rows = sink._conn.execute("SELECT DISTINCT trace_id FROM audit_records").fetchall()
+for r in rows:
+    res = sink.verify_chain(r["trace_id"])
+    print(f"{r['trace_id']}: valid={res.valid} count={res.record_count}")
+PY
+```
+
+> 篡改检出演示见 `deploy/sandbox/verify-stage4-audit.sh`（场景 D）：改一字节 payload →
+> `verify_chain` 返回 `valid=False` 并指明 `broken_seq`，且同库其它 trace 不受影响。

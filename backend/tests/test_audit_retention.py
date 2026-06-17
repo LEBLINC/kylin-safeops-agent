@@ -216,6 +216,33 @@ def test_rotation_vacuum_shrinks(tmp_path: Path) -> None:
     assert report.freed_bytes > 0
 
 
+def test_rotation_vacuum_archive_valid_and_main_empty(tmp_path: Path) -> None:
+    """rotation 触发 VACUUM 后：归档库链完整（verify_chain valid）+ 主库对应 trace 已清零。
+
+    补充 test_rotation_vacuum_shrinks（只验 bytes）：确认 VACUUM 不破坏归档库数据，
+    且主库不留残留 record（先验后删 + VACUUM 双保险）。
+    """
+    db = tmp_path / "audit.db"
+    _build_db(db, [("t-vac", _CLOSED, OLD_ISO)])
+    report = run_retention(
+        str(db), retention_days=90, max_bytes=1, archive_dir=None, now_iso=NOW_ISO
+    )
+    assert report.archived_traces == ["t-vac"]
+    assert report.archive_db_path is not None
+
+    # 归档库：链完整，记录数等于原链
+    arch = SqliteAuditSink(report.archive_db_path)
+    res = arch.verify_chain("t-vac")
+    assert res.valid is True
+    assert res.record_count == len(_CLOSED)
+    arch.close()
+
+    # 主库：t-vac 已彻底删除（VACUUM 后仍查不到）
+    main = SqliteAuditSink(str(db))
+    assert main.verify_chain("t-vac").record_count == 0
+    main.close()
+
+
 def test_noop_when_nothing_due(tmp_path: Path) -> None:
     db = tmp_path / "audit.db"
     _build_db(db, [("t-keep", _CLOSED, RECENT_ISO)])  # 终态但太新
