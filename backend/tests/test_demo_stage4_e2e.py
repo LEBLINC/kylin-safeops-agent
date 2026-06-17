@@ -45,6 +45,10 @@ def test_scenario_b_policy_gate_file001_deny() -> None:
     assert res["verdict"]["decision"] == "deny"
     assert "FILE001" in res["matched_rules"]
     assert res["verify_chain"]["valid"] is True
+    # B 走 REJECTED 路径（policy_deny），3-6 条；与 FINISHED 路径的 9-10 不同
+    assert (
+        3 <= res["verify_chain"]["record_count"] <= 10
+    ), f"policy_deny 路径 record_count 期望 3-10，实际 {res['verify_chain']['record_count']}"
 
 
 def test_scenario_c_confirm_gate_r3_service_restart() -> None:
@@ -52,6 +56,9 @@ def test_scenario_c_confirm_gate_r3_service_restart() -> None:
     res = _run(scenario_c_confirm_r3_service_restart)
     assert res["state"] == "FINISHED"
     assert res["verify_chain"]["valid"] is True
+    assert (
+        res["verify_chain"]["record_count"] >= 9
+    ), f"record_count 期望 >= 9，实际 {res['verify_chain']['record_count']}"
     # VM 上 verified_summary == "ok"；Windows 上 == "non-zero"（无 systemctl）— 均合法
     assert res["verified_summary"] in ("ok", "one or more tools exited non-zero")
 
@@ -61,6 +68,9 @@ def test_scenario_d_confirm_gate_r2_log_rotate() -> None:
     res = _run(scenario_d_confirm_r2_log_rotate)
     assert res["state"] == "FINISHED"
     assert res["verify_chain"]["valid"] is True
+    assert (
+        res["verify_chain"]["record_count"] >= 9
+    ), f"record_count 期望 >= 9，实际 {res['verify_chain']['record_count']}"
     assert res["verified_summary"] in ("ok", "one or more tools exited non-zero")
 
 
@@ -71,6 +81,9 @@ def test_scenario_e_result_and_audit_chain() -> None:
     assert res["all_is_untrusted"] is True
     assert res["audit_record_count"] >= 1
     assert res["verify_chain"]["valid"] is True
+    assert (
+        res["verify_chain"]["record_count"] >= 9
+    ), f"record_count 期望 >= 9，实际 {res['verify_chain']['record_count']}"
 
 
 # ---- 审计完整性：篡改检出 1 用例 ------------------------------------------
@@ -80,6 +93,9 @@ def test_scenario_f_audit_tamper_detected() -> None:
     """审计闸：手动 UPDATE payload → verify_chain 报 valid=False + broken_seq + reason。"""
     res = _run(scenario_f_audit_tamper_detect)
     assert res["verify_before"]["valid"] is True
+    assert (
+        res["verify_before"]["record_count"] >= 9
+    ), f"篡改前 record_count 期望 >= 9，实际 {res['verify_before']['record_count']}"
     assert res["verify_after"]["valid"] is False
     assert res["verify_after"]["broken_seq"] == 1
     assert "篡改" in res["verify_after"]["reason"]

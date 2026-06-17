@@ -149,6 +149,21 @@ def test_no_shell_in_subprocess() -> None:
     assert call_args[0][0] == "/usr/bin/df"
 
 
+def test_log_compress_rotate_appends_path() -> None:
+    """log.compress_rotate 必须把 path 拼进 argv，否则 gzip 无文件参数会读 stdin 卡死。"""
+    ex = PrivilegeExecutor()
+    mock_proc = AsyncMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+    mock_proc.returncode = 0
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+        asyncio.run(ex.execute(_tool("log.compress_rotate", {"path": "/var/log/app.log"})))
+
+    call_args = mock_exec.call_args[0]
+    assert call_args[0] == "/usr/bin/gzip"
+    assert "/var/log/app.log" in call_args
+
+
 # ---- fallback 探测 ----------------------------------------------------------
 
 
