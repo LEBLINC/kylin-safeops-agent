@@ -49,3 +49,11 @@ This demo uses the **direct injection** approach:
 
 Open Demo page -> find 'Injection Red Team' section -> click any attack sample button to copy -> paste into Chat input -> send.
 Expected: SSE receives ejected(cause="injection") -> frontend shows: Blocked by safety policy.
+
+
+## Indirect Injection (Log Poisoning) — Not Yet Implemented
+
+Indirect injection payloads are hidden in tool output (e.g., contaminated log files). LLM reads them and is induced to plan dangerous tools.
+Currently D-10 only scans user_intent (direct injection). Indirect injection is neutralized by result gate + denied by policy gate as defense-in-depth.
+Frontend displays strategy deny, NOT injection reject.
+Full demonstration requires real LLM (fake planner won't be induced), deferred to Stage5 for unified verification.

@@ -80,21 +80,23 @@ async def proxy_route(request: Request, path: str):
     is_sse = "text/event-stream" in request.headers.get("accept", "")
     body = await request.body()
     async with httpx.AsyncClient(timeout=None) as client:
-        resp = await client.request(
+        req = client.build_request(
             request.method,
             f"{UPSTREAM}/{path}",
             headers=headers,
             content=body,
             params=dict(request.query_params),
         )
+        resp = await client.send(req, stream=True)
         if is_sse:
             return StreamingResponse(
                 resp.aiter_bytes(),
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )
+        body_bytes = b"".join([chunk async for chunk in resp.aiter_bytes()])
         return StreamingResponse(
-            iter([resp.content]),
+            iter([body_bytes]),
             status_code=resp.status_code,
             media_type=resp.headers.get("content-type", "application/json"),
         )
