@@ -170,17 +170,21 @@ async def scenario_b_policy_deny() -> dict[str, Any]:
 # ============================================================
 # 场景 C：确认闸 resume R3（service.restart 沙箱内真重启 cron.service）
 # ============================================================
-async def scenario_c_confirm_r3_service_restart() -> dict[str, Any]:
+async def scenario_c_confirm_r3_service_restart(
+    target_service: str = "cron.service",
+) -> dict[str, Any]:
     """service.restart (R3 confirm/admin) → WAIT_APPROVAL → admin 批准 → 真执行。
 
     真件：MCPGateway 三道闸 + 真 PrivilegeExecutor + 真 SqliteAuditSink；
     沙箱：若非 Windows 且 KYLIN_SANDBOX_ENABLED=1 走 systemd 瞬态 service（VM 专属）；
     Windows 上沙箱关闭，systemctl 命令不存在 → exit_code≠0，**诚实不撒谎**。
     重点验证链路：WAIT_APPROVAL → resume → EXECUTING → EXECUTED → VERIFIED → FINISHED。
+
+    target_service：被重启的服务名，默认 cron.service（VM 上须已安装）。
     """
     intent_json = make_intent(
         intent="restart_cron",
-        candidate_tools=[{"name": "service.restart", "args": {"service_name": "cron.service"}}],
+        candidate_tools=[{"name": "service.restart", "args": {"service_name": target_service}}],
         risk_hint="high",
         need_observation=False,
         justification="受 fake planner 驱动：service.restart(R3 confirm/admin)",
@@ -253,15 +257,20 @@ async def scenario_c_confirm_r3_service_restart() -> dict[str, Any]:
 # ============================================================
 # 场景 D：确认闸 resume R2（log.compress_rotate 真写 /var/log）
 # ============================================================
-async def scenario_d_confirm_r2_log_rotate() -> dict[str, Any]:
+async def scenario_d_confirm_r2_log_rotate(
+    target_log_path: str = "/var/log/app.log",
+) -> dict[str, Any]:
     """log.compress_rotate (R2 confirm/operator) → WAIT_APPROVAL → operator 批准 → 真执行。
 
     与场景 C 同骨架但 R2/operator/limited_write profile。Windows 沙箱关闭 → 写 /var/log
     失败（无权限）→ exit_code≠0；VM 沙箱开启 → 成功。
+
+    target_log_path：被压缩的日志文件路径，默认 /var/log/app.log（须为普通文件，
+    gzip 不支持目录；VM 上须预先 touch/echo 创建）。
     """
     intent_json = make_intent(
         intent="rotate_logs",
-        candidate_tools=[{"name": "log.compress_rotate", "args": {"path": "/var/log", "keep": 3}}],
+        candidate_tools=[{"name": "log.compress_rotate", "args": {"path": target_log_path}}],
         risk_hint="medium",
         need_observation=False,
         justification="受 fake planner 驱动：log.compress_rotate(R2 confirm/operator)",
