@@ -129,9 +129,9 @@ def build_e2e(
         llm: LLMAdapter = LLMAdapter(
             completion_fn=RealLLMClient(load_real_llm_config_from_env()).completion_fn
         )
-        # 注意：real_user_intent 必须在外部 orch.run(..., user_intent=...) 里传，
-        # build_e2e 不接管其值；只确保 LLM adapter 装配好。
-        _ = real_user_intent  # 占位：保留参数做文档化
+        # real_user_intent 由调用方传给 orch.run(messages, user_intent=...)；
+        # build_e2e 只负责装配 adapter，不接管消息内容。
+        _ = real_user_intent  # 参数保留供文档，此处不使用
     else:
         if intents is None:
             intents = ["{}"]
