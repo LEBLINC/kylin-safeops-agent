@@ -29,6 +29,7 @@ from backend.app.api.event_bus import EventBus
 from backend.app.api.session_registry import SessionRegistry
 from backend.app.api.session_store import SessionStore
 from backend.app.audit import SqliteAuditSink
+from backend.app.db.session import connect as _db_connect
 from backend.app.db.session import resolve_audit_db_path
 from backend.app.llm.adapter import LLMAdapter
 from backend.app.mcp.gateway import MCPGateway
@@ -168,7 +169,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _gateway = build_gateway()
     _session_store = SessionStore()
     # 审计落库单例：真 SqliteAuditSink 持 DB 句柄 + 链状态，必须单例（决策2：真执行=真审计同批）。
-    _audit = SqliteAuditSink(db=_AUDIT_DB_PATH)
+    # fail_closed 接线（D 域 7b74404/94bdac9 已就位 connect(fail_closed=...) + 测试）：
+    #   - proxy 模式（生产）→ fail_closed=True（chmod 失败 raise，拒启动）；
+    #   - dev 模式（联调）→ fail_closed=False（chmod 失败仅 log，不抛）。
+    # 复用模块级 _AUDIT_DB_PATH（conftest 可 setattr 钉 :memory:；文件路径时由模块级
+    # resolve_audit_db_path 在 import 期算 require_absolute → proxy 下相对路径已 fail-closed）。
+    # 本处只在 SqliteAuditSink 构造前显式 connect() 一次，把 fail_closed 一并传入；SqliteAuditSink
+    # 内部若收到 str/Path 还会再调 connect(无 fail_closed)——故提前 connect 拿 conn 再传。
+    # 注意：_db_connect 是 module-level（顶部 import），让测试可 spy app._db_connect
+    # （不要在 lifespan 内部重新 import，否则 spy 不生效）。
+    _auth_mode_now = _auth_mode()
+    _fail_closed = _auth_mode_now == "proxy"
+    if str(_AUDIT_DB_PATH) == ":memory:":
+        # 测试夹具：直接传 :memory:，让 SqliteAuditSink 内部 connect 时自动跳 _secure_perms
+        _audit = SqliteAuditSink(db=_AUDIT_DB_PATH)
+    else:
+        # 文件路径：先 connect 一次（带 fail_closed），把 conn 传给 SqliteAuditSink 复用
+        _audit_conn = _db_connect(_AUDIT_DB_PATH, fail_closed=_fail_closed)
+        _audit = SqliteAuditSink(db=_audit_conn)
+        logger.info(
+            "审计库已连接（auth_mode=%s, fail_closed=%s, path=%s）",
+            _auth_mode_now,
+            _fail_closed,
+            _AUDIT_DB_PATH,
+        )
     _cleanup_task = asyncio.create_task(_periodic_cleanup())
 
     logger.info("API layer initialized: bus=%s, registry=%s", _bus, _registry)
