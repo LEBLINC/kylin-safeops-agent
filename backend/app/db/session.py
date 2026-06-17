@@ -55,12 +55,13 @@ def resolve_audit_db_path(raw: str | None, *, require_absolute: bool) -> str:
     return os.path.realpath(raw)
 
 
-def _secure_perms(db_path: str | Path) -> None:
+def _secure_perms(db_path: str | Path, *, fail_closed: bool = False) -> None:
     """审计库受限权限：文件 0600 / 父目录 0700 / WAL 边车 0600。
 
-    :memory: 短路跳过（保护 conftest 夹具）。chmod 仅属主有效；失败（多用户/属主不符，
-    如 VM 那次 root 先起 app）log 清晰错误但不抛——落库已成功，权限是加固层，
-    属主真解在部署层（systemd User=<agent 用户> + 审计目录归该用户）。
+    :memory: 短路跳过（保护 conftest 夹具）。chmod 仅属主有效；属主不符时：
+    - fail_closed=False（开发模式）：log ERROR 不抛，落库已成功，权限是加固层。
+    - fail_closed=True（生产模式 KYLIN_AUTH_MODE=proxy）：log ERROR 后 raise
+      PermissionError，拒绝以错误权限运行——属主真解在部署层（systemd User=）。
     """
     p = str(db_path)
     if p == ":memory:":
@@ -80,14 +81,24 @@ def _secure_perms(db_path: str | Path) -> None:
             path,
             exc,
         )
+        if fail_closed:
+            raise PermissionError(f"生产模式下审计库权限加固失败，拒绝继续运行: {path}") from exc
 
 
-def connect(db_path: str | Path = ":memory:") -> sqlite3.Connection:
+def connect(
+    db_path: str | Path = ":memory:",
+    *,
+    fail_closed: bool = False,
+) -> sqlite3.Connection:
     """打开 SQLite 连接并保证 schema 就绪（幂等建表）。
 
     默认 :memory:（测试友好）；文件路径时自动创建父目录。
     check_same_thread=False：FastAPI 线程池可能跨线程调用，
     写入串行化由 SqliteAuditSink 的锁负责。
+
+    fail_closed：传 True 时（生产模式，KYLIN_AUTH_MODE=proxy）chmod 失败会
+    raise PermissionError；开发模式保持默认 False（只 log 不抛）。
+    由 L 在 api.py lifespan 按 auth_mode 计算后传入。
     """
     if db_path != ":memory:":
         parent = Path(db_path).parent
@@ -99,5 +110,5 @@ def connect(db_path: str | Path = ":memory:") -> sqlite3.Connection:
     conn.executescript(_SCHEMA)
     conn.commit()
     if db_path != ":memory:":
-        _secure_perms(db_path)  # 文件已建，设受限权限（:memory: 经此守卫天然跳过）
+        _secure_perms(db_path, fail_closed=fail_closed)  # :memory: 天然跳过
     return conn
