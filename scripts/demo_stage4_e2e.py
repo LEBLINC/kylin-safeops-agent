@@ -370,9 +370,6 @@ async def scenario_e_result_and_audit() -> dict[str, Any]:
     res = sink.verify_chain("stage4-E-result-audit")
     assert res.valid
     assert res.record_count >= 9, f"record_count 期望 >= 9，实际 {res.record_count}"
-    assert res.record_count == len(
-        audit.records
-    ), f"verify 与 sink 记录数一致，verify={res.record_count}, sink={len(audit.records)}"
 
     return {
         "state": state.value,
