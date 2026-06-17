@@ -163,7 +163,8 @@ async function run(action: 'prepare' | 'run' | 'cleanup', scenario: string) {
       </ol>
       <p style="color: var(--ks-text-secondary); font-size: 12px;">提示：在本机演示时可直接打开审计页（AuditView）验证哈希链是否完整。</p>
       <div style="margin-top: 12px; display: flex; gap: 12px; align-items: center;">
-        <el-button type="primary" @click="verifyAuditChain">验证审计链</el-button>
+        <el-button v-if="auditStore.traces.length > 0" type="primary" @click="verifyAuditChain">验证审计链</el-button>
+        <p v-else style="font-size: 12px; color: var(--ks-text-secondary);">请先在 Chat 页发送消息，生成审计记录后再验证。</p>
         <el-tag v-if="auditStore.verifyResult?.valid === true" type="success">✅ 链路完整</el-tag>
         <el-tag v-else-if="auditStore.verifyResult?.valid === false" type="danger">
           ❌ 检出篡改 seq={{ auditStore.verifyResult.records.find(r => !r.valid)?.seq ?? '?' }}
@@ -188,14 +189,5 @@ async function run(action: 'prepare' | 'run' | 'cleanup', scenario: string) {
   flex-wrap: wrap;
 }
 </style>
-
-
-
-
-
-
-
-
-
 
 
