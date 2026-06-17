@@ -101,20 +101,42 @@ def scripted_llm(*intents_json: str) -> LLMAdapter:
 def build_e2e(
     *,
     trace_id: str,
-    intents: list[str],
+    intents: list[str] | None = None,
     sandbox_enabled: bool | None = None,
+    use_real_llm: bool = False,
+    real_user_intent: str | None = None,
 ) -> tuple[Orchestrator, CollectingEvents, CapturingAudit, SqliteAuditSink]:
-    """装配端到端 orchestrator：**真策略 + 真执行 + 真审计 + fake LLM**。
+    """装配端到端 orchestrator：**真策略 + 真执行 + 真审计 + fake/真 LLM**。
 
     - `trace_id`：审计链 trace id。
     - `intents`：fake planner 按调用次序返回的 Intent JSON 字符串列表。
+      （use_real_llm=True 时被忽略。）
     - `sandbox_enabled`：None=按 platform+env 自动判定；True/False 显式覆盖。
       （True 在 Windows 上仍会被 PrivilegeExecutor 自身 fail-closed 接受，但实际
       wrapper+systemd 不存在会失败——VM 专属场景。）
+    - `use_real_llm`：True → 走 `RealLLMClient`（默认 fixture 模式；env KYLIN_LLM_TEST_FIXTURE=false
+      切真端点）；需同时传 `real_user_intent` 作为 orch.run 的唯一 user 消息。
+      此模式只用于**单步 plan**——LLM 只调一次，fake 模式支持多步意图列表。
+    - `real_user_intent`：use_real_llm=True 时必填；作为 user message 内容
+      （RealLLMClient 按关键词路由 fixture intent）。
 
     Returns: (orchestrator, events, audit, sqlite_sink) ——events/audit 供断言，
     sqlite_sink 供 verify_chain / 篡改场景 F 直接复用。
     """
+    if use_real_llm:
+        from backend.app.llm.real_client import RealLLMClient, load_real_llm_config_from_env
+
+        llm: LLMAdapter = LLMAdapter(
+            completion_fn=RealLLMClient(load_real_llm_config_from_env()).completion_fn
+        )
+        # 注意：real_user_intent 必须在外部 orch.run(..., user_intent=...) 里传，
+        # build_e2e 不接管其值；只确保 LLM adapter 装配好。
+        _ = real_user_intent  # 占位：保留参数做文档化
+    else:
+        if intents is None:
+            intents = ["{}"]
+        llm = scripted_llm(*intents)
+
     registry = ToolRegistry(all_specs())
     sbx = _is_sandbox_enabled() if sandbox_enabled is None else sandbox_enabled
     sink = SqliteAuditSink(":memory:")
@@ -125,7 +147,7 @@ def build_e2e(
         executor=PrivilegeExecutor(sandbox_enabled=sbx),  # type: ignore[arg-type]
     )
     orch = Orchestrator(
-        llm=scripted_llm(*intents),
+        llm=llm,
         gateway=gateway,
         audit=audit,  # type: ignore[arg-type]  # CapturingAudit 满足 AuditSink Protocol
         events=CollectingEvents(),
