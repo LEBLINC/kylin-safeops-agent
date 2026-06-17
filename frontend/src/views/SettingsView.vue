@@ -34,7 +34,7 @@ const streamMode = import.meta.env.VITE_STREAM_MODE || 'sse'
       <el-descriptions :column="1" border>
         <el-descriptions-item label="API Base URL">{{ apiBase }}</el-descriptions-item>
         <el-descriptions-item label="事件流模式">{{ streamMode }}</el-descriptions-item>
-        <el-descriptions-item label="主题">深色安全运维控制台</el-descriptions-item>
+        <el-descriptions-item label="主题">浅色数据驾驶舱</el-descriptions-item>
       </el-descriptions>
     </PageSection>
   </div>

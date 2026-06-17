@@ -2,14 +2,7 @@
 /**
  * PageSection.vue
  *
- * 页面分区卡片组件。
- *
- * 使用位置：
- * - DashboardView.vue、AuditView.vue、PolicyView.vue、RcaView.vue 等页面。
- *
- * 组件职责：
- * - 统一“卡片 + 标题 + 副标题 + 右上角扩展区域”的布局；
- * - 减少每个页面重复写 ks-card、header 样式。
+ * 页面分区卡片组件，统一浅色卡片和 hover 动效。
  */
 defineProps<{
   /** 分区标题，例如“最近安全裁决”。 */
@@ -26,31 +19,32 @@ defineProps<{
         <h3 v-if="title">{{ title }}</h3>
         <p v-if="subtitle">{{ subtitle }}</p>
       </div>
-      <!-- extra 插槽：给页面放按钮、筛选器、刷新操作等。 -->
       <slot name="extra" />
     </header>
-    <!-- 默认插槽：分区主体内容。 -->
     <slot />
   </section>
 </template>
 
 <style scoped>
 .page-section {
-  padding: 16px;
+  padding: 18px;
 }
 .section-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 14px;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 16px;
 }
 h3 {
   margin: 0;
   font-size: 16px;
+  letter-spacing: -0.01em;
 }
 p {
   margin: 6px 0 0;
   color: var(--ks-text-muted);
   font-size: 13px;
+  line-height: 1.5;
 }
 </style>

@@ -16,7 +16,7 @@ import { router } from './router'
  * 2. 注册 Pinia 状态管理；
  * 3. 注册 Vue Router 路由；
  * 4. 注册 Element Plus UI 组件库；
- * 5. 引入全局深色主题样式 style.css。
+ * 5. 引入全局浅色后台主题样式 style.css。
  *
  * 注意：
  * - 这里不写业务逻辑；

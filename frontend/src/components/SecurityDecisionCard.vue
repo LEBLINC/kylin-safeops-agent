@@ -100,7 +100,7 @@ const rules = computed(() => {
   color: var(--ks-text-muted);
 }
 code {
-  color: #93c5fd;
+  color: var(--ks-primary);
 }
 .per-tool {
   margin-top: 16px;
@@ -119,8 +119,8 @@ code {
   align-items: center;
   padding: 10px;
   border-radius: 10px;
-  background: rgba(15, 23, 42, 0.58);
-  border: 1px solid rgba(51, 65, 85, 0.8);
+  background: #f8fafc;
+  border: 1px solid var(--ks-border);
   font-size: 12px;
 }
 .tool-row span:last-child {

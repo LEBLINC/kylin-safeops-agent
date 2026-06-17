@@ -1,44 +1,61 @@
 /**
  * style.css
  *
- * 全局样式与深色主题文件。
- *
- * 作用：
- * 1. 定义 Kylin SafeOps 的深色主题变量；
- * 2. 覆盖 Element Plus 在深色主题下的表格、下拉框、弹窗、输入框样式；
- * 3. 修复鼠标 hover 后出现浅色背景导致文字看不清的问题；
- * 4. 提供 ks-page、ks-card、ks-muted、ks-grid 等通用样式类。
- *
- * 注意：
- * - 页面级布局样式仍写在各自 .vue 的 scoped style 中；
- * - 全局 UI 变量和 Element Plus 覆盖样式集中放在这里，方便统一维护。
+ * 全局浅色主题与后台控制台通用样式。
+ * 设计方向参考 next-shadcn-admin-dashboard 的现代、极简、可配置后台模板思路，
+ * 去掉原先暗黑风，改为白底、柔和边框、浅色渐变和更明显的 hover 反馈。
  */
 
 :root {
-  --ks-bg: #0f172a;
-  --ks-bg-soft: #111827;
-  --ks-card: #1e293b;
-  --ks-card-2: #172033;
-  --ks-border: #334155;
-  --ks-text: #f8fafc;
-  --ks-text-muted: #94a3b8;
-  --ks-primary: #3b82f6;
-  --ks-success: #22c55e;
+  color-scheme: light;
+
+  --ks-bg: #f5f7fb;
+  --ks-bg-soft: #eef4ff;
+  --ks-card: #ffffff;
+  --ks-card-2: #f8fafc;
+  --ks-card-hover: #f4f8ff;
+  --ks-border: #dbe3ef;
+  --ks-border-strong: #bfccdc;
+  --ks-text: #0f172a;
+  --ks-text-muted: #64748b;
+  --ks-text-secondary: #7c8aa0;
+  --ks-primary: #2563eb;
+  --ks-primary-soft: #e9f0ff;
+  --ks-success: #16a34a;
   --ks-warning: #f59e0b;
   --ks-danger: #ef4444;
-  --ks-purple: #8b5cf6;
+  --ks-purple: #7c3aed;
+  --ks-cyan: #0891b2;
+  --ks-shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
+  --ks-shadow-hover: 0 22px 52px rgba(37, 99, 235, 0.15);
+
+  --ks-gradient-blue: linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(239,246,255,0.96) 48%, rgba(219,234,254,0.88) 100%);
+  --ks-gradient-blue-hover: linear-gradient(135deg, rgba(219,234,254,0.98) 0%, rgba(255,255,255,0.98) 46%, rgba(191,219,254,0.92) 100%);
+  --ks-gradient-cyan: linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(236,254,255,0.96) 50%, rgba(207,250,254,0.88) 100%);
+  --ks-gradient-cyan-hover: linear-gradient(135deg, rgba(207,250,254,0.98) 0%, rgba(255,255,255,0.98) 46%, rgba(165,243,252,0.92) 100%);
+  --ks-gradient-mint: linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(240,253,244,0.96) 50%, rgba(187,247,208,0.84) 100%);
+  --ks-gradient-mint-hover: linear-gradient(135deg, rgba(220,252,231,0.98) 0%, rgba(255,255,255,0.98) 46%, rgba(134,239,172,0.86) 100%);
+  --ks-gradient-violet: linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(245,243,255,0.96) 50%, rgba(221,214,254,0.86) 100%);
+  --ks-gradient-violet-hover: linear-gradient(135deg, rgba(237,233,254,0.98) 0%, rgba(255,255,255,0.98) 46%, rgba(196,181,253,0.88) 100%);
+  --ks-gradient-amber: linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(255,251,235,0.96) 50%, rgba(254,240,138,0.76) 100%);
+  --ks-gradient-amber-hover: linear-gradient(135deg, rgba(254,243,199,0.98) 0%, rgba(255,255,255,0.98) 46%, rgba(253,230,138,0.86) 100%);
+  --ks-gradient-rose: linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(255,241,242,0.96) 50%, rgba(254,205,211,0.80) 100%);
+  --ks-gradient-rose-hover: linear-gradient(135deg, rgba(255,228,230,0.98) 0%, rgba(255,255,255,0.98) 46%, rgba(253,164,175,0.82) 100%);
+  --ks-gradient-slate: linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.96) 50%, rgba(226,232,240,0.88) 100%);
+  --ks-gradient-slate-hover: linear-gradient(135deg, rgba(241,245,249,0.98) 0%, rgba(255,255,255,0.98) 46%, rgba(203,213,225,0.90) 100%);
 
   --el-bg-color: var(--ks-card);
-  --el-bg-color-overlay: #111827;
+  --el-bg-color-overlay: #ffffff;
   --el-text-color-primary: var(--ks-text);
-  --el-text-color-regular: #e5e7eb;
+  --el-text-color-regular: #334155;
   --el-text-color-secondary: var(--ks-text-muted);
   --el-border-color: var(--ks-border);
-  --el-border-color-light: var(--ks-border);
-  --el-fill-color: #172033;
-  --el-fill-color-light: #1e293b;
-  --el-fill-color-lighter: #23324a;
-  --el-fill-color-blank: #0b1220;
+  --el-border-color-light: #e2e8f0;
+  --el-fill-color: #f1f5f9;
+  --el-fill-color-light: #f8fafc;
+  --el-fill-color-lighter: #fbfdff;
+  --el-fill-color-blank: #ffffff;
+  --el-color-primary: var(--ks-primary);
 }
 
 * {
@@ -53,11 +70,18 @@ body,
 }
 
 body {
-  background: var(--ks-bg);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(37, 99, 235, 0.10), transparent 30%),
+    radial-gradient(circle at 82% 12%, rgba(8, 145, 178, 0.10), transparent 28%),
+    var(--ks-bg);
   color: var(--ks-text);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Microsoft YaHei", "PingFang SC", sans-serif;
+}
+
+body::selection {
+  background: rgba(37, 99, 235, 0.18);
 }
 
 a {
@@ -68,14 +92,159 @@ a {
 .ks-page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
 }
 
 .ks-card {
+  --ks-card-gradient: var(--ks-gradient-blue);
+  --ks-card-hover-gradient: var(--ks-gradient-blue-hover);
+  --ks-accent: var(--ks-primary);
+  --ks-accent-rgb: 37, 99, 235;
+
   border: 1px solid var(--ks-border);
-  border-radius: 14px;
-  background: linear-gradient(180deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.96));
-  box-shadow: 0 12px 32px rgba(2, 6, 23, 0.22);
+  border-radius: 18px;
+  background: var(--ks-card-gradient);
+  box-shadow: var(--ks-shadow);
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease,
+    filter 180ms ease;
+}
+
+.ks-card:hover {
+  transform: translateY(-5px);
+  border-color: rgba(var(--ks-accent-rgb), 0.38);
+  background: var(--ks-card-hover-gradient);
+  box-shadow:
+    0 24px 56px rgba(var(--ks-accent-rgb), 0.16),
+    0 8px 20px rgba(15, 23, 42, 0.06);
+  filter: saturate(1.04);
+}
+
+/* 渐变色卡片工具类：同一页面内按卡片类型/位置使用不同色系；鼠标移开后自动恢复原背景。 */
+.card-tone-blue {
+  --ks-accent: #2563eb;
+  --ks-accent-rgb: 37, 99, 235;
+  --ks-card-gradient: var(--ks-gradient-blue);
+  --ks-card-hover-gradient: var(--ks-gradient-blue-hover);
+}
+.card-tone-cyan {
+  --ks-accent: #0891b2;
+  --ks-accent-rgb: 8, 145, 178;
+  --ks-card-gradient: var(--ks-gradient-cyan);
+  --ks-card-hover-gradient: var(--ks-gradient-cyan-hover);
+}
+.card-tone-mint {
+  --ks-accent: #16a34a;
+  --ks-accent-rgb: 22, 163, 74;
+  --ks-card-gradient: var(--ks-gradient-mint);
+  --ks-card-hover-gradient: var(--ks-gradient-mint-hover);
+}
+.card-tone-violet {
+  --ks-accent: #7c3aed;
+  --ks-accent-rgb: 124, 58, 237;
+  --ks-card-gradient: var(--ks-gradient-violet);
+  --ks-card-hover-gradient: var(--ks-gradient-violet-hover);
+}
+.card-tone-amber {
+  --ks-accent: #f59e0b;
+  --ks-accent-rgb: 245, 158, 11;
+  --ks-card-gradient: var(--ks-gradient-amber);
+  --ks-card-hover-gradient: var(--ks-gradient-amber-hover);
+}
+.card-tone-rose {
+  --ks-accent: #e11d48;
+  --ks-accent-rgb: 225, 29, 72;
+  --ks-card-gradient: var(--ks-gradient-rose);
+  --ks-card-hover-gradient: var(--ks-gradient-rose-hover);
+}
+.card-tone-slate {
+  --ks-accent: #64748b;
+  --ks-accent-rgb: 100, 116, 139;
+  --ks-card-gradient: var(--ks-gradient-slate);
+  --ks-card-hover-gradient: var(--ks-gradient-slate-hover);
+}
+
+/* 非 Dashboard 页面没有显式 tone 时，也按同级位置自动分配不同渐变，避免整页都是白卡。 */
+.ks-page > .page-section:nth-of-type(6n + 1),
+.approval-grid > .ks-card:nth-child(6n + 1),
+.tool-grid > .page-section:nth-child(6n + 1),
+.demo-grid > .page-section:nth-child(6n + 1),
+.rca-grid > .page-section:nth-child(6n + 1),
+.audit-grid > .page-section:nth-child(6n + 1),
+.chat-layout > .page-section:nth-child(6n + 1),
+.right-panel > .page-section:nth-child(6n + 1) {
+  --ks-accent: #2563eb;
+  --ks-accent-rgb: 37, 99, 235;
+  --ks-card-gradient: var(--ks-gradient-blue);
+  --ks-card-hover-gradient: var(--ks-gradient-blue-hover);
+}
+.ks-page > .page-section:nth-of-type(6n + 2),
+.approval-grid > .ks-card:nth-child(6n + 2),
+.tool-grid > .page-section:nth-child(6n + 2),
+.demo-grid > .page-section:nth-child(6n + 2),
+.rca-grid > .page-section:nth-child(6n + 2),
+.audit-grid > .page-section:nth-child(6n + 2),
+.chat-layout > .page-section:nth-child(6n + 2),
+.right-panel > .page-section:nth-child(6n + 2) {
+  --ks-accent: #0891b2;
+  --ks-accent-rgb: 8, 145, 178;
+  --ks-card-gradient: var(--ks-gradient-cyan);
+  --ks-card-hover-gradient: var(--ks-gradient-cyan-hover);
+}
+.ks-page > .page-section:nth-of-type(6n + 3),
+.approval-grid > .ks-card:nth-child(6n + 3),
+.tool-grid > .page-section:nth-child(6n + 3),
+.demo-grid > .page-section:nth-child(6n + 3),
+.rca-grid > .page-section:nth-child(6n + 3),
+.audit-grid > .page-section:nth-child(6n + 3),
+.chat-layout > .page-section:nth-child(6n + 3),
+.right-panel > .page-section:nth-child(6n + 3) {
+  --ks-accent: #16a34a;
+  --ks-accent-rgb: 22, 163, 74;
+  --ks-card-gradient: var(--ks-gradient-mint);
+  --ks-card-hover-gradient: var(--ks-gradient-mint-hover);
+}
+.ks-page > .page-section:nth-of-type(6n + 4),
+.approval-grid > .ks-card:nth-child(6n + 4),
+.tool-grid > .page-section:nth-child(6n + 4),
+.demo-grid > .page-section:nth-child(6n + 4),
+.rca-grid > .page-section:nth-child(6n + 4),
+.audit-grid > .page-section:nth-child(6n + 4),
+.chat-layout > .page-section:nth-child(6n + 4),
+.right-panel > .page-section:nth-child(6n + 4) {
+  --ks-accent: #7c3aed;
+  --ks-accent-rgb: 124, 58, 237;
+  --ks-card-gradient: var(--ks-gradient-violet);
+  --ks-card-hover-gradient: var(--ks-gradient-violet-hover);
+}
+.ks-page > .page-section:nth-of-type(6n + 5),
+.approval-grid > .ks-card:nth-child(6n + 5),
+.tool-grid > .page-section:nth-child(6n + 5),
+.demo-grid > .page-section:nth-child(6n + 5),
+.rca-grid > .page-section:nth-child(6n + 5),
+.audit-grid > .page-section:nth-child(6n + 5),
+.chat-layout > .page-section:nth-child(6n + 5),
+.right-panel > .page-section:nth-child(6n + 5) {
+  --ks-accent: #f59e0b;
+  --ks-accent-rgb: 245, 158, 11;
+  --ks-card-gradient: var(--ks-gradient-amber);
+  --ks-card-hover-gradient: var(--ks-gradient-amber-hover);
+}
+.ks-page > .page-section:nth-of-type(6n),
+.approval-grid > .ks-card:nth-child(6n),
+.tool-grid > .page-section:nth-child(6n),
+.demo-grid > .page-section:nth-child(6n),
+.rca-grid > .page-section:nth-child(6n),
+.audit-grid > .page-section:nth-child(6n),
+.chat-layout > .page-section:nth-child(6n),
+.right-panel > .page-section:nth-child(6n) {
+  --ks-accent: #e11d48;
+  --ks-accent-rgb: 225, 29, 72;
+  --ks-card-gradient: var(--ks-gradient-rose);
+  --ks-card-hover-gradient: var(--ks-gradient-rose-hover);
 }
 
 .ks-muted {
@@ -95,60 +264,75 @@ a {
   --el-fill-color-blank: var(--ks-card);
   --el-border-color-light: var(--ks-border);
   color: var(--ks-text);
+  border-radius: 16px;
+  box-shadow: var(--ks-shadow);
+}
+
+.el-button {
+  border-radius: 10px;
 }
 
 .el-table {
   --el-table-bg-color: var(--ks-card);
   --el-table-tr-bg-color: var(--ks-card);
-  --el-table-header-bg-color: #162034;
-  --el-table-row-hover-bg-color: #23324a;
-  --el-table-current-row-bg-color: #1d4ed8;
-  --el-table-text-color: #e5e7eb;
+  --el-table-header-bg-color: #f1f5f9;
+  --el-table-row-hover-bg-color: #eef4ff;
+  --el-table-current-row-bg-color: #e8f0ff;
+  --el-table-text-color: #334155;
   --el-table-header-text-color: var(--ks-text);
   --el-table-border-color: var(--ks-border);
   background: var(--ks-card);
-  color: #e5e7eb;
+  color: #334155;
+  border-radius: 14px;
 }
 
 .el-table th.el-table__cell {
-  background-color: #162034 !important;
+  background-color: #f1f5f9 !important;
   color: var(--ks-text) !important;
+  font-weight: 700;
 }
 
 .el-table tr,
 .el-table td.el-table__cell {
   background-color: var(--ks-card) !important;
-  color: #e5e7eb !important;
+  color: #334155 !important;
 }
 
 .el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell,
 .el-table__body tr.current-row > td.el-table__cell {
-  background-color: #23324a !important;
+  background-color: #eef4ff !important;
   color: var(--ks-text) !important;
 }
 
 .el-input,
 .el-textarea {
-  --el-input-bg-color: #0b1220;
+  --el-input-bg-color: #ffffff;
   --el-input-border-color: var(--ks-border);
-  --el-input-hover-border-color: #3b82f6;
-  --el-input-focus-border-color: #3b82f6;
+  --el-input-hover-border-color: #2563eb;
+  --el-input-focus-border-color: #2563eb;
   --el-input-text-color: var(--ks-text);
-  --el-input-placeholder-color: #64748b;
+  --el-input-placeholder-color: #94a3b8;
+}
+
+.el-input__wrapper,
+.el-textarea__inner {
+  border-radius: 12px;
+  box-shadow: 0 0 0 1px var(--ks-border) inset;
 }
 
 .el-select__popper.el-popper,
 .el-dropdown__popper.el-popper,
 .el-picker__popper.el-popper {
-  background: #111827 !important;
+  background: #ffffff !important;
   border-color: var(--ks-border) !important;
   color: var(--ks-text) !important;
+  box-shadow: var(--ks-shadow);
 }
 
 .el-select-dropdown__item,
 .el-dropdown-menu,
 .el-dropdown-menu__item {
-  background: #111827;
+  background: #ffffff;
   color: var(--ks-text);
 }
 
@@ -156,8 +340,8 @@ a {
 .el-select-dropdown__item:hover,
 .el-dropdown-menu__item:hover,
 .el-dropdown-menu__item:focus {
-  background: #23324a !important;
-  color: var(--ks-text) !important;
+  background: #eef4ff !important;
+  color: var(--ks-primary) !important;
 }
 
 .el-collapse,
@@ -169,11 +353,21 @@ a {
 }
 
 .el-tree {
-  --el-tree-node-hover-bg-color: #23324a;
+  --el-tree-node-hover-bg-color: #eef4ff;
+  color: var(--ks-text);
 }
 
 .el-menu {
   border-right: none;
+}
+
+.el-tag--dark {
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.10);
+}
+
+pre,
+code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
 ::-webkit-scrollbar {
@@ -181,9 +375,10 @@ a {
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: #cbd5e1;
   border-radius: 999px;
 }
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: #eef2f7;
 }
+test
