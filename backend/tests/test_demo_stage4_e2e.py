@@ -101,6 +101,25 @@ def test_scenario_f_audit_tamper_detected() -> None:
     assert "篡改" in res["verify_after"]["reason"]
 
 
+# ---- fake planner 参数化：自定义目标服务 / 日志路径 -------------------------
+
+
+def test_scenario_c_custom_target_service() -> None:
+    """场景 C 支持 target_service 参数——非默认值也能跑完五道闸全链。"""
+    res = _run(lambda: scenario_c_confirm_r3_service_restart(target_service="nginx.service"))
+    assert res["state"] == "FINISHED"
+    assert res["verify_chain"]["valid"] is True
+    assert res["verify_chain"]["record_count"] >= 9
+
+
+def test_scenario_d_custom_target_log_path() -> None:
+    """场景 D 支持 target_log_path 参数——非默认值也能跑完五道闸全链。"""
+    res = _run(lambda: scenario_d_confirm_r2_log_rotate(target_log_path="/tmp/kylin-test.log"))
+    assert res["state"] == "FINISHED"
+    assert res["verify_chain"]["valid"] is True
+    assert res["verify_chain"]["record_count"] >= 9
+
+
 # ---- 工具函数：跑协程（与既有测试同风格，不用 pytest-asyncio）------------
 
 

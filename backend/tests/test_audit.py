@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from pathlib import Path
 
 import pytest
 
@@ -230,3 +231,39 @@ def test_append_under_100ms(tmp_path) -> None:
 
 def test_satisfies_audit_sink_protocol(sink: SqliteAuditSink) -> None:
     assert isinstance(sink, AuditSink)
+
+
+# ---- _secure_perms fail_closed 复核 ----------------------------------------
+
+
+def test_secure_perms_fail_closed_raises_on_chmod_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """fail_closed=True 时 chmod OSError → raise PermissionError（生产模式 fail-closed）。"""
+    import backend.app.db.session as session_mod
+
+    db = tmp_path / "audit.db"
+    db.touch()
+
+    def _bad_chmod(path: object, mode: object) -> None:
+        raise OSError("mock: 属主不符，chmod 拒绝")
+
+    monkeypatch.setattr(session_mod.os, "chmod", _bad_chmod)
+    with pytest.raises(PermissionError, match="生产模式下审计库权限加固失败"):
+        session_mod._secure_perms(db, fail_closed=True)
+
+
+def test_secure_perms_not_fail_closed_no_raise_on_chmod_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """fail_closed=False（默认）时 chmod OSError 仅 log，不 raise（开发模式兼容）。"""
+    import backend.app.db.session as session_mod
+
+    db = tmp_path / "audit.db"
+    db.touch()
+
+    def _bad_chmod(path: object, mode: object) -> None:
+        raise OSError("mock: 属主不符，chmod 拒绝")
+
+    monkeypatch.setattr(session_mod.os, "chmod", _bad_chmod)
+    session_mod._secure_perms(db, fail_closed=False)  # 不应抛
