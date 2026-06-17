@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import PageHeader from '@/layouts/PageHeader.vue'
 import PageSection from '@/components/PageSection.vue'
 import RiskTag from '@/components/RiskTag.vue'
@@ -188,5 +188,9 @@ async function run(action: 'prepare' | 'run' | 'cleanup', scenario: string) {
   margin-top: 12px;
   flex-wrap: wrap;
 }
+.scenario-a { border-left: 3px solid var(--el-color-danger, #f56c6c); }
+.scenario-b { border-left: 3px solid var(--el-color-danger-light, #f89898); }
+.scenario-c { border-left: 3px solid var(--el-color-warning, #e6a23c); }
+.scenario-d { border-left: 3px solid var(--el-color-primary, #409eff); }
 </style>
 

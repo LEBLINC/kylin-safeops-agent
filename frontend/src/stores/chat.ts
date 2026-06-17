@@ -29,6 +29,19 @@ function nowIso() {
   return new Date().toISOString()
 }
 
+/** 根据剩余长度和标点控制打字机节奏：长句更快，遇到停顿标点稍作停留。 */
+function typingStep(text: string, index: number) {
+  const current = text[index] || ''
+  if (/[,，、]/.test(current)) return { step: 2, delay: 70 }
+  if (/[。！？；：.!?;:]/.test(current)) return { step: 2, delay: 150 }
+  if (/\s/.test(current)) return { step: 3, delay: 26 }
+  const remaining = Math.max(0, text.length - index)
+  if (remaining > 120) return { step: 7, delay: 18 }
+  if (remaining > 80) return { step: 6, delay: 20 }
+  if (remaining > 48) return { step: 4, delay: 24 }
+  return { step: 2, delay: 28 }
+}
+
 /**
  * 兼容 v1 的 id 字段和新会话契约的 session_id 字段。
  * 后续如果后端统一只返回 session_id，这个函数仍然可以保留，避免旧缓存报错。
@@ -445,18 +458,18 @@ export const useChatStore = defineStore('chat', {
     stopAssistantTyping(traceId: string) {
       const timer = this.typingTimersByTrace[traceId]
       if (timer) {
-        window.clearInterval(timer)
+        window.clearTimeout(timer)
         delete this.typingTimersByTrace[traceId]
       }
     },
 
     /**
-     * 根据 verified.summary 创建 AI 消息，并按字符逐步追加。
+     * 根据 verified.summary 创建 AI 消息，并按“更自然”的节奏逐步追加。
      *
-     * 注意：
-     * 当前 stream.py 没有 assistant_delta / token_delta 事件；
-     * 因此前端的“打字机效果”是基于 verified.summary 的展示效果，
-     * 不是后端逐 token 推送。后续若新增 token 事件，需先走 contract 对齐。
+     * 优化点：
+     * 1. 长段文本前半段更快，减少机械感；
+     * 2. 遇到逗号、句号等标点时稍作停顿，更接近自然输出；
+     * 3. 使用递归 setTimeout，便于动态控制每一步速度。
      */
     startAssistantTyping(traceId: string, fullText: string) {
       const sessionId = this.sessionIdForTrace(traceId)
@@ -473,15 +486,17 @@ export const useChatStore = defineStore('chat', {
       })
 
       let index = 0
-      const charsPerTick = 2
-      const timer = window.setInterval(() => {
+      const tick = () => {
         const message = this.messagesBySession[sessionId]?.find(item => item.id === messageId)
         if (!message) {
           this.stopAssistantTyping(traceId)
           return
         }
-        index += charsPerTick
+
+        const { step, delay } = typingStep(fullText, index)
+        index = Math.min(fullText.length, index + step)
         message.content = fullText.slice(0, index)
+
         if (index >= fullText.length) {
           message.status = 'done'
           this.stopAssistantTyping(traceId)
@@ -491,9 +506,13 @@ export const useChatStore = defineStore('chat', {
             session.updated_at = nowIso()
           }
           this.persist()
+          return
         }
-      }, 28)
-      this.typingTimersByTrace[traceId] = timer
+
+        this.typingTimersByTrace[traceId] = window.setTimeout(tick, delay)
+      }
+
+      this.typingTimersByTrace[traceId] = window.setTimeout(tick, 120)
     },
 
     /**
@@ -640,7 +659,7 @@ export const useChatStore = defineStore('chat', {
           (top: string, r: string) => (rank[r] ?? 0) > (rank[top] ?? 0) ? r : top,
           'viewer'
         )
-      } catch { }
+      } catch { /* silent: whoami unavailable, remain viewer */ }
     },
 
 async sendMessage(content: string) {
@@ -700,7 +719,7 @@ async sendMessage(content: string) {
     },
 
     /** 对话内批准当前批次原子计划。使用传入 traceId，禁止默认使用 activeTraceId。 */
-    async approveInlinePlan(traceId: string, comment = '确认执行本批计划') {
+    async approveInlinePlan(traceId: string, _comment = '确认执行本批计划') {
       const approval = traceId ? this.approvalByTrace[traceId] : null
       if (!traceId || !approval) return
       try {
@@ -723,7 +742,7 @@ async sendMessage(content: string) {
     },
 
     /** 对话内拒绝当前批次原子计划。使用传入 traceId。 */
-    async rejectInlinePlan(traceId: string, comment = '拒绝执行本批计划') {
+    async rejectInlinePlan(traceId: string, _comment = '拒绝执行本批计划') {
       const approval = traceId ? this.approvalByTrace[traceId] : null
       if (!traceId || !approval) return
       try {
@@ -764,3 +783,4 @@ async sendMessage(content: string) {
     }
   }
 })
+
