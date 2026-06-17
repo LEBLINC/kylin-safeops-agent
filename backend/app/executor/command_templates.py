@@ -89,7 +89,8 @@ COMMAND_TEMPLATES: dict[str, dict[str, CommandTemplate]] = {
     },
     # 变更类工具首版占位：subprocess v1 在 Windows 无法真执行，返回 exit_code=2
     "log.compress_rotate": {
-        "default": CommandTemplate(argv_prefix=["/usr/bin/gzip"]),
+        # gzip <file> 原地压缩：path 必须作为 argv 拼入，否则 gzip 无文件参数会读 stdin 卡死。
+        "default": CommandTemplate(argv_prefix=["/usr/bin/gzip"], dynamic_args=["path"]),
     },
     "service.restart": {
         "default": CommandTemplate(
