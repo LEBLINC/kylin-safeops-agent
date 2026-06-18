@@ -114,7 +114,7 @@ def build_e2e(
     - `sandbox_enabled`：None=按 platform+env 自动判定；True/False 显式覆盖。
       （True 在 Windows 上仍会被 PrivilegeExecutor 自身 fail-closed 接受，但实际
       wrapper+systemd 不存在会失败——VM 专属场景。）
-    - `use_real_llm`：True → 走 `RealLLMClient`（默认 fixture 模式；env KYLIN_LLM_TEST_FIXTURE=false
+    - `use_real_llm`：True → 走 `RealLLMClient`（默认 fixture 模式；env `KYLIN_LLM_PROVIDER=real`
       切真端点）；需同时传 `real_user_intent` 作为 orch.run 的唯一 user 消息。
       此模式只用于**单步 plan**——LLM 只调一次，fake 模式支持多步意图列表。
     - `real_user_intent`：use_real_llm=True 时必填；作为 user message 内容
