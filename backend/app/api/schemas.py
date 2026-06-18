@@ -190,3 +190,27 @@ class RCAReportResponse(BaseModel):
 
     trace_id: str = Field(..., description="RCA 分析 trace_id")
     report: dict = Field(default_factory=dict, description="RCA 报告（结构待 X 定）")
+
+
+class LLMHealth(BaseModel):
+    """GET /api/llm/health 响应体。
+
+    字段口径：
+    - provider / model / base_url / rate_limit_per_minute / token_cap：来自
+      `RealLLMConfig`（`backend.app.llm.real_client.load_real_llm_config_from_env`），
+      便于运维一眼看到当前进程实际用的 LLM 配置。
+    - api_key_configured：bool（`bool(cfg.api_key)`），**绝不回显 key 本身 / 前缀 / 后缀**
+      ——S9 铁律。客户端若需轮换密钥，走环境变量替换。
+    - status：恒为 `"ok"`，表示"配置可读"，**不**表示真端点可达——真连通性探测
+      需额外 `?probe=true` 开关（不发请求实现；本端点守住"配置态健康"边界）。
+    """
+
+    provider: str = Field(..., description='LLM provider："fixture" / "real"')
+    model: str = Field(..., description="模型名（来自 RealLLMConfig.model）")
+    base_url: str = Field(..., description="OpenAI 兼容端点 base_url（非密钥，可回显）")
+    api_key_configured: bool = Field(
+        ..., description="是否已通过 KYLIN_LLM_API_KEY env 注入；**绝不**回显 key 明文"
+    )
+    rate_limit_per_minute: int = Field(..., description="每分钟最大 LLM 调用次数")
+    token_cap: int = Field(..., description="单会话累计 token 上限")
+    status: str = Field(default="ok", description='恒 "ok"——本端点不证明端点可达')
