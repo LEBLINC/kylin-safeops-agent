@@ -1,11 +1,16 @@
 """真 LLM 客户端（L 域，阶段 5 核心）。
 
-提供两种模式（默认 = 不联网测试桩，CI 友好）：
-- **不联网测试桩**（`KYLIN_LLM_TEST_FIXTURE=true`，默认）：
+提供两种模式（默认 = 不联网测试桩，CI 友好），**由 `KYLIN_LLM_PROVIDER` env 切换**：
+
+- `KYLIN_LLM_PROVIDER=fixture`（默认）：**不联网测试桩**。
   确定性 mock，按 user_intent 关键词返回标准 Intent JSON。
   包含**间接注入（日志投毒）**模式——验"真 LLM 被投毒也被地板拦死"。
-- **真端点**（`KYLIN_LLM_TEST_FIXTURE=false`）：env 注入 base_url/api_key/model，
-  调真 OpenAI 兼容 /chat/completions。生产化由 L 域后续接 SSO/LDAP 后做。
+- `KYLIN_LLM_PROVIDER=real`：**真端点**。
+  env 注入 base_url / api_key / model，调真 OpenAI 兼容 /chat/completions。
+  生产化由 L 域后续接 SSO/LDAP 后做。
+
+> 历史口径 `KYLIN_LLM_TEST_FIXTURE`（true/false）只是 docstring 残留，**不是实际开关**——
+> 实际开关是 `KYLIN_LLM_PROVIDER`（fixture/real）。本文件已统一为 `KYLIN_LLM_PROVIDER`。
 
 rate limit + token cap：
 - `KYLIN_LLM_RATE_LIMIT=10`（每分钟最多 10 次 LLM 调用，超出 raise RuntimeError）；
