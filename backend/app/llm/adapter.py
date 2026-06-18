@@ -19,6 +19,7 @@ import httpx
 from pydantic import ValidationError
 
 from backend.app.contracts.intent import Intent
+from backend.app.contracts.tool import ToolSpec
 from backend.app.llm.prompts import (
     OBSERVE_ONLY_INTENT,
     build_repair_prompt,
@@ -163,10 +164,14 @@ class LLMAdapter:
         config: LLMConfig | None = None,
         completion_fn: CompletionFn | None = None,
         stream_fn: StreamFn | None = None,
+        tool_specs: list[ToolSpec] | None = None,
     ) -> None:
         self.config = config or LLMConfig()
         self._completion_fn = completion_fn or self._default_completion
         self._stream_fn = stream_fn or self._default_stream
+        # 工具清单（O18）：注入 system prompt 让真 LLM 知道每个工具的 input_schema。
+        # None 时退化为旧行为（仅信封 schema）；fixture 靠关键词硬编码不依赖此项。
+        self._tool_specs = tool_specs
 
     async def _default_completion(self, messages: list[Message]) -> str:
         """默认补全实现：httpx 调 OpenAI 兼容 /chat/completions。"""
@@ -222,8 +227,9 @@ class LLMAdapter:
         不抛网络以外的异常给调用方：解析/校验问题在内部消化为重试或降级，
         让 orchestrator 始终拿到一个可空跑的 Intent。
         """
+        system_prompt = build_system_prompt(self._tool_specs)
         convo: list[Message] = [
-            {"role": "system", "content": build_system_prompt()},
+            {"role": "system", "content": system_prompt},
             *list(messages),
         ]
         last_error = ""
@@ -236,9 +242,9 @@ class LLMAdapter:
                 last_error = str(exc)
                 if attempt == self.config.max_retries:
                     break
-                # 把坏输出 + 错误回喂，要求模型自修
+                # 把坏输出 + 错误回喂，要求模型自修（含工具清单，便于改对参数）
                 convo = [
-                    {"role": "system", "content": build_system_prompt()},
+                    {"role": "system", "content": system_prompt},
                     *list(messages),
                     {"role": "assistant", "content": raw},
                     {"role": "user", "content": build_repair_prompt(raw, last_error)},

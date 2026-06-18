@@ -123,11 +123,15 @@ def build_e2e(
     Returns: (orchestrator, events, audit, sqlite_sink) ——events/audit 供断言，
     sqlite_sink 供 verify_chain / 篡改场景 F 直接复用。
     """
+    registry = ToolRegistry(all_specs())
     if use_real_llm:
         from backend.app.llm.real_client import RealLLMClient, load_real_llm_config_from_env
 
+        # O18：把工具清单（含各自 input_schema）注入 system prompt，
+        # 让真 LLM 知道每个工具接受哪些参数（无参工具不塞 args），避免幻觉参数被闸2 拦死。
         llm: LLMAdapter = LLMAdapter(
-            completion_fn=RealLLMClient(load_real_llm_config_from_env()).completion_fn
+            completion_fn=RealLLMClient(load_real_llm_config_from_env()).completion_fn,
+            tool_specs=registry.list_tools(),
         )
         # real_user_intent 由调用方传给 orch.run(messages, user_intent=...)；
         # build_e2e 只负责装配 adapter，不接管消息内容。
@@ -137,7 +141,6 @@ def build_e2e(
             intents = ["{}"]
         llm = scripted_llm(*intents)
 
-    registry = ToolRegistry(all_specs())
     sbx = _is_sandbox_enabled() if sandbox_enabled is None else sandbox_enabled
     sink = SqliteAuditSink(":memory:")
     audit = CapturingAudit(sink)

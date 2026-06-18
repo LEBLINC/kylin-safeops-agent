@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 
 from backend.app.contracts.intent import Intent
+from backend.app.contracts.tool import ToolSpec
 
 # 规划阶段 system prompt 主体。运行时通过 build_system_prompt() 注入 Intent JSON Schema。
 _SYSTEM_PROMPT_HEAD = """\
@@ -27,11 +28,38 @@ _SYSTEM_PROMPT_HEAD = """\
 输出必须严格符合下面的 JSON Schema："""
 
 # 合法输出范例（few-shot）：稳定模型输出格式，降低格式崩溃率（手册 D13 目标）。
+# 注意：范例必须严格遵守工具 input_schema——
+#   - disk.usage 是**无参**工具，args 必须为空 {}（O18：原范例错塞 path，真 LLM 照抄被闸2 拦死）；
+#   - 有参工具示例用 disk.large_files（其 schema 要求 path），演示"按 schema 填参"。
 _FEWSHOT_EXAMPLE = """\
-合法输出示例（仅供格式参考，实际工具名以可用工具清单为准）：
+合法输出示例（仅供格式参考，实际工具名与参数以"可用工具清单"的 input_schema 为准）：
+- 无参工具（args 必须为空对象）：
 {"intent": "inspect_disk_usage", "confidence": 0.82, "need_observation": true, \
-"candidate_tools": [{"name": "disk.usage", "args": {"path": "/"}}], \
-"risk_hint": "low", "justification": "用户反馈磁盘报警，先只读查看占用"}"""
+"candidate_tools": [{"name": "disk.usage", "args": {}}], \
+"risk_hint": "low", "justification": "用户反馈磁盘报警，先只读查看占用"}
+- 有参工具（按 input_schema 提供必填参数）：
+{"intent": "find_large_files", "confidence": 0.8, "need_observation": true, \
+"candidate_tools": [{"name": "disk.large_files", "args": {"path": "/var/log"}}], \
+"risk_hint": "low", "justification": "定位大文件，按工具 schema 提供 path"}"""
+
+
+def _format_tool_catalog(specs: list[ToolSpec]) -> str:
+    """把工具清单 + 各自 input_schema 渲染成可注入 prompt 的文本块（动态生成）。
+
+    逐工具列出：名称 + 风险等级 + 用途 + input_schema（properties 键名 / required /
+    additionalProperties）。让 LLM 明确知道每个工具到底接受哪些参数——无参工具
+    （properties 为空 + additionalProperties:false）绝不能塞 args（O18 根因修复）。
+    工具会增减，故从传入 specs 动态生成，**不硬编码**清单字符串。
+    """
+    if not specs:
+        return ""
+    lines: list[str] = ["", "可用工具清单（只能从中选择；args 必须严格符合各自 input_schema）："]
+    for spec in specs:
+        schema = json.dumps(spec.input_schema, ensure_ascii=False)
+        lines.append(
+            f"- {spec.name}（风险 {spec.risk}）：{spec.description}\n" f"    input_schema: {schema}"
+        )
+    return "\n".join(lines)
 
 
 # 降级语义：当 LLM 输出始终无法解析为合法 Intent 时，回退为"仅观测、不规划"。
@@ -45,10 +73,18 @@ OBSERVE_ONLY_INTENT = Intent(
 )
 
 
-def build_system_prompt() -> str:
-    """构造规划 system prompt，附 Intent 的 JSON Schema 与合法输出范例。"""
+def build_system_prompt(specs: list[ToolSpec] | None = None) -> str:
+    """构造规划 system prompt，附 Intent JSON Schema + 可用工具清单 + 合法输出范例。
+
+    specs 为已注册工具规格列表（来自 ToolRegistry.list_tools() / all_specs()）。
+    传入时在 prompt 中注入"可用工具清单 + 各自 input_schema"，让真 LLM 知道每个
+    工具到底接受哪些参数（O18 根因修复：原 prompt 从不喂工具清单，真 LLM 抓瞎幻觉
+    参数 → 闸2 结构校验拦死）。specs=None 时退化为旧行为（仅信封 schema），兼容
+    fixture/旧测试。
+    """
     schema = json.dumps(Intent.model_json_schema(), ensure_ascii=False, indent=2)
-    return f"{_SYSTEM_PROMPT_HEAD}\n{schema}\n\n{_FEWSHOT_EXAMPLE}"
+    catalog = _format_tool_catalog(specs or [])
+    return f"{_SYSTEM_PROMPT_HEAD}\n{schema}\n{catalog}\n\n{_FEWSHOT_EXAMPLE}"
 
 
 def build_summary_prompt() -> str:
