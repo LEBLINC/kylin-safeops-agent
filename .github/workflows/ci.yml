@@ -1,6 +1,8 @@
 name: CI
 
-# 娴?x86閿涘澆buntu閿涘鈧竞oongArch + 妤规帡绨?V11 閸忕厧顔愰幀褌浜掗惇鐔告簚閸欙箓鐛欓敍瀛婭 娑撳秷顩惄鏍电礄鐟?README / 閹靛鍞?鎼?.3閿涘鈧?on:
+# CI runs on ubuntu-latest (x86). LoongArch + Kylin V11 real verification
+# is done manually on VM. See README for details.
+on:
   push:
     branches: [main, dev]
   pull_request:
@@ -13,7 +15,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"   # 鐎靛綊缍堟ス鎺楃熬 V11 闂堣埖婧€鐎圭偞绁?Python 3.11.6閿涘湑I 妞よ绗岄悽鐔堕獓閻滎垰顣ㄩ崥宀€澧楅張顒婄礉閸氾箑鍨紒澶哥啊娑旂喍绗夋禒锝堛€冮棃鑸垫簚閼冲€熺獓閿?          cache: pip               # 娴犺濮烠閿涙氨绱︾€?pip 娑撳娴囬敍灞藉闁喍绶风挧鏍х暔鐟佸拑绱欑痪顖氬闁噦绱濇稉宥嗘暭閺嶏繝鐛欑拠顓濈疅閿?      - name: Cache pre-commit hook environments
+          python-version: "3.11"
+          cache: pip
+      - name: Cache pre-commit hook environments
         uses: actions/cache@v4
         with:
           path: ~/.cache/pre-commit
@@ -25,27 +29,27 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt -c backend/constraints.txt
           pip install -r backend/requirements-dev.txt -c backend/constraints.txt
-      # 閸楁洑绔撮弶銉︾爱闂冨弶绱撶粔浼欑礄婢跺秴顓搁柌宥囧仯閳垛槄绱氶敍姝硊ff/mypy 閻楀牊婀伴悽?.pre-commit-config.yaml 閻?pinned rev 閸愬啿鐣鹃敍?      # 娑撳孩婀伴崷?pre-commit 鐎瑰苯鍙忔稉鈧懛娣偓鍌涙拱濮濄儲鍏滈惄鏍电窗
-      #   ruff(lint+format) 璺?mypy(娴?contracts閿涘苯鎯?pydantic.mypy) 璺?pytest(韫囧懘銆忛弨鍫曟肠閸掓壆鏁ゆ笟瀣╃瑬閸忋劏绻?
-      # 濞夘煉绱皃ytest 缂?pre-commit 閻?local system hook 閸︺劍婀?env 鐠嬪啰鏁ら敍灞炬櫊妞よ崵鏁?requirements-dev.txt 鐟佸懎鍙嗛妴?      # 娴肩娀鈧帊绶风挧鏍暠 backend/constraints.txt 鐏忎線銆婇敍鍦?8閿涘绱濋弶婊呯卜濞搭喖濮╁鍌溞╅妴?      - name: Lint + type-check + test (via pinned pre-commit hooks)
+      # ruff(lint+format) + mypy + pytest all run via pinned pre-commit hooks.
+      # pytest runs as a local system hook using the env above (requirements-dev.txt).
+      # backend/constraints.txt pins transitive deps to prevent drift.
+      - name: Lint + type-check + test (via pinned pre-commit hooks)
         run: pre-commit run --all-files --show-diff-on-failure
 
   frontend-build:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: frontend   # 閹碘偓閺?run 濮濄儵顎冮崷?frontend/ 閸愬懏澧界悰宀嬬幢
-                                       # 娣囶喖顦查敍姘斧 `npx --prefix frontend vue-tsc` 娑?npx 娑撳秷顓?--prefix閿?                                       # 娴兼碍濡搁崸蹇撳棘閺佹澘鏉虹紒?vue-tsc 閳?閹垫挸宓?tsc 鐢喖濮獮?exit 1閿涘湑I #36 frontend-build 缁绢澁绱氶妴?    steps:
+        working-directory: frontend
+    steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json   # uses 濮濄儵顎冮敍宀冪熅瀵板嫮娴夌€甸€涚波鎼存挻鐗?      - name: Install frontend deps
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend deps
         run: npm ci
-      
       - name: Build
         run: npm run build
-      
       - name: Test
         run: npm test
