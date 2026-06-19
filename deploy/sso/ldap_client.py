@@ -62,6 +62,17 @@ _LDAP_ESCAPE_CHARS = {
 }
 
 
+def _normalize_group_name(dn: str) -> str:
+    """LDAP DN → 裸名（运维友好：裸名配置对真 LDAP 也成立）。
+    cn=kylin-admins,ou=groups,dc=kylin,dc=test → kylin-admins
+    已是裸名 / 无 cn= 前缀时原样返回（兼容全-DN 键配置）。
+    """
+    low = dn.lower()
+    if low.startswith("cn="):
+        return dn.split(",")[0][3:]
+    return dn
+
+
 def _parse_group_role_map(raw: str | None) -> dict[str, str]:
     if raw is None:
         return dict(_DEFAULT_GROUP_ROLE_MAP)
@@ -252,7 +263,13 @@ class LdapClient:
                 return None
             _password, display_name, groups = entry
             roles = [
-                role for group in groups if (role := self._group_role_map.get(group)) is not None
+                role
+                for group in groups
+                if (
+                    role := self._group_role_map.get(_normalize_group_name(group))
+                    or self._group_role_map.get(group)
+                )
+                is not None
             ]
             return LdapUser(
                 username=username,
@@ -270,7 +287,11 @@ class LdapClient:
         roles = [
             role
             for group in attrs["groups"]
-            if (role := self._group_role_map.get(group)) is not None
+            if (
+                role := self._group_role_map.get(_normalize_group_name(group))
+                or self._group_role_map.get(group)
+            )
+            is not None
         ]
         return LdapUser(
             username=username,
