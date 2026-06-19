@@ -214,3 +214,20 @@ class LLMHealth(BaseModel):
     rate_limit_per_minute: int = Field(..., description="每分钟最大 LLM 调用次数")
     token_cap: int = Field(..., description="单会话累计 token 上限")
     status: str = Field(default="ok", description='恒 "ok"——本端点不证明端点可达')
+
+
+class LLMHealthProbe(LLMHealth):
+    """GET /api/llm/health?probe=true 响应体（LLMHealth 扩展）。
+
+    probe_status 语义：
+    - "skipped"  fixture 模式，无真端点，跳过探测
+    - "ok"       真探成功（HTTP 2xx）
+    - "failed"   真探失败（非 2xx 状态码）
+    - "timeout"  连接或读取超时
+    S9：probe_error 只报 status_code / error class，**不**暴露 httpx 异常原文。
+    """
+
+    probe_enabled: bool = Field(..., description="本次是否真探（?probe=true 且 real 模式）")
+    probe_status: str = Field(..., description='"ok"/"skipped"/"failed"/"timeout"')
+    probe_latency_ms: int | None = Field(default=None, description="探测延迟（毫秒）")
+    probe_error: str | None = Field(default=None, description="失败原因（仅状态码/错误类型）")

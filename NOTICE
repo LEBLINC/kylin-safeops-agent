@@ -8,9 +8,10 @@ Copyright 2026 Kylin SafeOps Agent Team.
 subtree 引入与借用落地逐条补全；标注"查证"者于交付前核实 SPDX 标识。
 
 == 运行时依赖（pip 安装，非 fork；列此以正名其性质） ==
-- modelcontextprotocol/python-sdk (pip 包名 mcp) — MIT — 官方 MCP Python SDK，
-    pin v1.x，作运行时依赖经 pip 安装，源码不进仓；外加自写薄 adapter。
-    （fastmcp 不采用；其源码仅留 third_party/ 作参考、不进运行时。）
+- modelcontextprotocol/python-sdk (pip 包名 mcp) — MIT — 运行时依赖已移除（L-1 整改）。
+    mcp 引入 rpds-py(Rust)/cryptography(C) 等编译型传递依赖，与 LoongArch 铁律冲突；
+    已替换为 backend/app/mcp/protocol.py 自写薄 Tool 类型，源码不再引用 mcp。
+    原 third_party/ 参考副本保留供离线查阅，不进运行时。
 
 == 进仓 fork（源码保留于 third_party/，附原始许可证） ==
 - rhel-lightspeed/linux-mcp-server — Apache-2.0

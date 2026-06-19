@@ -50,7 +50,8 @@ if ! $dry_run; then
   "${PYTHON_BIN}" -m venv "${VENV_DIR}"
   source "${VENV_DIR}/bin/activate"
   pip install --upgrade pip
-  pip install -r "${INSTALL_DIR}/backend/requirements.txt" -c "${INSTALL_DIR}/backend/constraints.txt"
+  pip install -r "${INSTALL_DIR}/backend/requirements.txt" -c "${INSTALL_DIR}/backend/constraints.txt" \
+    $([ -d "${PROJECT_DIR}/wheels" ] && echo "--find-links ${PROJECT_DIR}/wheels --no-index" || true)
   deactivate
 fi
 $dry_run && echo "  [DRY-RUN] python3.11 -m venv ${VENV_DIR} && pip install -r ..."

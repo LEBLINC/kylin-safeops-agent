@@ -30,12 +30,12 @@ DEFAULT_POLICY_DICT: dict = {
         # NOTE(advisory): CMD001-003 为防御纵深，非命令拦截主防线。本架构不让
         # LLM 产生裸 shell 命令（args 是 schema 约束的结构化字段，命令只来自
         # COMMAND_TEMPLATES 白名单且 Executor 无 shell），正则仅覆盖典型样本
-        # （如 rm -rf /<空白>），不追求穷举 `//`、`/*`、`-fr` 等变体。
+        # （含 `/*`、`/.*` 变体）。
         {
             "id": "CMD001",
             "name": "dangerous_rm_root",
-            "description": "rm -rf 作用于文件系统根（S001）。",
-            "match": {"any_arg_matches": [r"rm\s+-rf\s+/(\s|$)"]},
+            "description": "rm -rf/-fr 作用于文件系统根或根目录通配（S001）。",
+            "match": {"any_arg_matches": [r"rm\s+(-rf|-fr)\s+/([\s*.]|$)"]},
             "action": "deny",
             "severity": "critical",
             "reason": "rm -rf 作用于文件系统根，禁止。",
