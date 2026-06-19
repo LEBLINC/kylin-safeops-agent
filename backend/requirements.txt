@@ -19,3 +19,7 @@ httpx==0.28.1          # OpenAI 兼容网关客户端（纯 Python）
 
 # --- MCP 协议层：自写薄 Tool 类型（protocol.py），不依赖官方 mcp SDK（见上 L-1 整改说明）---
 #   fastmcp / mcp 源码仅留 third_party 作参考，不进运行时。
+
+# --- 反代 SSO 真 LDAP（deploy/sso/ldap_client.py）---
+ldap3==2.9.1            # 纯 Python；<3.0 锁版本防传递依赖漂移（LoongArch 移植风险低）
+                        # pyasn1==0.6.3 由 ldap3 拉入，进 constraints.txt 锁死
