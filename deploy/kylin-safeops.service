@@ -14,6 +14,10 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=kylin-safeops
 
+# ADR-0004：生产 KYLIN_LDAP_MOCK 必须 false（mock 仅 demo/单测）。
+# systemd 硬编码兜底 + install.sh 写 /etc/kylin-safeops/ldap.env 二重保险。
+Environment=KYLIN_LDAP_MOCK=false
+
 # 安全加固
 NoNewPrivileges=yes
 PrivateTmp=yes
