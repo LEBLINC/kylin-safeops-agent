@@ -13,6 +13,7 @@ import time
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
 
 app = FastAPI()
 SECRET = os.environ["KYLIN_PROXY_AUTH_SECRET"]
@@ -93,8 +94,10 @@ async def proxy_route(request: Request, path: str):
                 resp.aiter_bytes(),
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+                background=BackgroundTask(resp.aclose),
             )
         body_bytes = b"".join([chunk async for chunk in resp.aiter_bytes()])
+        await resp.aclose()
         return StreamingResponse(
             iter([body_bytes]),
             status_code=resp.status_code,
