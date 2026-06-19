@@ -651,11 +651,11 @@ export const useChatStore = defineStore('chat', {
     async fetchWhoami() {
       if (isMockEnabled()) return
       try {
-        const res = await request.get<{ user: string; roles: string[]; mode: string }>('/api/auth/whoami')
-        this.currentUser = res.data.user
-        this.currentUserRoles = res.data.roles
+        const res = await request.get('/api/auth/whoami') as unknown as { user: string; roles: string[]; mode: string }
+        this.currentUser = res.user
+        this.currentUserRoles = res.roles
         const rank: Record<string, number> = { viewer: 1, auditor: 1, operator: 2, admin: 3 }
-        this.currentUserRole = res.data.roles.reduce(
+        this.currentUserRole = res.roles.reduce(
           (top: string, r: string) => (rank[r] ?? 0) > (rank[top] ?? 0) ? r : top,
           'viewer'
         )
@@ -783,4 +783,3 @@ async sendMessage(content: string) {
     }
   }
 })
-

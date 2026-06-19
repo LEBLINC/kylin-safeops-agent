@@ -8,7 +8,8 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
@@ -24,6 +25,7 @@
     "@vitejs/plugin-vue": "^5.2.1",
     "eslint": "^9.30.1",
     "globals": "^15.15.0",
+    "jsdom": "^29.1.1",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.35.1",
     "vite": "^6.0.7",
