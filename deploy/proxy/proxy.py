@@ -29,6 +29,19 @@ def sign(user: str, roles: str, ts: str) -> str:
     return hmac.new(SECRET.encode(), canonical.encode(), hashlib.sha256).hexdigest()
 
 
+async def _sse_heartbeat(source, interval: int = 30):
+    import asyncio
+
+    interval = int(os.environ.get("KYLIN_SSE_HEARTBEAT_INTERVAL", interval))
+    while True:
+        try:
+            chunk = await asyncio.wait_for(source.__anext__(), timeout=interval)
+            yield chunk
+        except asyncio.TimeoutError:
+            yield b": keepalive\n\n"
+        except StopAsyncIteration:
+            break
+
 STRIP_HEADERS = {
     "x-auth-user",
     "x-auth-roles",
@@ -106,7 +119,7 @@ async def proxy_route(request: Request, path: str):
         resp = await client.send(req, stream=True)
         if is_sse:
             return StreamingResponse(
-                resp.aiter_bytes(),
+                _sse_heartbeat(resp.aiter_bytes()),
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
                 background=BackgroundTask(resp.aclose),
@@ -118,3 +131,4 @@ async def proxy_route(request: Request, path: str):
             status_code=resp.status_code,
             media_type=resp.headers.get("content-type", "application/json"),
         )
+
