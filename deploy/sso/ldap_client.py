@@ -1,4 +1,4 @@
-﻿"""
+"""
 LDAP authentication client for Kylin SafeOps proxy sidecar.
 Supports mock mode (hardcoded test users) and real LDAP server (ldap3 Server + Connection).
 
@@ -16,17 +16,15 @@ Env vars:
 import json
 import os
 from dataclasses import dataclass
-from typing import Dict, List, Optional
 
-
-_DEFAULT_GROUP_ROLE_MAP: Dict[str, str] = {
+_DEFAULT_GROUP_ROLE_MAP: dict[str, str] = {
     "kylin-admins": "admin",
     "kylin-ops": "operator",
     "kylin-auditors": "auditor",
     "kylin-viewers": "viewer",
 }
 
-_MOCK_USERS: Dict[str, tuple] = {
+_MOCK_USERS: dict[str, tuple] = {
     "admin": ("kylin123", "Admin User", ["kylin-admins", "kylin-ops"]),
     "operator": ("kylin123", "Operator User", ["kylin-ops"]),
     "auditor": ("kylin123", "Auditor User", ["kylin-auditors"]),
@@ -34,7 +32,7 @@ _MOCK_USERS: Dict[str, tuple] = {
 }
 
 
-def _parse_group_role_map(raw: Optional[str]) -> Dict[str, str]:
+def _parse_group_role_map(raw: str | None) -> dict[str, str]:
     if raw is None:
         return dict(_DEFAULT_GROUP_ROLE_MAP)
     try:
@@ -47,16 +45,14 @@ def _parse_group_role_map(raw: Optional[str]) -> Dict[str, str]:
 class LdapUser:
     username: str
     display_name: str
-    groups: List[str]
-    roles: List[str]
+    groups: list[str]
+    roles: list[str]
 
 
 class LdapClient:
     def __init__(self) -> None:
         self.mock = os.environ.get("KYLIN_LDAP_MOCK", "false").lower() == "true"
-        self._group_role_map = _parse_group_role_map(
-            os.environ.get("KYLIN_LDAP_GROUP_ROLE_MAP")
-        )
+        self._group_role_map = _parse_group_role_map(os.environ.get("KYLIN_LDAP_GROUP_ROLE_MAP"))
 
     def authenticate(self, username: str, password: str) -> bool:
         """
@@ -72,7 +68,7 @@ class LdapClient:
         # TODO: real LDAP bind via ldap3 Server + Connection
         raise NotImplementedError
 
-    def get_user(self, username: str) -> Optional[LdapUser]:
+    def get_user(self, username: str) -> LdapUser | None:
         """
         Fetch user info including groups and mapped roles.
         Mock mode: return hardcoded test users.
@@ -84,9 +80,7 @@ class LdapClient:
                 return None
             _password, display_name, groups = entry
             roles = [
-                role
-                for group in groups
-                if (role := self._group_role_map.get(group)) is not None
+                role for group in groups if (role := self._group_role_map.get(group)) is not None
             ]
             return LdapUser(
                 username=username,

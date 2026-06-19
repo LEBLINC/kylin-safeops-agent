@@ -1,11 +1,11 @@
-﻿import os
-import pytest
+import os
 
 
 class TestLdapClientMock:
     def setup_method(self):
         os.environ["KYLIN_LDAP_MOCK"] = "true"
         from deploy.sso.ldap_client import LdapClient
+
         self.client = LdapClient()
 
     def test_authenticate_valid_user_correct_password(self):

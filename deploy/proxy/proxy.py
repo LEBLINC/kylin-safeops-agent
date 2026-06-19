@@ -1,4 +1,4 @@
-﻿"""
+"""
 Signature reverse proxy sidecar: client -> sidecar(public) -> app(127.0.0.1:8000)
 - LDAP auth via deploy.sso.ldap_client.LdapClient (mock/real modes)
 - Strips client-forged X-Auth-* headers
@@ -27,6 +27,20 @@ UPSTREAM = os.environ.get("KYLIN_UPSTREAM", "http://127.0.0.1:8000")
 def sign(user: str, roles: str, ts: str) -> str:
     canonical = f"{user}\n{roles}\n{ts}"
     return hmac.new(SECRET.encode(), canonical.encode(), hashlib.sha256).hexdigest()
+
+
+async def _sse_heartbeat(source, interval: int = 30):
+    import asyncio
+
+    interval = int(os.environ.get("KYLIN_SSE_HEARTBEAT_INTERVAL", interval))
+    while True:
+        try:
+            chunk = await asyncio.wait_for(source.__anext__(), timeout=interval)
+            yield chunk
+        except asyncio.TimeoutError:
+            yield b": keepalive\n\n"
+        except StopAsyncIteration:
+            break
 
 
 STRIP_HEADERS = {
@@ -106,7 +120,7 @@ async def proxy_route(request: Request, path: str):
         resp = await client.send(req, stream=True)
         if is_sse:
             return StreamingResponse(
-                resp.aiter_bytes(),
+                _sse_heartbeat(resp.aiter_bytes()),
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
                 background=BackgroundTask(resp.aclose),
