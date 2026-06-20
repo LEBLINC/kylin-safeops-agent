@@ -357,5 +357,5 @@ class TestLdapClientReal:
         user = client.get_user("alice")
 
         assert user is not None
-        assert full_dn in user.groups   # 原始完整 DN 保留在 groups
-        assert "admin" in user.roles    # _normalize_group_name 归一化后 role 命中
+        assert full_dn in user.groups  # 原始完整 DN 保留在 groups
+        assert "admin" in user.roles  # _normalize_group_name 归一化后 role 命中
