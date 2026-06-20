@@ -84,10 +84,7 @@ def get_session_store() -> SessionStore:
 
 
 def get_llm() -> LLMAdapter:
-    """获取 LLMAdapter（本地开发桩；D VM 部署时经 dependency_overrides 替换为真实 LLM）。
-
-    非单例：每次装配一个 fake；测试可经 dependency_overrides 替换。
-    """
+    """获取 LLMAdapter。demo-only 设计意图（ADR-0003），非 TODO；D VM 经 dependency_overrides 注入真实 LLM。"""
     return build_fake_llm()
 
 
