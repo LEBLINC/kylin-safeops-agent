@@ -84,7 +84,7 @@ def get_session_store() -> SessionStore:
 
 
 def get_llm() -> LLMAdapter:
-    """获取 LLMAdapter（当前为 fake 注入桩，待接真实 LLM 端点）。
+    """获取 LLMAdapter（本地开发桩；D VM 部署时经 dependency_overrides 替换为真实 LLM）。
 
     非单例：每次装配一个 fake；测试可经 dependency_overrides 替换。
     """
