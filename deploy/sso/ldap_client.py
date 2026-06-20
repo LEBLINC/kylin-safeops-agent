@@ -11,7 +11,7 @@ P1b：**ldap3 真实现**替换 NotImplementedError——mock 模式保留（dem
 
 **安全红线**（P1b 设计要求）：
 1. **不区分"用户不存在" vs "密码错"** —— 防用户枚举。bind 失败 + search 0 条统一返 None/False。
-2. **LDAP injection 防御**——`* ( ) \ NUL` 在搜索过滤前 escape。
+2. **LDAP injection 防御**——`* ( ) \\ NUL` 在搜索过滤前 escape。
 3. **`size_limit=1`**——防滥用。
 4. **超时收紧**——`connect_timeout=5, receive_timeout=5`，防 DoS。
 5. **异常吞掉不抛**——不暴露 LDAP server 状态给攻击者。
@@ -22,6 +22,8 @@ P1b：**ldap3 真实现**替换 NotImplementedError——mock 模式保留（dem
 - 真模式下 ldap3 import 失败 → `authenticate/get_user` 返 None/False（不抛，避免代理宕）。
   启动期 `LdapClient.__init__` 也不 throw——给 proxy_basic_auth.py 失败软降级机会。
 """
+
+from __future__ import annotations  # Python 3.9 compat: str | None / X | Y union syntax
 
 import json
 import os

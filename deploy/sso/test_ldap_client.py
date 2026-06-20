@@ -320,3 +320,42 @@ class TestLdapClientReal:
         assert search_kwargs is not None, "应调过 search"
         # filter 应含 \\2a（escape 后的 *）
         assert "\\2a" in search_kwargs.kwargs.get("search_filter", "")
+
+    def test_real_get_user_memberOf_full_dn_normalized(self, monkeypatch):
+        """真模式：memberOf 返回完整 DN（真 LDAP server 行为）→ _normalize_group_name 归一化
+        → role map 命中。覆盖 VM 实证报告 §3.3 DN 归一化路径（P1b backlog）。"""
+        fake_conn, _, _ = self._patch_ldap3(monkeypatch, bind_result=True)
+
+        class _V:
+            def __init__(self, value):
+                self.value = value
+
+            @property
+            def values(self):
+                return self.value if isinstance(self.value, list) else [self.value]
+
+        class _FakeEntry:
+            def __init__(self, attrs):
+                self._attrs = attrs
+
+            def __getitem__(self, k):
+                return self._attrs[k]
+
+            def __contains__(self, k):
+                return k in self._attrs
+
+            def __getattr__(self, k):
+                if k in self._attrs:
+                    return self._attrs[k]
+                raise AttributeError(k)
+
+        full_dn = "cn=kylin-admins,ou=groups,dc=kylin,dc=test"
+        fake_conn.entries = [_FakeEntry({"cn": _V("Alice Admin"), "memberOf": _V([full_dn])})]
+        fake_conn.search.return_value = True
+
+        client = self._make_client(monkeypatch)
+        user = client.get_user("alice")
+
+        assert user is not None
+        assert full_dn in user.groups   # 原始完整 DN 保留在 groups
+        assert "admin" in user.roles    # _normalize_group_name 归一化后 role 命中
