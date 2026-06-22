@@ -32,47 +32,56 @@ const tools = ref<ToolDefinition[]>([
   { tool: 'service.restart', description: '重启服务', risk: 'R3' }
 ])
 
-const gradients = [
-  {
+/** 风险等级 → 卡片配色映射。 */
+const riskGradients: Record<string, { card: string; hover: string; icon: string; shadow: string }> = {
+  R0: {
     card: 'linear-gradient(135deg, #eef6ff 0%, #f7fbff 48%, #e8f1ff 100%)',
     hover: 'linear-gradient(135deg, #dcecff 0%, #f1f7ff 45%, #d8e7ff 100%)',
     icon: 'linear-gradient(135deg, #2f80ed, #56ccf2)',
     shadow: 'rgba(47, 128, 237, 0.2)'
   },
-  {
+  R1: {
     card: 'linear-gradient(135deg, #ecfffb 0%, #f8fffd 46%, #e1fbf4 100%)',
     hover: 'linear-gradient(135deg, #d6fff7 0%, #effffd 46%, #c9f5eb 100%)',
     icon: 'linear-gradient(135deg, #00b894, #00cec9)',
     shadow: 'rgba(0, 184, 148, 0.2)'
   },
-  {
-    card: 'linear-gradient(135deg, #f5efff 0%, #fbf8ff 46%, #eee4ff 100%)',
-    hover: 'linear-gradient(135deg, #eadcff 0%, #f8f2ff 46%, #dfceff 100%)',
-    icon: 'linear-gradient(135deg, #7c3aed, #a78bfa)',
-    shadow: 'rgba(124, 58, 237, 0.2)'
-  },
-  {
+  R2: {
     card: 'linear-gradient(135deg, #fff8e8 0%, #fffdf7 46%, #fff0cc 100%)',
     hover: 'linear-gradient(135deg, #fff0ca 0%, #fffaf0 46%, #ffe5a3 100%)',
     icon: 'linear-gradient(135deg, #f59e0b, #f97316)',
     shadow: 'rgba(245, 158, 11, 0.22)'
   },
-  {
+  R3: {
     card: 'linear-gradient(135deg, #fff1f2 0%, #fffafa 46%, #ffe4e8 100%)',
     hover: 'linear-gradient(135deg, #ffe1e7 0%, #fff5f6 46%, #ffcfd9 100%)',
     icon: 'linear-gradient(135deg, #f43f5e, #fb7185)',
     shadow: 'rgba(244, 63, 94, 0.2)'
   },
-  {
-    card: 'linear-gradient(135deg, #eefdf4 0%, #f8fffb 46%, #ddfbe9 100%)',
-    hover: 'linear-gradient(135deg, #daf8e7 0%, #f1fff8 46%, #c8f2db 100%)',
-    icon: 'linear-gradient(135deg, #22c55e, #14b8a6)',
-    shadow: 'rgba(34, 197, 94, 0.2)'
+  R4: {
+    card: 'linear-gradient(135deg, #fff0f0 0%, #fffafa 46%, #ffe0e6 100%)',
+    hover: 'linear-gradient(135deg, #fde0e0 0%, #fff2f4 46%, #fccfd5 100%)',
+    icon: 'linear-gradient(135deg, #dc2626, #f43f5e)',
+    shadow: 'rgba(220, 38, 38, 0.22)'
+  },
+  R5: {
+    card: 'linear-gradient(135deg, #f9f0ff 0%, #fdfaff 46%, #f0e0ff 100%)',
+    hover: 'linear-gradient(135deg, #f0e0ff 0%, #faf2ff 46%, #e5ccff 100%)',
+    icon: 'linear-gradient(135deg, #7c3aed, #c026d3)',
+    shadow: 'rgba(124, 58, 237, 0.22)'
   }
-]
+}
 
-function toolCardStyle(index: number) {
-  const current = gradients[index % gradients.length]
+/** 未知风险等级兜底：中性灰紫。 */
+const defaultGradient = {
+  card: 'linear-gradient(135deg, #f5efff 0%, #fbf8ff 46%, #eee4ff 100%)',
+  hover: 'linear-gradient(135deg, #eadcff 0%, #f8f2ff 46%, #dfceff 100%)',
+  icon: 'linear-gradient(135deg, #7c3aed, #a78bfa)',
+  shadow: 'rgba(124, 58, 237, 0.2)'
+}
+
+function toolCardStyle(risk: string) {
+  const current = riskGradients[risk] || defaultGradient
 
   return {
     '--tool-card-gradient': current.card,
@@ -98,10 +107,10 @@ onMounted(async () => {
 
     <div class="tool-grid">
       <PageSection
-        v-for="(tool, index) in tools"
+        v-for="tool in tools"
         :key="tool.tool"
         class="tool-card"
-        :style="toolCardStyle(index)"
+        :style="toolCardStyle(tool.risk)"
         :title="tool.tool"
         :subtitle="tool.description"
       >
