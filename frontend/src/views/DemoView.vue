@@ -34,6 +34,62 @@ import { ElMessage } from 'element-plus'
  * @field risk 场景预期风险等级，用于 RiskTag 展示。
  * @field desc 场景说明，描述会触发哪些工具和安全逻辑。
  */
+/** 风险等级 → 卡片配色映射（同 ToolsView）。 */
+const riskGradients: Record<string, { card: string; hover: string; icon: string; shadow: string }> = {
+  R0: {
+    card: 'linear-gradient(135deg, #eef6ff 0%, #f7fbff 48%, #e8f1ff 100%)',
+    hover: 'linear-gradient(135deg, #dcecff 0%, #f1f7ff 45%, #d8e7ff 100%)',
+    icon: 'linear-gradient(135deg, #2f80ed, #56ccf2)',
+    shadow: 'rgba(47, 128, 237, 0.2)'
+  },
+  R1: {
+    card: 'linear-gradient(135deg, #ecfffb 0%, #f8fffd 46%, #e1fbf4 100%)',
+    hover: 'linear-gradient(135deg, #d6fff7 0%, #effffd 46%, #c9f5eb 100%)',
+    icon: 'linear-gradient(135deg, #00b894, #00cec9)',
+    shadow: 'rgba(0, 184, 148, 0.2)'
+  },
+  R2: {
+    card: 'linear-gradient(135deg, #fff8e8 0%, #fffdf7 46%, #fff0cc 100%)',
+    hover: 'linear-gradient(135deg, #fff0ca 0%, #fffaf0 46%, #ffe5a3 100%)',
+    icon: 'linear-gradient(135deg, #f59e0b, #f97316)',
+    shadow: 'rgba(245, 158, 11, 0.22)'
+  },
+  R3: {
+    card: 'linear-gradient(135deg, #fff1f2 0%, #fffafa 46%, #ffe4e8 100%)',
+    hover: 'linear-gradient(135deg, #ffe1e7 0%, #fff5f6 46%, #ffcfd9 100%)',
+    icon: 'linear-gradient(135deg, #f43f5e, #fb7185)',
+    shadow: 'rgba(244, 63, 94, 0.2)'
+  },
+  R4: {
+    card: 'linear-gradient(135deg, #fff0f0 0%, #fffafa 46%, #ffe0e6 100%)',
+    hover: 'linear-gradient(135deg, #fde0e0 0%, #fff2f4 46%, #fccfd5 100%)',
+    icon: 'linear-gradient(135deg, #dc2626, #f43f5e)',
+    shadow: 'rgba(220, 38, 38, 0.22)'
+  },
+  R5: {
+    card: 'linear-gradient(135deg, #f9f0ff 0%, #fdfaff 46%, #f0e0ff 100%)',
+    hover: 'linear-gradient(135deg, #f0e0ff 0%, #faf2ff 46%, #e5ccff 100%)',
+    icon: 'linear-gradient(135deg, #7c3aed, #c026d3)',
+    shadow: 'rgba(124, 58, 237, 0.22)'
+  }
+}
+
+const defaultGradient = {
+  card: 'linear-gradient(135deg, #f5efff 0%, #fbf8ff 46%, #eee4ff 100%)',
+  hover: 'linear-gradient(135deg, #eadcff 0%, #f8f2ff 46%, #dfceff 100%)',
+  icon: 'linear-gradient(135deg, #7c3aed, #a78bfa)',
+  shadow: 'rgba(124, 58, 237, 0.2)'
+}
+
+function toolCardStyle(risk: string) {
+  const current = riskGradients[risk] || defaultGradient
+  return {
+    '--tool-card-gradient': current.card,
+    '--tool-card-hover-gradient': current.hover,
+    '--tool-card-shadow': current.shadow
+  }
+}
+
 const scenarios = [
   {
     id: 'disk_full',
@@ -93,7 +149,7 @@ async function run(action: 'prepare' | 'run' | 'cleanup', scenario: string) {
     <PageHeader title="演示场景" subtitle="比赛演示用：四个场景 + 安全拦截 + 审计回溯" />
 
     <div class="demo-grid">
-      <PageSection v-for="item in scenarios" :key="item.id" :title="item.title" :subtitle="item.desc">
+      <PageSection v-for="item in scenarios" :key="item.id" class="demo-card" :style="toolCardStyle(item.risk)" :title="item.title" :subtitle="item.desc">
         <div class="meta">
           <RiskTag :level="item.risk" />
           <StatusTag status="pending" />
@@ -121,8 +177,19 @@ async function run(action: 'prepare' | 'run' | 'cleanup', scenario: string) {
   margin-top: 12px;
   flex-wrap: wrap;
 }
-.scenario-a { border-left: 3px solid var(--el-color-danger, #f56c6c); }
-.scenario-b { border-left: 3px solid var(--el-color-danger-light, #f89898); }
-.scenario-c { border-left: 3px solid var(--el-color-warning, #e6a23c); }
-.scenario-d { border-left: 3px solid var(--el-color-primary, #409eff); }
+.demo-card {
+  background: var(--tool-card-gradient);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  transition:
+    transform 0.24s ease,
+    box-shadow 0.24s ease,
+    border-color 0.24s ease,
+    background 0.24s ease;
+}
+.demo-card:hover {
+  transform: translateY(-4px);
+  background: var(--tool-card-hover-gradient);
+  border-color: rgba(59, 130, 246, 0.28);
+  box-shadow: 0 16px 40px var(--tool-card-shadow);
+}
 </style>
