@@ -111,7 +111,7 @@ def test_r2_change_tool_confirm_operator_then_execute() -> None:
     """R2 工具(log.compress_rotate) → confirm/operator → WAIT_APPROVAL → resume → 执行。"""
     orch, _audit, events, executor = _build(
         _action_plan(
-            [{"name": "log.compress_rotate", "args": {"path": "/var/log", "keep": 3}}],
+            [{"name": "log.compress_rotate", "args": {"path": "/var/log"}}],
             risk_hint="medium",
         )
     )

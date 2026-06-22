@@ -88,13 +88,12 @@ LOG_LARGE_LOG_SCAN = ToolSpec(
 # 可逆性：压缩件保留可还原，标 reversible=True；但属写操作，必经策略放行（R2 通常 confirm）。
 LOG_COMPRESS_ROTATE = ToolSpec(
     name="log.compress_rotate",
-    description="压缩并轮转指定日志文件/目录（保留近 keep 份），释放磁盘空间。",
+    description="压缩指定日志文件/目录，释放磁盘空间。",
     risk="R2",
     input_schema={
         "type": "object",
         "properties": {
             "path": {"type": "string", "minLength": 1, "pattern": "^/"},
-            "keep": {"type": "integer", "minimum": 1, "maximum": 100},
         },
         "required": ["path"],
         "additionalProperties": False,

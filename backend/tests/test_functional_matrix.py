@@ -126,7 +126,7 @@ def test_f002_observe_replan_approve_execute() -> None:
     observe = _intent(need_observation=True, tools=[{"name": "disk.usage", "args": {}}])
     action = _intent(
         need_observation=False,
-        tools=[{"name": "log.compress_rotate", "args": {"path": "/var/log", "keep": 3}}],
+        tools=[{"name": "log.compress_rotate", "args": {"path": "/var/log"}}],
         hint="medium",
     )
     orch, _a, events, ex = _build(observe, action)

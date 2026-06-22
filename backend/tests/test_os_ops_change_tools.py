@@ -30,10 +30,9 @@ def test_change_tools_registered_with_correct_risk() -> None:
 
 
 def test_compress_rotate_schema() -> None:
-    assert validate_args({"path": "/var/log/app", "keep": 5}, LOG_COMPRESS_ROTATE.input_schema).ok
+    assert validate_args({"path": "/var/log/app"}, LOG_COMPRESS_ROTATE.input_schema).ok
     assert not validate_args({"path": "var/log"}, LOG_COMPRESS_ROTATE.input_schema).ok  # ^/
     assert not validate_args({"path": "/v/../e"}, LOG_COMPRESS_ROTATE.input_schema).ok  # ..
-    assert not validate_args({"path": "/x", "keep": 0}, LOG_COMPRESS_ROTATE.input_schema).ok
 
 
 def test_restart_schema_rejects_injection() -> None:

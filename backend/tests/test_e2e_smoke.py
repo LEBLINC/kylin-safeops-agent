@@ -131,7 +131,7 @@ def test_e2e_observe_replan_multitool_approval_execute_audit() -> None:
             "candidate_tools": [
                 {"name": "disk.usage", "args": {}},
                 {"name": "network.ports", "args": {}},
-                {"name": "log.compress_rotate", "args": {"path": "/var/log", "keep": 3}},
+                {"name": "log.compress_rotate", "args": {"path": "/var/log"}},
                 {"name": "service.restart", "args": {"service_name": "nginx.service"}},
             ],
             "risk_hint": "high",
