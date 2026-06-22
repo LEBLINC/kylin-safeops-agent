@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { DArrowLeft, DArrowRight, Plus, Search } from '@element-plus/icons-vue'
 import PageHeader from '@/layouts/PageHeader.vue'
 import PageSection from '@/components/PageSection.vue'
 import AgentTimeline from '@/components/AgentTimeline.vue'
@@ -78,6 +79,83 @@ const canApproveCurrentBatch = computed(() => {
   if (!approval) return false
   return canRoleApprove(chat.currentUserRole, approval.approval_role)
 })
+
+/** 三栏可拖拽布局：左侧会话列表、中间对话区、右侧面板。 */
+const leftWidth = ref(260)
+const rightWidth = ref(420)
+const DRAG_MIN = { left: 200, right: 300 }
+const DRAG_MAX = { left: 420, right: 680 }
+/** 拖拽中的手柄 ID：null | 'left' | 'right' */
+const dragging = ref<string | null>(null)
+const dragStartX = ref(0)
+const dragStartWidth = ref(0)
+
+function onDragStart(handle: string, event: MouseEvent) {
+  dragging.value = handle
+  dragStartX.value = event.clientX
+  dragStartWidth.value = handle === 'left' ? leftWidth.value : rightWidth.value
+  document.addEventListener('mousemove', onDragMove)
+  document.addEventListener('mouseup', onDragEnd)
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+}
+
+function onDragMove(event: MouseEvent) {
+  if (!dragging.value) return
+  const delta = event.clientX - dragStartX.value
+  const handle = dragging.value
+  if (handle === 'left') {
+    leftWidth.value = Math.min(DRAG_MAX.left, Math.max(DRAG_MIN.left, dragStartWidth.value + delta))
+  } else if (handle === 'right') {
+    rightWidth.value = Math.min(DRAG_MAX.right, Math.max(DRAG_MIN.right, dragStartWidth.value - delta))
+  }
+}
+
+function onDragEnd() {
+  dragging.value = null
+  document.removeEventListener('mousemove', onDragMove)
+  document.removeEventListener('mouseup', onDragEnd)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+}
+
+/** 左侧面板折叠状态。 */
+const leftCollapsed = ref(false)
+const savedLeftWidth = ref(260)
+
+/** 搜索输入框 DOM ref，折叠态点搜索图标展开后自动聚焦。 */
+const searchInputRef = ref<{ focus: () => void } | null>(null)
+
+/** 折叠或展开左侧会话列表面板。 */
+function toggleLeft() {
+  if (leftCollapsed.value) {
+    leftWidth.value = savedLeftWidth.value
+    leftCollapsed.value = false
+  } else {
+    savedLeftWidth.value = leftWidth.value
+    leftCollapsed.value = true
+  }
+}
+
+/** 折叠态点搜索图标：展开面板并聚焦搜索框。 */
+function expandAndSearch() {
+  toggleLeft()
+  nextTick(() => {
+    searchInputRef.value?.focus()
+  })
+}
+
+/** 折叠态点新建图标：展开面板并创建新会话。 */
+async function expandAndCreate() {
+  toggleLeft()
+  await nextTick()
+  await createSession()
+}
+
+/** 左侧列宽（展开时跟拖拽宽度，折叠时 48px）。 */
+const leftColWidth = computed(() => (leftCollapsed.value ? 48 : leftWidth.value) + 'px')
+/** 左侧拖拽手柄列宽（折叠时 0，展开时 8px）。 */
+const leftHandleWidth = computed(() => (leftCollapsed.value ? 0 : 8) + 'px')
 
 /** 消息列表变化后自动滚动到底部。 */
 watch(
@@ -189,9 +267,17 @@ async function escalateBatch(traceId: string) {
     <PageHeader title="智能对话" subtitle="自然语言运维入口，所有工具调用均经过策略校验与审计" />
 
     <div class="chat-layout">
-      <PageSection title="会话列表" class="sessions">
+      <!-- 左侧面板：展开态 -->
+      <PageSection v-if="!leftCollapsed" title="会话列表" class="sessions" :style="{ gridColumn: '1', width: leftColWidth }">
+        <template #extra>
+          <button class="panel-collapse-btn" title="折叠会话列表" @click="toggleLeft">
+            <el-icon :size="16"><DArrowLeft /></el-icon>
+          </button>
+        </template>
+
         <div class="session-toolbar">
           <el-input
+            ref="searchInputRef"
             v-model="searchKeyword"
             clearable
             size="small"
@@ -234,7 +320,22 @@ async function escalateBatch(traceId: string) {
         </div>
       </PageSection>
 
-      <PageSection title="对话窗口" class="conversation">
+      <!-- 左侧面板：折叠态窄竖条 -->
+      <div v-else class="collapsed-strip sessions-collapsed" style="grid-column: 1; width: 48px">
+        <button class="panel-expand-btn" title="展开会话列表" @click="toggleLeft">
+          <el-icon :size="16"><DArrowRight /></el-icon>
+        </button>
+        <button class="collapsed-action-btn" title="搜索会话" @click="expandAndSearch">
+          <el-icon :size="15"><Search /></el-icon>
+        </button>
+        <button class="collapsed-action-btn" title="新建会话" @click="expandAndCreate">
+          <el-icon :size="15"><Plus /></el-icon>
+        </button>
+      </div>
+
+      <div v-show="!leftCollapsed" class="resize-handle" :style="{ gridColumn: '2', width: leftHandleWidth }" @mousedown="(e: MouseEvent) => onDragStart('left', e)"><div class="resize-grip" /></div>
+
+      <PageSection title="对话窗口" class="conversation" style="grid-column: 3">
         <div ref="messageBox" class="messages">
           <div
             v-for="message in chat.currentMessages"
@@ -278,7 +379,9 @@ async function escalateBatch(traceId: string) {
         </div>
       </PageSection>
 
-      <div class="right-panel">
+      <div class="resize-handle" style="grid-column: 4; width: 8px" @mousedown="(e: MouseEvent) => onDragStart('right', e)"><div class="resize-grip" /></div>
+
+      <div class="right-panel" :style="{ gridColumn: '5', width: rightWidth + 'px' }">
         <PageSection title="Agent 执行链路">
           <AgentTimeline :events="chat.currentEvents" />
         </PageSection>
@@ -318,11 +421,32 @@ async function escalateBatch(traceId: string) {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 420px;
-  gap: 16px;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  gap: 0;
   align-items: stretch;
   overflow: hidden;
+  padding: 0 12px;
+  transition: grid-template-columns 200ms ease;
 }
+.resize-handle {
+  cursor: col-resize;
+  position: relative;
+  z-index: 2;
+}
+.resize-handle:hover .resize-grip,
+.resize-handle:active .resize-grip {
+  background: var(--ks-primary, #2563eb);
+  opacity: 0.55;
+}
+.resize-grip {
+  position: absolute;
+  inset: 0 1px;
+  border-radius: 4px;
+  background: var(--ks-border, #d1d5db);
+  opacity: 0;
+  transition: opacity 140ms ease, background 140ms ease;
+}
+.resize-handle:hover .resize-grip { opacity: 0.35; }
 .sessions,
 .conversation {
   height: 100%;
@@ -364,6 +488,9 @@ async function escalateBatch(traceId: string) {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
   padding-right: 8px;
 }
 .message { display: flex; margin: 14px 0; }
@@ -375,6 +502,7 @@ async function escalateBatch(traceId: string) {
   padding: 14px 16px;
   border-radius: 18px;
   white-space: pre-wrap;
+  word-break: break-all;
   background: linear-gradient(135deg, rgba(248,250,252,0.98), rgba(255,255,255,0.98));
   border: 1px solid var(--ks-border);
   box-shadow: 0 10px 24px rgba(15,23,42,0.05);
@@ -476,12 +604,83 @@ async function escalateBatch(traceId: string) {
   padding-right: 4px;
 }
 .rca-summary { color: var(--ks-text-muted); line-height: 1.6; margin: 0 0 12px; }
+
+/* ---- 面板折叠/展开按钮 ---- */
+.panel-collapse-btn,
+.panel-expand-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--ks-border, #d1d5db);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.88);
+  color: var(--ks-text-muted, #6b7280);
+  cursor: pointer;
+  transition: color 160ms ease, background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+  flex-shrink: 0;
+}
+.panel-collapse-btn:hover,
+.panel-expand-btn:hover {
+  color: var(--ks-primary, #2563eb);
+  background: #eef4ff;
+  border-color: rgba(37, 99, 235, 0.28);
+  box-shadow: 0 2px 8px rgba(37,99,235,0.10);
+}
+
+/* 展开态：折叠按钮 hover 可见（半透明 → 完全显现） */
+.panel-collapse-btn {
+  opacity: 0.45;
+}
+.panel-collapse-btn:hover {
+  opacity: 1;
+}
+
+/* 折叠态窄竖条：展开 + 搜索 + 新建 纵向排列 */
+.collapsed-strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+/* 折叠态独立容器：替代 PageSection，高度撑满 + 顶部留白 */
+.sessions-collapsed {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 14px;
+}
+.collapsed-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--ks-border, #d1d5db);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.88);
+  color: var(--ks-text-muted, #6b7280);
+  cursor: pointer;
+  transition: color 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+.collapsed-action-btn:hover {
+  color: var(--ks-primary, #2563eb);
+  background: #eef4ff;
+  border-color: rgba(37, 99, 235, 0.28);
+}
+
 @media (max-width: 1300px) {
   .chat-page { height: auto; overflow: visible; }
-  .chat-layout { grid-template-columns: 1fr; overflow: visible; }
+  .chat-layout { grid-template-columns: 1fr; gap: 16px; overflow: visible; padding: 0; }
+  .resize-handle { display: none; }
   .sessions,
   .conversation,
   .right-panel { height: auto; max-height: none; overflow: visible; }
   .messages { max-height: 520px; }
+  .panel-collapse-btn,
+  .panel-expand-btn,
+  .collapsed-strip,
+  .collapsed-action-btn { display: none; }
 }
 </style>
