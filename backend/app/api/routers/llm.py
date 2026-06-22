@@ -1,58 +1,62 @@
-"""阶段5 收尾 · GET /api/llm/health（健康检查端点）。
+"""GET /api/llm/health（健康检查端点，含 ?probe=true 连通性探测）。
 
-设计红线（开场合 §2.2 + 收尾工单）：
-1. **绝不发 httpx POST 到真端点**——health 会被高频轮询；真调会耗 token /
-   触发 _RateLimiter、有副作用。仅报配置态。
-2. **绝不回显 api_key**（S9 铁律）——只回 `api_key_configured: bool`。
-3. base_url 非密钥可回显。
-4. `status: "ok"` 仅表示"配置可读"，**不**证明真端点可达——真连通性探测
-   需额外 `?probe=true` 显式开关（留 backlog，本工单不交付）。
-5. 复用既有依赖：verify_token（proxy 模式要求反代签名头）、tags=["llm"]。
-
-C3 边界：本文件**只读** backend.app.llm.real_client（不修改其逻辑）。
+设计红线：
+1. 默认（无 probe 参数）→ 只报配置态，绝不发 httpx。
+2. ?probe=true + fixture → probe_status="skipped"（fixture 无真端点）。
+3. ?probe=true + real → 真发一次轻量 POST（独立 budget，不走 _RateLimiter / _TokenCounter）。
+4. S9：api_key 只报 bool；probe_error 只报 status_code / error class，不暴露原文。
+5. probe 失败时不 raise（运维友好：标 failed/timeout，不崩服务）。
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from backend.app.api.deps import verify_token
-from backend.app.api.schemas import LLMHealth
+from backend.app.api.schemas import LLMHealth, LLMHealthProbe
 
 router = APIRouter(prefix="/api/llm", tags=["llm"])
 
 
 @router.get(
     "/health",
-    response_model=LLMHealth,
-    summary="LLM 健康检查（仅配置态；不探测真端点）",
+    summary="LLM 健康检查（配置态；?probe=true 时真探端点连通性）",
 )
 async def llm_health(
-    # 与 /api/system/overview 同款认证（proxy 模式要求反代签名头；dev 联调放行）。
-    # verify_token 返回 user str（mode-aware）——本端点只用其"已认证"语义，不取身份。
     _user: str = Depends(verify_token),  # noqa: ARG001
-) -> LLMHealth:
-    """返回当前进程加载的 LLM 配置——**仅**配置态。
+    probe: bool = Query(default=False, description="true → 真探端点连通性（real 模式）"),
+) -> LLMHealthProbe | LLMHealth:
+    """返回 LLM 配置态；?probe=true 时额外真探端点可达性。
 
-    不会调用 completion_fn，不会 await httpx。运维轮询友好：高频调用零 token
-    消耗、零端点负载。
-
-    Returns:
-        LLMHealth：provider/model/base_url/limits + api_key_configured(bool)。
-
-    Side effects: 无。
+    无 probe：返回 LLMHealth（6 字段，不发 httpx）。
+    probe=true：返回 LLMHealthProbe（LLMHealth + probe_* 字段）。
     """
-    # 延迟 import：避免 router import 期就把 real_client 拉进依赖图。
-    from backend.app.llm.real_client import load_real_llm_config_from_env
+    from backend.app.llm.real_client import RealLLMClient, load_real_llm_config_from_env
 
     cfg = load_real_llm_config_from_env()
-    return LLMHealth(
+    base = LLMHealth(
         provider=cfg.provider,
         model=cfg.model,
         base_url=cfg.base_url,
-        # S9：只报"是否配置了"，绝不回显 key 本身。
         api_key_configured=bool(cfg.api_key),
         rate_limit_per_minute=cfg.rate_limit_per_minute,
         token_cap=cfg.token_cap,
         status="ok",
+    )
+
+    if not probe:
+        return base
+
+    # probe=true 路径
+    import os
+
+    timeout_s = float(os.environ.get("KYLIN_LLM_PROBE_TIMEOUT", "3"))
+    client = RealLLMClient(cfg)
+    result = await client.probe(timeout_s=timeout_s)
+    return LLMHealthProbe(
+        **base.model_dump(),
+        probe_enabled=not client.is_fixture,
+        probe_status=result["probe_status"],  # type: ignore[arg-type]
+        probe_latency_ms=result["probe_latency_ms"],  # type: ignore[arg-type]
+        probe_error=result["probe_error"],  # type: ignore[arg-type]
     )

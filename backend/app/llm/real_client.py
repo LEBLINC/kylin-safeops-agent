@@ -322,7 +322,11 @@ class RealLLMClient:
             if self._http is not None:
                 await self._http.aclose()
                 self._http = None
-        return str(data["choices"][0]["message"]["content"])
+        try:
+            content = data["choices"][0]["message"]["content"]
+        except (IndexError, KeyError) as exc:
+            raise RuntimeError(f"invalid_response: {exc}") from exc
+        return str(content)
 
     async def health_check(self) -> dict[str, str]:
         """健康检查（接 GET /api/llm/health）。"""
@@ -334,6 +338,54 @@ class RealLLMClient:
             "model": self.config.model,
             "base_url": self.config.base_url,
         }
+
+    async def probe(self, timeout_s: float = 3.0) -> dict[str, object]:
+        """主动探测真端点连通性（?probe=true 专用）。
+
+        - 独立 budget（不走 _RateLimiter / _TokenCounter，probe 是运维专用调用）
+        - S9：probe_error 只报 status_code / error class，不暴露原文
+
+        Returns dict with keys: probe_status, probe_latency_ms, probe_error
+        """
+        if self.is_fixture:
+            return {"probe_status": "skipped", "probe_latency_ms": None, "probe_error": None}
+        import time
+
+        url = self.config.base_url.rstrip("/") + "/chat/completions"
+        headers = {"Content-Type": "application/json"}
+        if self.config.api_key:
+            headers["Authorization"] = f"Bearer {self.config.api_key}"
+        # 极轻量 prompt（探活用，不计费/不计 token cap）
+        body = {
+            "model": self.config.model,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 1,
+        }
+        t0 = time.monotonic()
+        try:
+            async with httpx.AsyncClient(timeout=timeout_s) as client:
+                resp = await client.post(url, json=body, headers=headers)
+            latency_ms = int((time.monotonic() - t0) * 1000)
+            if resp.is_success:
+                return {"probe_status": "ok", "probe_latency_ms": latency_ms, "probe_error": None}
+            return {
+                "probe_status": "failed",
+                "probe_latency_ms": latency_ms,
+                # S9：只报状态码，不暴露 response body
+                "probe_error": f"status_code={resp.status_code}",
+            }
+        except httpx.TimeoutException:
+            return {
+                "probe_status": "timeout",
+                "probe_latency_ms": int((time.monotonic() - t0) * 1000),
+                "probe_error": "TimeoutException",
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "probe_status": "failed",
+                "probe_latency_ms": int((time.monotonic() - t0) * 1000),
+                "probe_error": type(exc).__name__,
+            }
 
 
 __all__ = [

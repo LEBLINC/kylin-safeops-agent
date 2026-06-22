@@ -50,7 +50,8 @@ if ! $dry_run; then
   "${PYTHON_BIN}" -m venv "${VENV_DIR}"
   source "${VENV_DIR}/bin/activate"
   pip install --upgrade pip
-  pip install -r "${INSTALL_DIR}/backend/requirements.txt" -c "${INSTALL_DIR}/backend/constraints.txt"
+  pip install -r "${INSTALL_DIR}/backend/requirements.txt" -c "${INSTALL_DIR}/backend/constraints.txt" \
+    $([ -d "${PROJECT_DIR}/wheels" ] && echo "--find-links ${PROJECT_DIR}/wheels --no-index" || true)
   deactivate
 fi
 $dry_run && echo "  [DRY-RUN] python3.11 -m venv ${VENV_DIR} && pip install -r ..."
@@ -58,6 +59,23 @@ $dry_run && echo "  [DRY-RUN] python3.11 -m venv ${VENV_DIR} && pip install -r .
 # [需人工复核] 配置 systemd
 echo "[4/5] 配置 systemd"
 run sudo cp "${PROJECT_DIR}/deploy/kylin-safeops.service" /etc/systemd/system/
+
+# ADR-0004：写 /etc/kylin-safeops/ldap.env 兜底——生产 KYLIN_LDAP_MOCK=false，
+# 与 kylin-safeops.service 的硬编码 Environment= 形成双保险。运维若忘改 service
+# 模板，至少 env 文件能拦下 mock 误启（lifespan fail-fast 见 app.py）。
+echo "  [4.1/5] 写 /etc/kylin-safeops/ldap.env（KYLIN_LDAP_MOCK=false 兜底）"
+if ! $dry_run; then
+  run sudo mkdir -p /etc/kylin-safeops
+  run sudo tee /etc/kylin-safeops/ldap.env >/dev/null <<'EOF'
+# Kylin SafeOps LDAP mode — ADR-0004
+# 生产必须 false；true 仅 demo/单测。
+KYLIN_LDAP_MOCK=false
+EOF
+  run sudo chmod 0640 /etc/kylin-safeops/ldap.env
+  run sudo chown root:kylin-safeops /etc/kylin-safeops/ldap.env 2>/dev/null || true
+fi
+$dry_run && echo "  [DRY-RUN] 写 /etc/kylin-safeops/ldap.env（KYLIN_LDAP_MOCK=false）"
+
 run sudo systemctl daemon-reload
 run sudo systemctl enable "${SERVICE_NAME}"
 

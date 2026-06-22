@@ -84,10 +84,8 @@ def get_session_store() -> SessionStore:
 
 
 def get_llm() -> LLMAdapter:
-    """获取 LLMAdapter（当前为 fake 注入桩，待接真实 LLM 端点）。
-
-    非单例：每次装配一个 fake；测试可经 dependency_overrides 替换。
-    """
+    """获取 LLMAdapter。demo-only 设计意图（ADR-0003），非 TODO；
+    D VM 经 dependency_overrides 注入真实 LLM。"""
     return build_fake_llm()
 
 
@@ -162,6 +160,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info(
             "认证模式 PROXY：全量端点要求反代签名身份（fail-closed 401）；"
             "审批角色取自反代签名头。须由可信反代对所有入站请求注入签名身份头。"
+        )
+
+    # ADR-0004：proxy + mock 误启硬阻断。lifespan 启动期 raise → systemd
+    # 把服务拉成 failed，运维立即看到告警。dev 模式放行（demo/单测需要 mock）。
+    # 双保险：systemd Environment=KYLIN_LDAP_MOCK=false 硬编码 + install.sh 写
+    # /etc/kylin-safeops/ldap.env。任意一处生效即可拒启动；本 fail-fast 是第三道兜底。
+    if _auth_mode() == "proxy" and os.environ.get("KYLIN_LDAP_MOCK", "").strip().lower() == "true":
+        raise RuntimeError(
+            "ADR-0004：proxy 模式拒绝 KYLIN_LDAP_MOCK=true——mock LDAP 仅允许 demo/单测。"
+            " 生产必须 KYLIN_LDAP_MOCK=false + 真 LDAP；请检查 systemd Environment / "
+            "/etc/kylin-safeops/ldap.env 配置。"
         )
 
     _bus = EventBus()

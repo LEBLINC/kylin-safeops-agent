@@ -185,10 +185,11 @@ class Orchestrator:
                 }
             )
 
-        # 规划：LLM 网络异常 → error 事件并终止（不静默降级）
+        # 规划：LLM 网络异常 / rate-limit / token-cap → error 事件 + 审计并终止
         try:
             intent = await self._llm.plan(messages)
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, RuntimeError) as exc:
+            self._append_audit({"error": str(exc), "phase": self.state.value})
             self._emit("error", {"message": str(exc), "phase": self.state.value})
             return self.state
 
@@ -218,7 +219,8 @@ class Orchestrator:
                     feedback = wrap_many_for_feedback(observations)
                     convo = [*convo, {"role": "user", "content": feedback}]
                     current = await self._llm.plan(convo)
-                except httpx.HTTPError as exc:
+                except (httpx.HTTPError, RuntimeError) as exc:
+                    self._append_audit({"error": str(exc), "phase": self.state.value})
                     self._emit("error", {"message": str(exc), "phase": self.state.value})
                     return self.state
                 action_intent = current

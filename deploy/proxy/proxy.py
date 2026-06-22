@@ -1,4 +1,4 @@
-﻿"""
+"""
 Signature reverse proxy sidecar: client -> sidecar(public) -> app(127.0.0.1:8000)
 - LDAP auth via deploy.sso.ldap_client.LdapClient (mock/real modes)
 - Strips client-forged X-Auth-* headers
@@ -41,6 +41,7 @@ async def _sse_heartbeat(source, interval: int = 30):
             yield b": keepalive\n\n"
         except StopAsyncIteration:
             break
+
 
 STRIP_HEADERS = {
     "x-auth-user",
