@@ -132,3 +132,4 @@ async def proxy_route(request: Request, path: str):
             status_code=resp.status_code,
             media_type=resp.headers.get("content-type", "application/json"),
         )
+
