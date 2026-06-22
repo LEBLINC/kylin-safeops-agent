@@ -33,9 +33,7 @@ _ACTION_INTENT = json.dumps(
         "intent": "reclaim_disk_space",
         "confidence": 0.9,
         "need_observation": False,
-        "candidate_tools": [
-            {"name": "log.compress_rotate", "args": {"path": "/var/log"}}
-        ],
+        "candidate_tools": [{"name": "log.compress_rotate", "args": {"path": "/var/log"}}],
         "risk_hint": "medium",
         "justification": "据观测，/var/log 占用偏高，压缩轮转回收空间",
     }
