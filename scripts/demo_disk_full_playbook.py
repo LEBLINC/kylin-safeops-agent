@@ -34,7 +34,7 @@ _ACTION_INTENT = json.dumps(
         "confidence": 0.9,
         "need_observation": False,
         "candidate_tools": [
-            {"name": "log.compress_rotate", "args": {"path": "/var/log", "keep": 3}}
+            {"name": "log.compress_rotate", "args": {"path": "/var/log"}}
         ],
         "risk_hint": "medium",
         "justification": "据观测，/var/log 占用偏高，压缩轮转回收空间",

@@ -397,7 +397,7 @@ async def scenario_f_audit_tamper_detect() -> dict[str, Any]:
 
     intent_json = make_intent(
         intent="rotate_logs_f",
-        candidate_tools=[{"name": "log.compress_rotate", "args": {"path": "/var/log", "keep": 3}}],
+        candidate_tools=[{"name": "log.compress_rotate", "args": {"path": "/var/log"}}],
         risk_hint="medium",
         need_observation=False,
         justification="场景 F 复用：主要验审计完整性篡改检出",
