@@ -1,6 +1,6 @@
 # Kylin SafeOps Agent — 项目整体进度快照（给 D / X）
 
-> 维护：L（集成 + 审阅窗口）。基线：**dev = `cc4b527`（origin 已同步）**。日期：2026-06-16。
+> 维护：L（集成 + 审阅窗口）。基线：**dev = `ccccf5c`（origin 已同步）**。日期：2026-06-22。
 > 用途：让 D / X 看清当前整条线在哪、自己下一步做什么。详细决策见 `集成对齐备忘.md`。
 > ★本快照自 dev=`cc4b527` 起为**当前权威**；§4 决策记录是历史沉淀（按编号勿翻案）；§2 旧版"已入库内容"按时间倒序补到 §6。
 
@@ -8,8 +8,7 @@
 
 ## 0. 一句话状态
 
-**「内网 only 正式解除」**（阶段3 五项 + 审计 3a 全绿，dev=cc4b527）。对外口径可坐实：**判定+执行+审计(哈希链 verify valid)+审批认证(HMAC 签名身份)+沙箱(data_source=real)+反代签名认证**全链在麒麟 V11 实机闭合。
-待 merge（已审 PASS）：3b retention/rotation(`b94fd38`) + ADR-0001 SQLite 选型冻结(`dd16190`)。backlog：阶段4 端到端 demo、阶段5 真实 LLM 接入。
+**「阶段6 全部收口」**（dev=`ccccf5c`，2026-06-22）。对外口径：**判定+执行+审计+审批认证+沙箱+反代签名认证+真 LLM+S3 校验+注入红队+间接注入防护+真 LDAP 20组 VM 实证**在麒麟 V11 实机 LoongArch 全链闭合（ADR-0001/0002/0003/0004 均 Accepted）。**三方无待办**。
 
 ## 1. 五道闸 + 认证 + 沙箱 + 采集 真假快照（dev=cc4b527）
 
@@ -50,28 +49,20 @@
 
 ## 3. 各人下一步
 
-### D — ✅ 阶段3 D 域全交付；3b+ADR 已审 PASS 待 merge
-- ✅ **3a 审计库硬化**（4e61acc）：KYLIN_AUDIT_DB 绝对路径+0600/0700+chmod 失败 log 不抛；VM 实机复证 6a/b/c 全过。
-- ✅ **3b 审计库 retention/rotation**（b94fd38，待 merge）：终态闸按 trace 整迁+带外 CLI+先验后删+INSERT OR IGNORE 修复入；19 用例测试全过；零回归。
-- ✅ **ADR-0001 SQLite 选型冻结**（dd16190，待 merge）：四硬约束（LoongArch/单机/哈希链/最小信任面）+ 确认前提+revisit 条件；与 `集成对齐备忘.md:515-529` 拍板内容字面一致。
-- **D 域 backlog（非阻断）**：反代占位 Basic Auth 上线前换真 SSO/LDAP（X 域登记）；文档/README 后续补充 retention CLI 用法示例。
+### D — ✅ 阶段6 D 域全收口
+- ✅ 真 LDAP VM 实证（slapd + 20 组，d589084）
+- ✅ T4 log.compress_rotate keep 死字段清除（ccccf5c）
+- **无待办**
 
-### X — ✅ 阶段3 X 域全交付（cc4b527）；待换真 SSO/LDAP
-- ✅ 反代签名 sidecar（proxy.py Basic Auth→HMAC 注入 4 头+剥客户端伪造头+SSE 透传+fail-closed 401）；**匿名放行漏洞已修闭合**（a47780b）。
-- ✅ 前端三态适配（types data_source 字面 union + partial 徽标 + 诚实降级）+ 注入 demo 终版（直接注入 echo）+ 前端 whoami 身份过渡（App.vue onMounted fetchWhoami + chat.ts currentUser/Roles 静默降级 viewer + .env.production 移除 VITE_CURRENT_USER_ROLE + ChatView 展示真实 user）。
-- **X 域 backlog（**非阻断**）**：反代占位 Basic Auth（不校验密码，只映射角色）上线前替换真 SSO/LDAP。
+### X — ✅ 阶段6 X 域全收口
+- ✅ B1/B2 + vitest + P1 LDAP + P2 SSE heartbeat（200a63c）
+- ✅ P3 SettingsView LLM健康卡 + ChatView 三栏交互（6f7d34a）
+- **无待办**
 
-### L（我）— ✅ 阶段3 L 域全交付 + ✅ 阶段4 demo 本机落地（edf57aa）
-- ✅ 阶段3 L 域：whoami 端点（3d00412）+ 签名参考 CLI + systemd app 单元（绑 127.0.0.1/UMask=0077/EnvironmentFile/ProtectSystem）。
-- ✅ 阶段4 demo 落地（dev=edf57aa）：5 新文件严守 C3（D/X 域零改动亲跑 git diff 确证）：
-  - `scripts/demo_stage4_common.py`（公共装配：真 PolicyEngine + 真 PrivilegeExecutor + 真 SqliteAuditSink(:memory:) + fake LLM）
-  - `scripts/demo_stage4_e2e.py`（6 场景 demo 主入口 CLI，可子集跑/全跑）
-  - `backend/tests/test_demo_stage4_e2e.py`（6 pytest 用例）
-  - `docs/design/stage4-e2e-demo-testplan.md`（落地方案）
-  - `docs/design/stage4-e2e-demo-acceptance-report.md`（验收报告）
-- **L 下一步（按优先级）**：
-  1. **阶段4 VM 端到端验证**（C/D 沙箱场景：service.restart 真重启 cron.service / log.compress_rotate 真写 /var/log）—— D 域 VM 跑通 `KYLIN_SANDBOX_ENABLED=1 python -m scripts.demo_stage4_e2e --scenarios C,D` → verified_summary="ok" 即为终验。
-  2. **★阶段5 真实 LLM 接入**（最安全攸关，跑在已验证地板上，刻意最后）：`get_llm` provider 一处切换（fake→真，build_e2e 已预留 `use_real_llm: bool` hook 点直接扩展）+ 真 LLM 客户端 + S3 schema 校验+重试在位 + 真 LLM 下重跑 D-10 红队 golden。
+### L（我）— ✅ 阶段6 L 域全收口
+- ✅ T13 get_llm() docstring（3789109）
+- ✅ T14 full DN归一化测试 + Python 3.9 compat（c4c555e）
+- **无待办**
 
 ## 4. 关键决策（已拍板，勿翻案）
 
@@ -98,7 +89,12 @@
 
 ---
 
-最后更新：dev=`b421736`（2026-06-17，X 修后 stage5-prep 合入）。**"内网 only 正式解除"** + **阶段4 demo 本机+CI+X+D+VM 全收口** + **X 域阶段5 前清光合入** + **阶段5 真 LLM 接入工单 prompt 已起**。
+最后更新：dev=`ccccf5c`（2026-06-22，阶段6全收口）。**三方无待办。**
+- ✅ **T13 get_llm() docstring**（3789109）
+- ✅ **D VM 真 LDAP 实证 20组 PASS + 实证报告**（d589084）：slapd + init.ldif + runbook；verify_chain.valid 全 true；RBAC 矩阵字节级符合 _APPROVABLE
+- ✅ **T14 full DN 归一化测试 + Python 3.9 compat**（c4c555e）：`test_real_get_user_memberOf_full_dn_normalized` 覆盖完整DN→role 路径；`from __future__ import annotations` 修 3.9 import 崩溃
+- ✅ **P3 SettingsView LLM健康卡 + ChatView 交互优化**（6f7d34a）：前端消费 `/api/llm/health` 7字段接口对齐；S9守住
+- ✅ **T4 log.compress_rotate keep 死字段清除**（ccccf5c）：从 `tools_log.py` input_schema + 5处测试引用全部移除
 - 阶段3（cc4b527 收口）✅ + 3b retention/rotation（4d0887e）+ ADR-0001（c6ca02f）已合 + 阶段4 demo（edf57aa）已合 + CI Linux runner fix（0065787）已合 + X demo merge（c0ad2a3）已合 + D 域 stage4 VM 修复（7b74404）已合 + record_count 路径放宽（5b2addd）已合 + D 域 stage5-prep（f9df6a6）已合 + D 域测试回填+VM 实证（94bdac9）已合 + **X 修后 stage5-prep（b421736）已合**。
 - **阶段4 demo 全收口**：本机+CI Linux+X demo 前端+D 域 VM 端到端（service.restart R3+log.compress_rotate R2 都 state=FINISHED+verified_summary="ok"+record_count=10+verify_chain valid=True）。
 - **阶段5 真 LLM 接入 3 步走**（L 域下次会话主任务）：
