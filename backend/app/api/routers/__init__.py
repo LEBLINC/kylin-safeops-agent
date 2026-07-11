@@ -11,6 +11,7 @@ from backend.app.api.routers.approvals import router as approvals_router
 from backend.app.api.routers.audit import router as audit_router
 from backend.app.api.routers.auth import router as auth_router
 from backend.app.api.routers.chat import router as chat_router
+from backend.app.api.routers.demo import router as demo_router
 from backend.app.api.routers.llm import router as llm_router
 from backend.app.api.routers.policy import router as policy_router
 from backend.app.api.routers.rca import router as rca_router
@@ -30,6 +31,7 @@ api_router.include_router(auth_router)
 api_router.include_router(llm_router)
 api_router.include_router(audit_router)
 api_router.include_router(policy_router)
+api_router.include_router(demo_router)
 
 __all__ = ["api_router"]
 

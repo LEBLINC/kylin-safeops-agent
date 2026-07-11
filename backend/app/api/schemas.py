@@ -209,6 +209,40 @@ class PolicyRiskLevelsResponse(BaseModel):
     items: list[PolicyRiskLevel]
 
 
+# ---- demo ---------------------------------------------------------------
+
+
+class DemoPrepareResponse(BaseModel):
+    """POST /api/demo/{scenario}/prepare 响应体。"""
+
+    scenario: str
+    audit_db_path: str = Field(..., description="临时审计库路径（前端拿到可传给 run）")
+    tmp_dir: str
+    ready: bool
+    by: str
+
+
+class DemoRunResponse(BaseModel):
+    """POST /api/demo/{scenario}/run 响应体。"""
+
+    scenario: str
+    label: str
+    by: str
+    state: str
+    verified_summary: str
+    record_count: int
+    rejected_cause: str
+    raw: dict[str, object] = Field(default_factory=dict, description="scenario 完整返回")
+
+
+class DemoCleanupResponse(BaseModel):
+    """POST /api/demo/{scenario}/cleanup 响应体。"""
+
+    scenario: str
+    by: str
+    removed_dirs: list[str]
+
+
 # ---- tools ---------------------------------------------------------------
 
 
