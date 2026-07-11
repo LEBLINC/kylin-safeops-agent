@@ -703,7 +703,6 @@ async sendMessage(content: string) {
           () => {
             // onDone: SSE transport 结束，只负责清理状态，不写入业务事件
             this.loading = false
-            this.stopAssistantTyping(traceId)
           }
         )
       } catch (error) {
