@@ -72,7 +72,9 @@ def test_app_openapi_has_all_new_endpoints() -> None:
         for path, methods in expected_paths.items():
             assert path in paths, f"OpenAPI 缺 endpoint: {path}"
             actual_methods = {m.upper() for m in paths[path].keys()}
-            assert methods <= actual_methods, f"OpenAPI {path} 缺 methods: {methods - actual_methods}"
+            assert (
+                methods <= actual_methods
+            ), f"OpenAPI {path} 缺 methods: {methods - actual_methods}"
 
 
 def test_cross_router_smoke_no_500() -> None:

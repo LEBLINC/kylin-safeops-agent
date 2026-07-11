@@ -67,9 +67,7 @@ async def get_trace_detail(
         # 空链：要么 trace 不存在，要么从未有记录。区分：再 verify 一遍
         result = audit.verify_chain(trace_id)  # type: ignore[attr-defined]
         if result.record_count == 0:  # type: ignore[attr-defined]
-            raise HTTPException(
-                status_code=404, detail=f"unknown trace_id: {trace_id}"
-            )
+            raise HTTPException(status_code=404, detail=f"unknown trace_id: {trace_id}")
     verify = audit.verify_chain(trace_id)  # type: ignore[attr-defined]
     return schemas.AuditTraceDetail(
         trace_id=trace_id,
@@ -115,9 +113,7 @@ async def export_trace(
     if not records:
         verify = audit.verify_chain(trace_id)  # type: ignore[attr-defined]
         if verify.record_count == 0:  # type: ignore[attr-defined]
-            raise HTTPException(
-                status_code=404, detail=f"unknown trace_id: {trace_id}"
-            )
+            raise HTTPException(status_code=404, detail=f"unknown trace_id: {trace_id}")
     verify = audit.verify_chain(trace_id)  # type: ignore[attr-defined]
     lines: list[str] = []
     for r in records:

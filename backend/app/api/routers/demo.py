@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import importlib
 import os
 import tempfile
@@ -17,9 +16,9 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from backend.app.api import schemas
 from backend.app.api.auth import Principal
 from backend.app.api.deps import require_proxy_identity
-from backend.app.api import schemas
 
 router = APIRouter(prefix="/api/demo", tags=["demo"])
 
