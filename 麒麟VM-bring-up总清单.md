@@ -112,3 +112,4 @@
 
 **X 工单（T1+T2+T3）已起**：建议分支 `feat/x-sse-whoami-vitest`，2-3 commit 拆开，B1 VM 复证是 PASS 必要条件。
 **基线 dev=`d60e4a7`（2026-07-11 之三十一）**：X P4 SSE done 截胡修复 + Demo/Tools 卡片配色统一合入。L 域 4 Router 工单待下个 L 执行窗口实施。pytest 512/17。
+**基线 dev=`c1e8c51`（未动，2026-07-11 之三十二）**：L 域 4 Router 工单 6 commit 已落地 feat/l-4-router-completion（未合 dev），等另一窗口审阅。pytest 530/17（512+18）。X P4 已合 d60e4a7。
