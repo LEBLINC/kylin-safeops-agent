@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -43,4 +43,8 @@ class PolicyEngine(Protocol):
 
     def evaluate(self, tool: CandidateTool) -> PolicyVerdict:
         """对单个候选工具调用做策略裁决。"""
+        ...
+
+    def rules(self) -> list[Any]:
+        """返回当前生效的规则列表（commit 3 增量：/api/policy/rules 用）。"""
         ...

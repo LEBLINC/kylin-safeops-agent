@@ -29,10 +29,12 @@ from backend.app.api.event_bus import EventBus
 from backend.app.api.session_registry import SessionRegistry
 from backend.app.api.session_store import SessionStore
 from backend.app.audit import SqliteAuditSink
+from backend.app.contracts.policy import PolicyEngine
 from backend.app.db.session import connect as _db_connect
 from backend.app.db.session import resolve_audit_db_path
 from backend.app.llm.adapter import LLMAdapter
 from backend.app.mcp.gateway import MCPGateway
+from backend.app.security.guard import RuleBasedPolicyEngine
 from mcp_servers.rca import DefaultRCAEngine
 
 logger = logging.getLogger(__name__)
@@ -108,6 +110,17 @@ def get_rca() -> RCAEngine:
     独立 RCA 端点（routers/rca.py）亦消费同一引擎。
     """
     return DefaultRCAEngine()
+
+
+def get_policy() -> PolicyEngine:
+    """获取 PolicyEngine（commit 3 增量：/api/policy/* 用）。
+
+    当前无全局单例——build_gateway 在 lifespan 内注入的是另一个实例。
+    此处新建一份独立实例给 policy router 用（策略集是 DEFAULT_POLICY，
+    确定性无 IO，多份实例与单实例语义等价；生产场景可后续统一从 gateway 取）。
+    测试可经 dependency_overrides[get_policy] 注入覆盖。
+    """
+    return RuleBasedPolicyEngine()
 
 
 # ============================================================

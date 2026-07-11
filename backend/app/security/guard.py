@@ -62,6 +62,10 @@ class RuleBasedPolicyEngine:
         self._policy = policy
         self._registry: ToolRegistry = registry if registry is not None else ToolRegistry()
 
+    def rules(self) -> list[PolicyRule]:
+        """返回当前生效的规则列表（commit 3 增量：/api/policy/rules 用）。"""
+        return list(self._policy.rules)
+
     def evaluate(self, tool: CandidateTool) -> PolicyVerdict:
         """对单个候选工具做三态裁决。"""
         # 0. ARGS_TOO_LARGE 内置硬兜底（优先判，不可被规则文件关掉）

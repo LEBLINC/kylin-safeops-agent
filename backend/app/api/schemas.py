@@ -152,6 +152,63 @@ class AuditVerifyResponse(BaseModel):
     reason: str
 
 
+# ---- policy --------------------------------------------------------------
+
+
+class PolicyRuleOut(BaseModel):
+    """GET /api/policy/rules 单条规则（从 PolicyRule 序列化，Decision⑭ 端到端保契约原名）。"""
+
+    id: str
+    name: str
+    description: str
+    action: str
+    severity: str
+    reason: str
+    approval_role: str | None
+
+
+class PolicyRulesResponse(BaseModel):
+    """GET /api/policy/rules 响应体。"""
+
+    rules: list[PolicyRuleOut]
+    version: int
+
+
+class PolicyEventOut(BaseModel):
+    """GET /api/policy/events 单条策略事件（从 audit policy_verdict 派生）。"""
+
+    trace_id: str
+    rule_id: str
+    decision: str
+    risk_level: str
+    user_intent: str
+    created_at: str
+
+
+class PolicyEventsResponse(BaseModel):
+    """GET /api/policy/events 响应体。"""
+
+    items: list[PolicyEventOut]
+    total: int
+
+
+class PolicyRiskLevel(BaseModel):
+    """GET /api/policy/risk-levels 单条风险等级定义（决策⑬ RBAC fail-closed 同款口径）。"""
+
+    level: str
+    name: str
+    description: str
+    auto_approve: bool
+    approval_role_required: str | None
+    examples: list[str]
+
+
+class PolicyRiskLevelsResponse(BaseModel):
+    """GET /api/policy/risk-levels 响应体。"""
+
+    items: list[PolicyRiskLevel]
+
+
 # ---- tools ---------------------------------------------------------------
 
 
