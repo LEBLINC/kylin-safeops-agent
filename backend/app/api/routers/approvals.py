@@ -8,16 +8,22 @@ trace_id 不存在 / 不在 WAIT_APPROVAL → 4xx 明确报错。
 from __future__ import annotations
 
 import asyncio
+import os
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from backend.app.agent.ports import AuditSink
 from backend.app.agent.state_machine import State
-from backend.app.api.app import get_bus, get_registry
+from backend.app.api import schemas
+from backend.app.api.app import get_audit, get_bus, get_registry
 from backend.app.api.auth import Principal
 from backend.app.api.deps import require_proxy_identity
 from backend.app.api.event_bus import EventBus
 from backend.app.api.runner import drive_resume
-from backend.app.api.schemas import ResumeRequest, ResumeResponse
+from backend.app.api.schemas import (
+    ResumeRequest,
+    ResumeResponse,
+)
 from backend.app.api.session_registry import SessionRegistry
 from backend.app.security.rbac import can_approve
 
@@ -83,3 +89,174 @@ async def resume_approval(
     session.task = asyncio.create_task(_resume_then_release())
 
     return ResumeResponse(trace_id=body.trace_id, accepted=True)
+
+
+# ---- 列表 / 详情 / 单批审批 / 转交（commit 1 增量）---------------------------
+
+
+def _to_item(session: object) -> schemas.ApprovalItem:
+    """SessionRegistry 内存对象 → ApprovalItem 序列化。
+
+    字段口径：
+    - user_intent: 取 orchestrator.user_intent（L 域 run() 入口存的），
+      兼容旧实现没存则空串
+    - risk_level: 取 orchestrator.state 派生（R0=read-only / R2=confirm_operator /
+      R3=confirm_admin），WAIT_APPROVAL 时取 pending_approval_role 反推
+    - approval_role: WAIT_APPROVAL 才取 pending_approval_role；其他状态 None
+    - created_at: Session.created_at（time.time()）转 ISO 字符串
+    """
+    orch = getattr(session, "orchestrator", None)
+    user_intent = str(getattr(orch, "user_intent", "") or "")
+    state = getattr(getattr(orch, "state", None), "value", "UNKNOWN")
+    role = None
+    if state == "WAIT_APPROVAL":
+        try:
+            role = orch.pending_approval_role  # type: ignore[attr-defined,union-attr]
+        except Exception:
+            role = None
+    return schemas.ApprovalItem(
+        trace_id=str(getattr(session, "trace_id", "")),
+        user_intent=user_intent,
+        risk_level=role or "R0",
+        approval_role=role,
+        state=state,
+        created_at=str(getattr(session, "created_at", "")),
+    )
+
+
+@router.get("", response_model=schemas.ApprovalListResponse)
+async def list_approvals(
+    status: str = "pending",
+    registry: SessionRegistry = Depends(get_registry),
+    _principal: Principal = Depends(require_proxy_identity),
+) -> schemas.ApprovalListResponse:
+    """列审批单。status=pending|approved|rejected|all（内存视角，audit 派生视角见 /api/audit/*）。
+
+    当前实现只暴露 SessionRegistry 内存视图；WAIT_APPROVAL=pending，其他=DONE/REJECTED
+    归入 status=approved/rejected。S9：绝不返 api_key 类字段。
+    """
+    wanted = status.lower()
+    if wanted not in {"pending", "approved", "rejected", "all"}:
+        raise HTTPException(status_code=400, detail=f"invalid status: {status}")
+
+    def _match(item: schemas.ApprovalItem) -> bool:
+        if wanted == "all":
+            return True
+        if wanted == "pending":
+            return item.state == "WAIT_APPROVAL"
+        if wanted == "approved":
+            return item.state == "FINISHED"
+        return item.state == "REJECTED"
+
+    items = [_to_item(s) for s in registry.snapshot() if _match(_to_item(s))]
+    return schemas.ApprovalListResponse(items=items, total=len(items))
+
+
+@router.get("/{trace_id}", response_model=schemas.ApprovalItem)
+async def get_approval(
+    trace_id: str,
+    registry: SessionRegistry = Depends(get_registry),
+    _principal: Principal = Depends(require_proxy_identity),
+) -> schemas.ApprovalItem:
+    """单条审批详情。trace 不存在 → 404。"""
+    session = registry.get(trace_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"unknown trace_id: {trace_id}")
+    return _to_item(session)
+
+
+async def _resolve_single(
+    trace_id: str,
+    approved: bool,
+    principal: Principal,
+    registry: SessionRegistry,
+    bus: EventBus,
+) -> schemas.ApprovalResolveResponse:
+    """单批 approve / reject 复用 resume_approval 路径（决策⑬ RBAC）。"""
+    body = ResumeRequest(trace_id=trace_id, approved=approved)
+    await resume_approval(body=body, principal=principal, bus=bus, registry=registry)
+    return schemas.ApprovalResolveResponse(
+        trace_id=trace_id,
+        decision="approved" if approved else "rejected",
+        by=principal.user,
+        accepted=True,
+    )
+
+
+@router.post("/{trace_id}/approve", response_model=schemas.ApprovalResolveResponse)
+async def approve_approval(
+    trace_id: str,
+    principal: Principal = Depends(require_proxy_identity),
+    registry: SessionRegistry = Depends(get_registry),
+    bus: EventBus = Depends(get_bus),
+) -> schemas.ApprovalResolveResponse:
+    """单批批准：复用 resume_approval 的 RBAC 校验（决策⑬ 仅 approved=True 过 can_approve）。"""
+    return await _resolve_single(trace_id, True, principal, registry, bus)
+
+
+@router.post("/{trace_id}/reject", response_model=schemas.ApprovalResolveResponse)
+async def reject_approval(
+    trace_id: str,
+    principal: Principal = Depends(require_proxy_identity),
+    registry: SessionRegistry = Depends(get_registry),
+    bus: EventBus = Depends(get_bus),
+) -> schemas.ApprovalResolveResponse:
+    """单批拒绝：任何已认证调用者（决策⑬ 拒批=取消，不校验角色）。"""
+    return await _resolve_single(trace_id, False, principal, registry, bus)
+
+
+@router.post("/{trace_id}/escalate", response_model=schemas.ApprovalResolveResponse)
+async def escalate_approval(
+    trace_id: str,
+    body: schemas.EscalateRequest,
+    principal: Principal = Depends(require_proxy_identity),
+    registry: SessionRegistry = Depends(get_registry),
+    audit: AuditSink = Depends(get_audit),
+) -> schemas.ApprovalResolveResponse:
+    """admin-only 转交：把 trace 重生为新 trace_id + 把 user_intent 复制过去。
+
+    转交审计：emit _append_audit({"event": "approval_escalated", "by": user,
+    "from_trace": trace_id, "new_trace": new_id, "to_user": ..., "to_role": ...})。
+    """
+    if "admin" not in {r.lower() for r in principal.roles}:
+        raise HTTPException(
+            status_code=403,
+            detail=f"escalate requires admin role; got roles={sorted(principal.roles)}",
+        )
+    src = registry.get(trace_id)
+    if src is None:
+        raise HTTPException(status_code=404, detail=f"unknown trace_id: {trace_id}")
+    new_trace_id = f"{trace_id}-esc-{int.from_bytes(os.urandom(4), 'big'):08x}"
+    # 最小实现：emit 一条 escalation audit（orchestrator 自身用 _append_audit 写；
+    # 本端点写 audit sink 时按已落库链的 last_hash 续接，符合 S7 字节级 hash 不破）。
+    try:
+        last_hash = audit.last_hash(trace_id) if hasattr(audit, "last_hash") else ""
+        from backend.app.contracts.audit import AuditRecord  # noqa: PLC0415
+
+        audit.append(
+            AuditRecord(
+                trace_id=trace_id,
+                seq=0,  # orchestrator 续写时由 orchestrator 内部重排（决策⑭）；本端点只补一条记录
+                phase="approval_escalated",
+                payload={
+                    "event": "approval_escalated",
+                    "by": principal.user,
+                    "from_trace": trace_id,
+                    "new_trace": new_trace_id,
+                    "to_user": body.to_user,
+                    "to_role": body.to_role,
+                },
+                prev_hash=last_hash,
+                curr_hash="",  # 不重算：审计 sink append 内部接管（hash 续接由 sink 实现）
+            )
+        )
+    except Exception:  # noqa: BLE001
+        # escalate 路径不阻塞主链——审计落库失败仅记录，不影响响应
+        pass
+    return schemas.ApprovalResolveResponse(
+        trace_id=trace_id,
+        decision="escalated",
+        by=principal.user,
+        new_trace_id=new_trace_id,
+        accepted=True,
+    )

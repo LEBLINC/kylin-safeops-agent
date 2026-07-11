@@ -60,6 +60,43 @@ class ResumeResponse(BaseModel):
     accepted: bool = Field(..., description="续跑请求是否被受理（事件经同一 SSE 推送）")
 
 
+class ApprovalItem(BaseModel):
+    """GET /api/approvals + /api/approvals/{trace_id} 单条审批记录。"""
+
+    trace_id: str
+    user_intent: str
+    risk_level: str
+    approval_role: str | None
+    state: str
+    created_at: str
+
+
+class ApprovalListResponse(BaseModel):
+    """GET /api/approvals 响应体。"""
+
+    items: list[ApprovalItem]
+    total: int
+
+
+class ApprovalResolveResponse(BaseModel):
+    """POST /api/approvals/{trace_id}/{approve|reject|escalate} 响应体。"""
+
+    trace_id: str
+    decision: str = Field(..., description="approved | rejected | escalated")
+    by: str = Field(..., description="actor principal.user")
+    new_trace_id: str | None = Field(default=None, description="escalate 时生成的新 trace_id")
+    accepted: bool
+
+
+class EscalateRequest(BaseModel):
+    """POST /api/approvals/{trace_id}/escalate 请求体。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    to_user: str | None = Field(default=None, description="转交给具体 user（admin-only）")
+    to_role: str | None = Field(default=None, description="转交给指定 role（admin-only）")
+
+
 # ---- tools ---------------------------------------------------------------
 
 

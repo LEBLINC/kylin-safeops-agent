@@ -108,3 +108,10 @@ class SessionRegistry:
     def total_count(self) -> int:
         """所有会话数（含已完成待清理）。"""
         return len(self._sessions)
+
+    def snapshot(self) -> list[OrchestratorSession]:
+        """返回当前所有会话的浅拷贝列表（供列表/导出端点用，调用方勿 mutate）。
+
+        返回的 OrchestratorSession 是引用，**禁止修改**——仅供 reads。
+        """
+        return list(self._sessions.values())
