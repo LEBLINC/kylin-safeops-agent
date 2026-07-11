@@ -207,6 +207,140 @@ class SqliteAuditSink:
         """关闭底层连接（lifespan shutdown 时由 L 调用）。"""
         self._conn.close()
 
+    # ---- 历史查询（commit 2 增量，/api/audit/* 用）-----------------------------
+
+    # 黑名单字段：导出/详情时必须过滤（S9：审计库不返 api_key 类敏感字段）
+    _SENSITIVE_KEYS = frozenset(
+        {"api_key", "authorization", "password", "bind_password", "secret", "token"}
+    )
+
+    def list_traces(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> list[dict]:
+        """列 trace（按 trace_id 聚合首条记录的 user_intent + max seq + 终态相位）。
+
+        返回每条：{trace_id, first_user_intent, risk_level, record_count, state,
+        first_seen, last_seen}。
+        since/until 按 created_at ISO 字符串闭区间过滤。
+        limit/offset 分页（最大 500/页）。
+        """
+        limit = max(1, min(int(limit), 500))
+        offset = max(0, int(offset))
+        where = []
+        params: list[object] = []
+        if since:
+            where.append("created_at >= ?")
+            params.append(since)
+        if until:
+            where.append("created_at <= ?")
+            params.append(until)
+        where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+        sql = (
+            "SELECT trace_id, MIN(created_at) AS first_seen, MAX(created_at) AS last_seen, "
+            "COUNT(*) AS record_count FROM audit_records "
+            f"{where_sql} GROUP BY trace_id ORDER BY MIN(created_at) DESC LIMIT ? OFFSET ?"
+        )
+        rows = self._conn.execute(sql, (*params, limit, offset)).fetchall()
+
+        # 二次查首条记录的 user_intent（如果有）+ 终态 phase
+        result: list[dict] = []
+        for row in rows:
+            trace_id = row["trace_id"]
+            first = self._conn.execute(
+                "SELECT phase, payload FROM audit_records "
+                "WHERE trace_id = ? ORDER BY seq ASC LIMIT 1",
+                (trace_id,),
+            ).fetchone()
+            user_intent = ""
+            if first is not None:
+                try:
+                    payload = json.loads(first["payload"])
+                    user_intent = str(payload.get("user_intent", ""))
+                except (json.JSONDecodeError, TypeError):
+                    user_intent = ""
+            # 终态 phase：trace 最后一条记录的 phase
+            last = self._conn.execute(
+                "SELECT phase FROM audit_records WHERE trace_id = ? ORDER BY seq DESC LIMIT 1",
+                (trace_id,),
+            ).fetchone()
+            state = last["phase"] if last is not None else "UNKNOWN"
+            result.append(
+                {
+                    "trace_id": trace_id,
+                    "first_user_intent": user_intent,
+                    "record_count": row["record_count"],
+                    "state": state,
+                    "first_seen": row["first_seen"],
+                    "last_seen": row["last_seen"],
+                }
+            )
+        return result
+
+    def get_trace_records(self, trace_id: str) -> list[dict]:
+        """取一条 trace 的全部 records（按 seq 升序）。
+
+        返回每条：{seq, phase, payload, prev_hash, curr_hash, created_at}。
+        payload 中敏感字段已过滤（S9）。
+        """
+        rows = self._conn.execute(
+            "SELECT seq, phase, payload, prev_hash, curr_hash, created_at "
+            "FROM audit_records WHERE trace_id = ? ORDER BY seq ASC",
+            (trace_id,),
+        ).fetchall()
+        result: list[dict] = []
+        for row in rows:
+            try:
+                payload = json.loads(row["payload"])
+                # S9：过滤敏感字段（不递归，浅过滤）
+                if isinstance(payload, dict):
+                    payload = {
+                        k: ("***REDACTED***" if k.lower() in self._SENSITIVE_KEYS else v)
+                        for k, v in payload.items()
+                    }
+            except (json.JSONDecodeError, TypeError):
+                payload = {}
+            result.append(
+                {
+                    "seq": row["seq"],
+                    "phase": row["phase"],
+                    "payload": payload,
+                    "prev_hash": row["prev_hash"],
+                    "curr_hash": row["curr_hash"],
+                    "created_at": row["created_at"],
+                }
+            )
+        return result
+
+    def count_traces(
+        self,
+        *,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> int:
+        """列 traces 时同款过滤条件下总数（分页前端用）。"""
+        where = []
+        params: list[object] = []
+        if since:
+            where.append("created_at >= ?")
+            params.append(since)
+        if until:
+            where.append("created_at <= ?")
+            params.append(until)
+        where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+        # noqa: E501 — SQL 必须拼 where_sql，f-string 折行会破坏语义
+        sql = (
+            f"SELECT COUNT(*) AS n FROM ("
+            f"SELECT trace_id FROM audit_records {where_sql} "
+            f"GROUP BY trace_id)"
+        )
+        row = self._conn.execute(sql, tuple(params)).fetchone()
+        return int(row["n"])
+
     @staticmethod
     def _broken(trace_id: str, count: int, seq: int, reason: str) -> ChainVerifyResult:
         return ChainVerifyResult(

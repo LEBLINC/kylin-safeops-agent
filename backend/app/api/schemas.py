@@ -97,6 +97,61 @@ class EscalateRequest(BaseModel):
     to_role: str | None = Field(default=None, description="转交给指定 role（admin-only）")
 
 
+# ---- audit ---------------------------------------------------------------
+
+
+class AuditTraceSummary(BaseModel):
+    """GET /api/audit/traces 列表项。"""
+
+    trace_id: str
+    first_user_intent: str
+    record_count: int
+    state: str
+    first_seen: str
+    last_seen: str
+
+
+class AuditTraceListResponse(BaseModel):
+    """GET /api/audit/traces 响应体。"""
+
+    items: list[AuditTraceSummary]
+    total: int
+    limit: int
+    offset: int
+
+
+class AuditRecord(BaseModel):
+    """GET /api/audit/traces/{trace_id} 单条 record（S9 敏感字段已过滤）。"""
+
+    seq: int
+    phase: str
+    payload: dict[str, object]
+    prev_hash: str
+    curr_hash: str
+    created_at: str
+
+
+class AuditTraceDetail(BaseModel):
+    """GET /api/audit/traces/{trace_id} 响应体（含 verify_chain 状态）。"""
+
+    trace_id: str
+    records: list[AuditRecord]
+    verify_chain_valid: bool
+    record_count: int
+    broken_seq: int | None
+    reason: str
+
+
+class AuditVerifyResponse(BaseModel):
+    """POST /api/audit/verify 响应体（服务端 recompute，不暴露 hash 算法）。"""
+
+    trace_id: str
+    valid: bool
+    record_count: int
+    broken_seq: int | None
+    reason: str
+
+
 # ---- tools ---------------------------------------------------------------
 
 

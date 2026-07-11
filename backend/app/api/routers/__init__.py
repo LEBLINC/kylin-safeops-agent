@@ -8,6 +8,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from backend.app.api.routers.approvals import router as approvals_router
+from backend.app.api.routers.audit import router as audit_router
 from backend.app.api.routers.auth import router as auth_router
 from backend.app.api.routers.chat import router as chat_router
 from backend.app.api.routers.llm import router as llm_router
@@ -26,5 +27,8 @@ api_router.include_router(system_router)
 api_router.include_router(rca_router)
 api_router.include_router(auth_router)
 api_router.include_router(llm_router)
+api_router.include_router(audit_router)
+
+__all__ = ["api_router"]
 
 __all__ = ["api_router"]

@@ -28,9 +28,28 @@ class AuditSink(Protocol):
     """审计落库接口（D 的 audit_logger 实现）。
 
     orchestrator 在每个状态转移点产 AuditRecord 并 append；落库与哈希链校验归 D。
+
+    历史查询扩展（commit 2 增量）：list_traces / get_trace_records / count_traces /
+    verify_chain 由 SqliteAuditSink 实现（具体返回 schema 在 routers/audit.py 处理）。
     """
 
     def append(self, record: AuditRecord) -> None: ...
+    def verify_chain(self, trace_id: str) -> object: ...  # ChainVerifyResult (duck-typed)
+    def list_traces(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> list[dict]: ...
+    def count_traces(
+        self,
+        *,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> int: ...
+    def get_trace_records(self, trace_id: str) -> list[dict]: ...
 
 
 @runtime_checkable
