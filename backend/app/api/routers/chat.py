@@ -115,6 +115,9 @@ async def get_events(
 
     return StreamingResponse(
         _event_source(),
-        media_type="text/event-stream",
+        # SSE UTF-8 显式声明（X A7）：EventBus yield 含中文（justification / reason /
+        # natural_language.text），未声明 charset 时浏览器按 Latin-1 解码会乱码。
+        # 字节流本身 UTF-8，由 StreamingResponse 按 charset=utf-8 写入 Content-Type。
+        media_type="text/event-stream; charset=utf-8",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
