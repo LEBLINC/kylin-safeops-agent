@@ -464,26 +464,37 @@ export const useChatStore = defineStore('chat', {
     },
 
     /**
-     * 根据 verified.summary 创建 AI 消息，并按“更自然”的节奏逐步追加。
+     * 创建/复用 assistant 消息，按打字机节奏逐步追加文本。
      *
-     * 优化点：
-     * 1. 长段文本前半段更快，减少机械感；
-     * 2. 遇到逗号、句号等标点时稍作停顿，更接近自然输出；
-     * 3. 使用递归 setTimeout，便于动态控制每一步速度。
+     * 复用场景：verified 先到（summary=”ok”，打字机极快），natural_language
+     * 紧接着到（携带真实 LLM 文本）。本方法检测同 trace 已有 assistant 消息时
+     * 就地重置，避免出现两条 assistant 消息。
      */
     startAssistantTyping(traceId: string, fullText: string) {
       const sessionId = this.sessionIdForTrace(traceId)
       this.stopAssistantTyping(traceId)
-      const messageId = uid('msg_typing')
       this.messagesBySession[sessionId] ||= []
-      this.messagesBySession[sessionId].push({
-        id: messageId,
-        role: 'assistant',
-        content: '',
-        status: 'streaming',
-        created_at: nowIso(),
-        trace_id: traceId
-      })
+
+      // 同 trace 已有 assistant 消息则复用（natural_language 替换 verified 的 “ok”）
+      const existing = [...this.messagesBySession[sessionId]].reverse().find(
+        (m: ChatMessage) => m.role === 'assistant' && m.trace_id === traceId && (m.status === 'streaming' || m.status === 'done')
+      )
+      let messageId: string
+      if (existing) {
+        existing.content = ''
+        existing.status = 'streaming'
+        messageId = existing.id
+      } else {
+        messageId = uid('msg_typing')
+        this.messagesBySession[sessionId].push({
+          id: messageId,
+          role: 'assistant',
+          content: '',
+          status: 'streaming',
+          created_at: nowIso(),
+          trace_id: traceId
+        })
+      }
 
       let index = 0
       const tick = () => {
@@ -573,6 +584,14 @@ export const useChatStore = defineStore('chat', {
 
       if (event.type === 'rca') {
         this.rcaReportByTrace[traceId] = (event.data.report as RcaReport) || null
+      }
+
+      if (event.type === 'natural_language') {
+        const nlData = event.data as { text: string; sensitive_filtered: boolean }
+        const fullText = nlData.sensitive_filtered
+          ? nlData.text + '\n(已过滤敏感字段)'
+          : nlData.text
+        this.startAssistantTyping(traceId, fullText)
       }
 
       if (event.type === 'verified') {

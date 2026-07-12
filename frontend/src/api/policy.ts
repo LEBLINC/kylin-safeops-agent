@@ -32,10 +32,13 @@ import type { PolicyEvent, PolicyRule } from '@/types/policy'
  * - PolicyEvent[]
  * - 每条包含 rule_id、decision、risk_level、reason、safer_alternative 等字段。
  */
-export function getPolicyEvents(traceId?: string) {
-  return request.get<PolicyEvent[], PolicyEvent[]>('/api/policy/events', {
+export async function getPolicyEvents(traceId?: string): Promise<PolicyEvent[]> {
+  const data: any = await request.get('/api/policy/events', {
     params: { trace_id: traceId }
   })
+  // 后端返回 { items: [...], total: N }
+  const raw = data?.items || data || []
+  return Array.isArray(raw) ? raw : []
 }
 
 /**
@@ -58,8 +61,21 @@ export function getPolicyEvents(traceId?: string) {
  * - 规则数据不属于 stream.py 事件流字段；
  * - 规则字段来自安全策略引擎，需要和 D/L 后端模块单独对齐。
  */
-export function getPolicyRules() {
-  return request.get<PolicyRule[], PolicyRule[]>('/api/policy/rules')
+export async function getPolicyRules(): Promise<PolicyRule[]> {
+  const data: any = await request.get('/api/policy/rules')
+  // 后端返回 { rules: [...], version: N }，前端只消费 rules 数组
+  const raw = data?.rules || data || []
+  const list: PolicyRule[] = Array.isArray(raw) ? raw : []
+  return list.map((item: any) => ({
+    rule_id: item.id || item.rule_id || '',
+    name: item.name || '',
+    description: item.description || '',
+    severity: item.severity || '',
+    action: item.action || 'allow',
+    reason: item.reason || '',
+    approval_role: item.approval_role ?? null,
+    safer_alternative: item.safer_alternative ?? null
+  }))
 }
 
 /**
@@ -75,6 +91,9 @@ export function getPolicyRules() {
  * 返回数据建议：
  * - R0/R1/R2/R3/R4 对应名称、说明、处置策略、颜色。
  */
-export function getRiskLevels() {
-  return request.get('/api/policy/risk-levels')
+export async function getRiskLevels(): Promise<any[]> {
+  const data: any = await request.get('/api/policy/risk-levels')
+  // 后端返回 { items: [...] }
+  const raw = data?.items || data || []
+  return Array.isArray(raw) ? raw : []
 }

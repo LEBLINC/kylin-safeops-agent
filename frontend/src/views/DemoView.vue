@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import PageHeader from '@/layouts/PageHeader.vue'
 import PageSection from '@/components/PageSection.vue'
 import RiskTag from '@/components/RiskTag.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { cleanupDemoScenario, prepareDemoScenario, runDemoScenario } from '@/api/demo'
+import { isMockEnabled } from '@/api/mock'
 import { ElMessage } from 'element-plus'
 
 /**
@@ -13,27 +15,14 @@ import { ElMessage } from 'element-plus'
  *
  * 页面作用：
  * - 为比赛演示提供一键准备/启动/清理入口；
- * - 覆盖磁盘满、僵尸进程、提示词注入、配置漂移四类场景；
- * - 让演示过程稳定可重复。
+ * - 覆盖五道安全闸的端到端演示；
+ * - 展示每次演示的状态、事件类型、审计校验结果。
  *
  * 数据来源：
- * - 当前场景列表写在前端页面中；
- * - 按钮操作调用 api/demo.ts 中的 REST 接口。
- *
- * 注意：
- * - 这些接口应只在开发/演示环境启用；
- * - 生产环境不要暴露制造故障或清理数据的接口。
+ * - 后端 scripts/demo_stage4_e2e.py _SCENARIOS（A-E）；
+ * - 按钮操作调用 api/demo.ts 中的 REST 接口，展示返回结果。
  */
 
-/**
- * 演示场景列表。
- *
- * 字段说明：
- * @field id 场景 ID，会作为接口参数 scenario 传给后端。
- * @field title 场景标题。
- * @field risk 场景预期风险等级，用于 RiskTag 展示。
- * @field desc 场景说明，描述会触发哪些工具和安全逻辑。
- */
 /** 风险等级 → 卡片配色映射（同 ToolsView）。 */
 const riskGradients: Record<string, { card: string; hover: string; icon: string; shadow: string }> = {
   R0: {
@@ -90,74 +79,141 @@ function toolCardStyle(risk: string) {
   }
 }
 
+/**
+ * 演示场景列表（与后端 scripts/demo_stage4_e2e.py _SCENARIOS 对齐）。
+ *
+ * 后端只用 A/B/C/D/E 字母码（F 跳过防破坏审计）。
+ */
 const scenarios = [
-  {
-    id: 'disk_full',
-    title: '磁盘满安全清理',
-    risk: 'R2',
-    desc: '生成大日志，触发 disk.usage、large_files、lsof 与日志轮转审批'
-  },
-  {
-    id: 'zombie_process',
-    title: '僵尸进程根因分析',
-    risk: 'R1',
-    desc: '制造 Z 进程，追溯 PPID，不直接 kill 僵尸进程'
-  },
-  {
-    id: 'prompt_injection',
-    title: '提示词注入拦截',
-    risk: 'R4',
-    desc: '在日志中预埋恶意指令，验证结果闸与策略引擎'
-  },
-  {
-    id: 'config_drift',
-    title: '配置漂移检测',
-    risk: 'R3',
-    desc: '制造 sshd_config 漂移，禁止自动覆盖，进入人工确认'
-  }
+  { id: 'A', title: '输入闸 deny（注入红队）', risk: 'R4', desc: '提示词注入 → 输入闸拦截，验证 PI001 规则生效' },
+  { id: 'B', title: '策略闸 deny（FILE001）', risk: 'R4', desc: '敏感文件访问 → 策略闸 deny，验证 FILE001 规则生效' },
+  { id: 'C', title: '确认闸 resume R3（service.restart）', risk: 'R3', desc: '重启服务 → R3 需 admin 审批，验证确认闸 + resume 全流程' },
+  { id: 'D', title: '确认闸 resume R2（log.compress_rotate）', risk: 'R2', desc: '日志轮转 → R2 需 operator 审批，验证可逆变更确认流程' },
+  { id: 'E', title: '结果闸 + 审计闸', risk: 'R2', desc: '工具输出 is_untrusted 标注 + 审计链完整性校验' }
 ]
+
+/** 每个 scenario 的演示结果（最后一次 run 的返回）。 */
+const results = ref<Record<string, any>>({})
+/** 正在执行的操作：scenario → action。 */
+const running = ref<Record<string, string>>({})
+
+/** demo 状态 → StatusTag status 映射。 */
+function demoStatus(scenarioId: string): string {
+  const r = results.value[scenarioId]
+  if (!r) return 'pending'
+  const state = r.state || r.raw?.state || ''
+  if (state === 'REJECTED') return 'rejected'
+  if (state === 'FINISHED') return 'success'
+  return 'running'
+}
+
+/** 演示结果中的关键指标。 */
+function resultHighlights(result: any) {
+  const raw = result?.raw || {}
+  return {
+    state: result?.state || raw.state || '-',
+    eventTypes: raw.event_types || [],
+    eventCount: raw.event_types?.length || 0,
+    auditSeqCount: raw.audit_seq_count ?? 0,
+    verifyValid: raw.verify_chain?.valid,
+    verifyCount: raw.verify_chain?.record_count ?? 0,
+    inputGate: raw.input_gate || null,
+    rejectedCause: result?.rejected_cause || raw.rejected_cause || '',
+    verifiedSummary: result?.verified_summary || ''
+  }
+}
 
 /**
  * 执行演示场景操作。
  *
- * @param action 操作类型：prepare 准备数据、run 开始演示、cleanup 清理数据。
- * @param scenario 场景 ID，例如 disk_full。
- *
- * 调用链：
- * 按钮点击
- *   → run(action, scenario)
- *   → api/demo.ts 对应接口
- *   → 后端执行演示脚本
- *
- * 失败处理：
- * - 后端暂不可用时给出前端演示模式提示。
+ * @param action 操作类型：prepare / run / cleanup。
+ * @param scenario 场景 ID（A-E）。
  */
 async function run(action: 'prepare' | 'run' | 'cleanup', scenario: string) {
+  running.value[scenario] = action
   try {
-    if (action === 'prepare') await prepareDemoScenario(scenario)
-    if (action === 'run') await runDemoScenario(scenario)
-    if (action === 'cleanup') await cleanupDemoScenario(scenario)
-    ElMessage.success('操作已提交')
-  } catch {
-    ElMessage.info('后端暂不可用：当前为前端演示模式')
+    let data: any
+    if (action === 'prepare') {
+      data = await prepareDemoScenario(scenario)
+      ElMessage.success(`场景 ${scenario} 准备就绪`)
+    }
+    if (action === 'run') {
+      data = await runDemoScenario(scenario)
+      results.value[scenario] = data
+      const h = resultHighlights(data)
+      const parts: string[] = [`状态: ${h.state}`]
+      if (h.eventTypes.length) parts.push(`事件: ${h.eventTypes.join(' → ')}`)
+      if (h.verifyValid !== undefined) parts.push(`审计链: ${h.verifyValid ? '✅ 完整' : '❌ 异常'}`)
+      ElMessage.success(parts.join('  |  '))
+    }
+    if (action === 'cleanup') {
+      data = await cleanupDemoScenario(scenario)
+      results.value[scenario] = undefined
+      ElMessage.success(`场景 ${scenario} 已清理`)
+    }
+  } catch (e: any) {
+    if (isMockEnabled()) {
+      ElMessage.info('后端暂不可用：当前为前端演示模式')
+    } else {
+      ElMessage.error(e?.message || '演示场景操作失败，请检查后端服务状态')
+    }
+  } finally {
+    delete running.value[scenario]
   }
 }
 </script>
 
 <template>
   <div class="ks-page">
-    <PageHeader title="演示场景" subtitle="比赛演示用：四个场景 + 安全拦截 + 审计回溯" />
+    <PageHeader title="演示场景" subtitle="五道安全闸端到端演示：A 输入闸 → B 策略闸 → C/D 确认闸 → E 结果+审计闸" />
 
     <div class="demo-grid">
-      <PageSection v-for="item in scenarios" :key="item.id" class="demo-card" :style="toolCardStyle(item.risk)" :title="item.title" :subtitle="item.desc">
+      <PageSection
+        v-for="item in scenarios"
+        :key="item.id"
+        class="demo-card"
+        :style="toolCardStyle(item.risk)"
+        :title="`${item.id} · ${item.title}`"
+        :subtitle="item.desc"
+      >
         <div class="meta">
           <RiskTag :level="item.risk" />
-          <StatusTag status="pending" />
+          <StatusTag :status="demoStatus(item.id)" />
         </div>
+
+        <!-- 演示结果 -->
+        <div v-if="results[item.id]" class="result-bar">
+          <template v-for="hl in [resultHighlights(results[item.id])]" :key="item.id">
+            <div class="result-row">
+              <span class="result-label">状态</span>
+              <el-tag
+                :type="hl.state === 'REJECTED' ? 'danger' : hl.state === 'FINISHED' ? 'success' : 'info'"
+                size="small"
+              >{{ hl.state }}</el-tag>
+              <span v-if="hl.auditSeqCount" class="result-label">审计记录</span>
+              <span v-if="hl.auditSeqCount" class="result-value">{{ hl.auditSeqCount }} 条</span>
+              <span v-if="hl.verifyValid !== undefined" class="result-label">审计链</span>
+              <el-tag
+                v-if="hl.verifyValid !== undefined"
+                :type="hl.verifyValid ? 'success' : 'danger'"
+                size="small"
+              >{{ hl.verifyValid ? '✅ 完整' : '❌ 异常' }}</el-tag>
+            </div>
+            <div v-if="hl.eventTypes.length" class="result-row">
+              <span class="result-label">事件流</span>
+              <el-tag v-for="et in hl.eventTypes" :key="et" size="small" effect="plain" class="event-chip">{{ et }}</el-tag>
+            </div>
+            <div v-if="hl.inputGate" class="result-row">
+              <span class="result-label">输入闸</span>
+              <span class="result-value">{{ hl.inputGate.category || '-' }} / {{ hl.inputGate.pattern_id || '-' }}</span>
+            </div>
+          </template>
+        </div>
+
         <div class="actions">
-          <el-button @click="run('prepare', item.id)">准备数据</el-button>
-          <el-button type="primary" @click="run('run', item.id)">开始演示</el-button>
-          <el-button type="danger" plain @click="run('cleanup', item.id)">清理数据</el-button>
+          <el-button size="small" :loading="running[item.id] === 'prepare'" @click="run('prepare', item.id)">准备数据</el-button>
+          <el-button size="small" type="primary" :loading="running[item.id] === 'run'" @click="run('run', item.id)">开始演示</el-button>
+          <el-button size="small" type="danger" plain :loading="running[item.id] === 'cleanup'" @click="run('cleanup', item.id)">清理数据</el-button>
         </div>
       </PageSection>
     </div>
@@ -191,5 +247,36 @@ async function run(action: 'prepare' | 'run' | 'cleanup', scenario: string) {
   background: var(--tool-card-hover-gradient);
   border-color: rgba(59, 130, 246, 0.28);
   box-shadow: 0 16px 40px var(--tool-card-shadow);
+}
+.result-bar {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.result-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.result-label {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+  min-width: 48px;
+}
+.result-value {
+  font-size: 13px;
+  color: #1e293b;
+  font-weight: 500;
+}
+.event-chip {
+  font-size: 11px;
+  font-family: monospace;
 }
 </style>
