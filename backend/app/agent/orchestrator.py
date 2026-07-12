@@ -35,7 +35,7 @@ from backend.app.contracts.untrusted import ToolResult
 from backend.app.llm.adapter import LLMAdapter, Message
 from backend.app.llm.feedback import wrap_many_for_feedback
 from backend.app.mcp.gateway import MCPGateway
-from backend.app.security.injection_detector import detect_injection
+from backend.app.security.injection_detector import detect_injection, detect_tool_output_injection
 
 # 裁决严格度排序：deny 最严，allow 最宽。聚合多候选工具时取最严。
 _DECISION_RANK: dict[Decision, int] = {"allow": 0, "confirm": 1, "deny": 2}
@@ -98,6 +98,8 @@ class Orchestrator:
         self._pending_approval_role: str | None = None
         # 累积本次请求的所有不可信结果（观测+执行），供 RCA 接入点使用
         self._evidence: list[ToolResult] = []
+        # 用户原始意图（持久化供 _execute_batch 末尾 LLM.summarize 调用；不落 SSE）
+        self._user_intent: str = ""
 
     @property
     def pending_approval_role(self) -> str | None:
@@ -154,6 +156,7 @@ class Orchestrator:
         """
         # RECEIVED：仅审计，无独立前端事件
         self._append_audit({"user_intent": user_intent})
+        self._user_intent = user_intent  # 持久化供 _execute_batch 末尾 LLM.summarize 使用
 
         # 输入闸（D-10）：LLM 看到输入【之前】做确定性提示注入检测。防御纵深——只增限制、
         # 不授信任、不短路下游任何闸；检测放行 ≠ 信任输入，策略/审批闸照常。
@@ -446,6 +449,14 @@ class Orchestrator:
             {"summary": "ok" if all_ok else "one or more tools exited non-zero"},
         )
 
+        # 自然语言总结（verified 后 LLM 调 tool_results 生成，仅前端聊天区展示）：
+        # - 间接注入防御纵深（决策⑫扩展接口）：summarize 前先调 detect_tool_output_injection 全量扫 tool_results；
+        #   拦下 → 不 emit natural_language + 仅 audit 一行（不可信，不进 SSE；S3 字节级不动）；
+        #   放行 → emit natural_language {text, sensitive_filtered}；
+        # - LLM 调失败（超时/异常）：仅 log warn，不阻断 FINISHED 状态机
+        #   （S8 fail-closed 不杀状态机，前端仍可见 verified/tool_result 推断结论）。
+        await self._emit_natural_language(results)
+
         # RCA 接入点（手册 D15）：把累积证据交给注入的 RCAEngine（默认 NullRCA→空报告），
         # 非空则 emit 契约6 "rca" 事件。RCA 真实编排归 X，本处仅调起。
         report = self._rca.analyze(self._evidence)
@@ -455,3 +466,56 @@ class Orchestrator:
         self._goto(State.FINISHED)
         self._append_audit({"verify_result": "ok" if all_ok else "non_zero"})
         return self.state
+
+    async def _emit_natural_language(self, results: list[ToolResult]) -> None:
+        """verified 后调 LLM.summarize 生成自然语言总结（仅前端聊天区展示）。
+
+        流程：
+        1) 间接注入防御纵深（决策⑫扩展接口）：拼接 tool_results 文本，
+           调 detect_tool_output_injection 扫一遍；命中 high → 不 emit natural_language
+           + 仅 audit 一行（不可信，不进 SSE；S3 哈希链不动）。
+        2) 放行 → 调 LLM.summarize（fake 返固定 "已完成:<tools>" / 真 LLM 走 httpx）。
+           超时/异常 → 仅 log warn，**不阻断 FINISHED 状态机**（S8 fail-closed 不杀状态机）。
+        3) emit natural_language {text, sensitive_filtered} → 前端 SSE 透传到聊天区。
+        """
+        import logging
+
+        log = logging.getLogger(__name__)
+
+        # 1) 间接注入防御纵深：扫描 tool_results 拼接文本
+        joined_text = "\n".join(
+            f"[{r.tool}] exit={r.exit_code} stdout={r.stdout_truncated}" for r in results
+        )
+        finding = detect_tool_output_injection(joined_text)
+        if finding is not None:
+            self._append_audit(
+                {
+                    "natural_language_gate": "deny",
+                    "category": finding.category,
+                    "pattern_id": finding.pattern_id,
+                    "reason": finding.reason,
+                }
+            )
+            return  # 不 emit natural_language，前端从 SSE 收不到未审自然语言
+
+        # 2) LLM.summarize 调用
+        tool_results_dict = [r.model_dump() for r in results]
+        try:
+            summary = await self._llm.summarize(
+                tool_results=tool_results_dict,
+                user_intent=self._user_intent,
+            )
+        except (httpx.HTTPError, RuntimeError, TimeoutError) as exc:
+            # S8 fail-closed 不杀状态机：仅 log warn，不阻断 FINISHED
+            log.warning(
+                "natural_language summarize failed (S8 fail-closed 兜底): %s",
+                type(exc).__name__,
+            )
+            return
+
+        if summary is None:
+            # LLM 拒答/超时/无内容 → 不 emit 自然语言（仍 FINISHED，状态机照常）
+            return
+
+        # 3) emit natural_language 事件（仅前端聊天区展示，不进审计哈希链 S3 字节级不动）
+        self._emit("natural_language", {"text": summary, "sensitive_filtered": False})

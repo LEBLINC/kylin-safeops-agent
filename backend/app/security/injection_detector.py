@@ -291,3 +291,46 @@ def detect_injection(user_input: str) -> InjectionFinding | None:
 
     findings.sort(key=lambda f: (_SEVERITY_RANK[f.severity], f.pattern_id))
     return findings[0]
+
+
+# 间接注入防御纵深（决策⑫扩展接口）：tool_output 走 LLM summarize 之前的"留扩展接口"。
+# 仅覆盖 [高风险 + 工具结果场景] 子集以降低 false-positive：
+#   - override_rules / role_hijack / system_prompt_forgery / exfiltration 四类 high 风险全命中；
+#   - command_injection_lure / delimiter_forgery 不命中（工具结果是结构化 stdout/stderr，
+#     误杀"删文件"输出概率高；而 LLM.summarize 喂的更是精简版，限于"全量塞前"语义）；
+#   - 仅当含"忽略" / "ignore" / "act as" / "system prompt" 等高风险显性短语才返回 Finding。
+# 与 detect_injection 共享 _PATTERNS + _preprocess（不变动输入闸语义）；
+# 仅作 LLM.summarize 喂前的纵深防御——拦下后由 orchestrator 不 emit natural_language
+# 事件、仅 audit 一行（不可信不进 SSE），非拦下执行链路。
+def detect_tool_output_injection(tool_result_text: str) -> InjectionFinding | None:
+    """对一条 tool_result 文本（stdout/stderr 拼接）做间接注入检测。
+
+    仅复用 detect_injection 的语义，输入闸上游拦截；None 表示放行。
+    仅 high 风险才返 Finding：避免对合法工具结果（删文件 / chmod 类自然描述）误杀。
+    """
+    if not tool_result_text or not tool_result_text.strip():
+        return None
+
+    text = _preprocess(tool_result_text)
+
+    findings: list[InjectionFinding] = []
+    for category, pattern_id, severity, reason, pattern in _PATTERNS:
+        if severity != "high":
+            continue  # 工具结果拦截仅看 high，避免误杀合法运维输出
+        match = pattern.search(text)
+        if match is not None:
+            findings.append(
+                InjectionFinding(
+                    category=category,
+                    pattern_id=pattern_id,
+                    matched_span=_clip_span(match.group(0)),
+                    severity=severity,
+                    reason=reason,
+                )
+            )
+
+    if not findings:
+        return None
+
+    findings.sort(key=lambda f: (_SEVERITY_RANK[f.severity], f.pattern_id))
+    return findings[0]

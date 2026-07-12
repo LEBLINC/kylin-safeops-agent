@@ -24,6 +24,11 @@ from pydantic import BaseModel, ConfigDict, Field
 #   rejected        -> {"reason": str, "cause": str, "denied_tools": list}
 #                       cause ∈ "injection" | "policy_deny" | "user_reject"
 #   rca             -> {"report": dict}
+#   natural_language -> {"text": str, "sensitive_filtered": bool}
+#                       自然语言总结（验证后 LLM 调 tool_results 生成，仅前端聊天区展示）。
+#                       text 由真 LLM/fake 产出；sensitive_filtered=True 表示 LLM 调前 S9 浅过滤已 REDACTED 敏感字段。
+#                       间接注入防御纵深（决策⑫扩展接口）只 audit 拦下 emit 跳过；前端从不可信 SSE 收不到未审自然语言。
+#                       S3：natural_language 不进 audit 哈希链，仅经 SSE 流式推送（前端聊天区）。
 #   audit_appended  -> {"seq": int, "curr_hash": str}
 #   error           -> {"message": str, "phase": str}
 # 注：rejected 是 REJECTED 终态的显式结论事件（L-6 方案B）——三条 REJECTED 路径
@@ -41,6 +46,7 @@ EventType = Literal[
     "verified",
     "rejected",
     "rca",
+    "natural_language",
     "audit_appended",
     "error",
 ]
