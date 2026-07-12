@@ -9,8 +9,8 @@
   - zombie_processes ← process.list（ps → ProcessList，统计 STAT 以 "Z" 开头的进程数）；✅ 真
   - cpu_usage ← system.cpu_load（vmstat 1 秒采样：100-idle，CpuLoad）；✅ 真（阶段2B）
   - memory_usage ← system.mem_usage（free -b：(total-available)/total，MemUsage）；✅ 真（阶段2B）
-  - services：service.status 需 service_name、不在无参探针列 → 暂空（不硬塞示例服务，backlog）；
-  - tool_calls_today / denied_today：审计计数源未接（backlog）→ 暂置 0。
+  - services（X D3）：审计库 phase=EXECUTED + payload.tool LIKE 'service.%' 去重
+  - tool_calls_today / denied_today（X D3）：审计 phase=EXECUTING/EXECUTED|REJECTED + 今日 COUNT
 data_source 据实（诚实红线）：
   - "real"     —— root_disk/zombie/cpu/memory **四项全部从真实 stdout 还原**（阶段2B 起可达）；
   - "partial"  —— 部分字段已从真实 stdout 还原，其余仍缺真实源（如某探针 127/解析失败）；
@@ -33,13 +33,23 @@ Executor 切真后这是一条"绕审计的真实执行路径"。审阅窗口（
 
 from __future__ import annotations
 
+import json
+import sqlite3
 import time
+from collections.abc import Iterable
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
-from backend.app.api.app import get_gateway
+from backend.app.agent.ports import AuditSink
+from backend.app.api.app import get_audit, get_gateway
 from backend.app.api.deps import verify_token
-from backend.app.api.schemas import SystemOverview
+from backend.app.api.schemas import (
+    OverviewHistoryResponse,
+    ServiceStatus,
+    SystemOverview,
+    SystemStats,
+)
 from backend.app.contracts.intent import CandidateTool
 from backend.app.contracts.untrusted import ToolResult
 from backend.app.mcp.gateway import MCPGateway
@@ -64,6 +74,28 @@ _OVERVIEW_PROBE_TOOLS = (
 #: Executor 切真后对靶机发起真实命令风暴。模块级缓存与 app.py 的 lifespan 单例同模式。
 _OVERVIEW_CACHE_TTL = 5.0  # 秒
 _overview_cache: tuple[float, SystemOverview] | None = None
+
+
+#: hours clamp 上下界（X D1/D5 防单次查全库）
+_MAX_HISTORY_HOURS = 168  # 7 天
+_MIN_HISTORY_HOURS = 1
+
+
+def _today_iso_prefix() -> str:
+    """返回今天 UTC 00:00 的 ISO 字符串前缀（YYYY-MM-DD）。
+
+    审计库 created_at 用 datetime.now(timezone.utc).isoformat()（含 T + 微秒）；
+    用前缀字符串比较 created_at >= 'YYYY-MM-DDT00:00:00+00:00'。
+    """
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _audit_conn(audit: AuditSink) -> sqlite3.Connection | None:
+    """内部：从 AuditSink 拿 sqlite3 连接（与 routers/policy.py 同模式）。
+
+    非 SqliteAuditSink 实现（如测试用 FakeAudit）→ None，调用方按"空"兜底（返回 [] / 0）。
+    """
+    return getattr(audit, "_conn", None)
 
 
 async def _probe_readonly_tools(gateway: MCPGateway) -> dict[str, ToolResult]:
@@ -108,10 +140,56 @@ def _zombie_process_count(plist: ProcessList | None) -> int | None:
     return sum(1 for p in plist.processes if p.stat.startswith("Z"))
 
 
+def _audit_count_since(conn: sqlite3.Connection, phases: Iterable[str], since_iso: str) -> int:
+    """统计自 since_iso 以来指定 phase 的记录条数（defensive：phases 空返 0）。"""
+    phases_tuple = tuple(phases)
+    if not phases_tuple:
+        return 0
+    placeholders = ",".join("?" for _ in phases_tuple)
+    sql = (
+        f"SELECT COUNT(*) AS c FROM audit_records "
+        f"WHERE phase IN ({placeholders}) AND created_at >= ?"
+    )
+    row = conn.execute(sql, (*phases_tuple, since_iso)).fetchone()
+    return int(row["c"]) if row is not None else 0
+
+
+def _audit_services_recent(conn: sqlite3.Connection, since_iso: str) -> list[str]:
+    """从审计 phase=EXECUTED records 提取 service.* 工具名（distinct），按时间倒序，限 20 条。
+
+    payload 形态：{"tool": "service.restart", "exit_code": 0, ...}（来自 orchestrator._append_audit
+    在 _execute_batch 单工具留痕）。
+    """
+    sql = (
+        "SELECT payload FROM audit_records "
+        "WHERE phase = 'EXECUTED' AND created_at >= ? "
+        "ORDER BY created_at DESC LIMIT 500"
+    )
+    rows = conn.execute(sql, (since_iso,)).fetchall()
+    seen: set[str] = set()
+    out: list[str] = []
+    for row in rows:
+        try:
+            payload = json.loads(row["payload"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        tool_name = str(payload.get("tool", ""))
+        if not tool_name.startswith("service."):
+            continue
+        if tool_name in seen:
+            continue
+        seen.add(tool_name)
+        out.append(tool_name)
+        if len(out) >= 20:
+            break
+    return out
+
+
 @router.get("/overview", response_model=SystemOverview)
 async def get_overview(
     _user: str = Depends(verify_token),
     gateway: MCPGateway = Depends(get_gateway),
+    audit: AuditSink = Depends(get_audit),
 ) -> SystemOverview:
     """系统概览（采集管道经 MCPGateway dispatch 只读工具 + dispatch 解析 + TTL 节流）。
 
@@ -119,6 +197,7 @@ async def get_overview(
     （root_disk←df、zombie←ps、cpu←vmstat、memory←free）；data_source 据实置 real/partial/stub。
     四项全真→real；部分真（探针 127/解析失败）→partial；全无→stub。诚实红线：任一缺真不标 real。
     GAP-1 方案 b：本只读概览路径显式豁免哈希链审计（见模块顶部决策）。
+    X D3 新增：services / tool_calls_today / denied_today 从审计库真填（之前是 0/[] 占位）。
     """
     global _overview_cache  # noqa: PLW0603 模块级 TTL 缓存（与 lifespan 单例同模式）
     now = time.monotonic()
@@ -168,16 +247,123 @@ async def get_overview(
     else:
         data_source = "stub_executor"
 
+    # X D3：从审计库真填 services / tool_calls_today / denied_today
+    today_prefix = _today_iso_prefix()
+    today_iso = f"{today_prefix}T00:00:00+00:00"
+    conn = _audit_conn(audit)
+    if conn is not None:
+        # tool_calls_today：EXECUTING + EXECUTED（每个工具都至少有一条 EXECUTED 留痕，
+        # 口径比单 phase 更稳）；denied_today：REJECTED。
+        tool_calls_today = _audit_count_since(conn, ("EXECUTING", "EXECUTED"), today_iso)
+        denied_today = _audit_count_since(conn, ("REJECTED",), today_iso)
+        services = [
+            ServiceStatus(name=name, status="unknown")
+            for name in _audit_services_recent(conn, today_iso)
+        ]
+    else:
+        tool_calls_today = 0
+        denied_today = 0
+        services = []
+
     overview = SystemOverview(
         cpu_usage=cpu_usage if cpu_usage is not None else 0.0,
         memory_usage=memory_usage if memory_usage is not None else 0.0,
         root_disk_usage=root_disk if root_disk is not None else 0.0,
         zombie_processes=zombies if zombies is not None else 0,
-        tool_calls_today=0,  # 审计计数源未接（backlog）
-        denied_today=0,  # 审计计数源未接（backlog）
-        services=[],  # service.status 需 service_name、不在无参探针列；不硬塞示例服务
+        tool_calls_today=tool_calls_today,
+        denied_today=denied_today,
+        services=services,
         data_source=data_source,
         probed_tools=probed,
     )
     _overview_cache = (now, overview)
     return overview
+
+
+@router.get("/overview/history", response_model=OverviewHistoryResponse)
+async def get_overview_history(
+    hours: int = Query(default=24, ge=_MIN_HISTORY_HOURS, le=_MAX_HISTORY_HOURS),
+    _user: str = Depends(verify_token),
+    audit: AuditSink = Depends(get_audit),
+) -> OverviewHistoryResponse:
+    """X D1 新增：按小时聚合最近 N 小时的 cpu/mem/disk 序列。
+
+    当前审计库未落 overview 探针（方案 b 豁免）→ series 通常为空，
+    前端 sparkline 显示"暂无数据"。一旦后续把概览探针落库（方案 a 改回 / 折中），本端点
+    直接返回非空 series，无需改动。
+    """
+    # 真实场景下应从审计 phase='overview_probe' records 聚合；目前 schema 未存此 phase → 空。
+    # 即便空，hours 字段照实返回（前端可显示窗口长度）。
+    return OverviewHistoryResponse(hours=hours, series=[])
+
+
+@router.get("/stats", response_model=SystemStats)
+async def get_stats(
+    hours: int = Query(default=24, ge=_MIN_HISTORY_HOURS, le=_MAX_HISTORY_HOURS),
+    _user: str = Depends(verify_token),
+    audit: AuditSink = Depends(get_audit),
+) -> SystemStats:
+    """X D5 新增：按窗口聚合 by_tool / by_risk / by_status 三个维度。
+
+    - by_tool：EXECUTING/EXECUTED records payload.tool 字段 COUNT
+    - by_risk：INTENT_PARSED records payload.risk_level 字段 COUNT（R0/R1/R2/R3）
+    - by_status：每个 trace 最后一条 record 的 phase COUNT（FINISHED/REJECTED/WAIT_APPROVAL）
+    """
+    conn = _audit_conn(audit)
+    if conn is None:
+        return SystemStats(hours=hours, by_tool={}, by_risk={}, by_status={})
+    since_iso = f"{(datetime.now(timezone.utc) - _hours_to_timedelta(hours)).isoformat()}"
+
+    # by_tool：聚合 EXECUTING + EXECUTED records（每次工具执行至少一条）
+    sql_by_tool = (
+        "SELECT payload FROM audit_records "
+        "WHERE phase IN ('EXECUTING', 'EXECUTED') AND created_at >= ? "
+        "ORDER BY created_at DESC LIMIT 10000"
+    )
+    by_tool: dict[str, int] = {}
+    for row in conn.execute(sql_by_tool, (since_iso,)).fetchall():
+        try:
+            payload = json.loads(row["payload"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        tool_name = str(payload.get("tool", ""))
+        if not tool_name:
+            continue
+        by_tool[tool_name] = by_tool.get(tool_name, 0) + 1
+
+    # by_risk：INTENT_PARSED payload.risk_level
+    sql_by_risk = (
+        "SELECT payload FROM audit_records "
+        "WHERE phase = 'INTENT_PARSED' AND created_at >= ? "
+        "ORDER BY created_at DESC LIMIT 10000"
+    )
+    by_risk: dict[str, int] = {}
+    for row in conn.execute(sql_by_risk, (since_iso,)).fetchall():
+        try:
+            payload = json.loads(row["payload"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        risk = str(payload.get("risk_level", ""))
+        if not risk:
+            continue
+        by_risk[risk] = by_risk.get(risk, 0) + 1
+
+    # by_status：每 trace 终态 = 该 trace 最后一条 record 的 phase
+    sql_by_status = (
+        "SELECT trace_id, phase FROM audit_records AS r1 "
+        "WHERE seq = (SELECT MAX(seq) FROM audit_records AS r2 WHERE r2.trace_id = r1.trace_id) "
+        "AND created_at >= ?"
+    )
+    by_status: dict[str, int] = {}
+    for row in conn.execute(sql_by_status, (since_iso,)).fetchall():
+        phase = str(row["phase"])
+        by_status[phase] = by_status.get(phase, 0) + 1
+
+    return SystemStats(hours=hours, by_tool=by_tool, by_risk=by_risk, by_status=by_status)
+
+
+def _hours_to_timedelta(hours: int):  # type: ignore[no-untyped-def]
+    """返回 datetime.timedelta(hours=...)（避免顶层 import datetime.timedelta 占用行）。"""
+    import datetime as _dt
+
+    return _dt.timedelta(hours=hours)
