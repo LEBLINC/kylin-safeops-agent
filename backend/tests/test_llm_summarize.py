@@ -182,6 +182,61 @@ def test_real_llm_summarize_timeout_no_emit_no_block() -> None:
     assert "tool_result" in types
 
 
+# ---- T4: S9 守门 — tool_results 含 api_key → 喂 LLM 前 REDACTED ---------------
+
+
+def test_s9_sensitive_fields_redacted_before_llm_feed() -> None:
+    """S9 守门：tool_results 含 api_key / bind_password / secret 等 6 类敏感字段值 →
+    喂 LLM.summarize 前**已 REDACTED**（fake LLM spy 验 input 不含明文值）。
+
+    实现机制：RealLLMClient.summarize 调 _sanitize_for_summary 浅过滤。
+    测试用 RealLLMClient(provider=fixture) + 显式 spy LLM 收到的 user message。
+    """
+    from backend.app.llm.real_client import RealLLMClient, RealLLMConfig
+
+    secret_value = "super-secret-api-key-xyz"
+    bind_value = "ldap-bind-pass-123"
+
+    # 注入含敏感字段的 tool_results（顶层键，_sanitize_for_summary 浅过滤仅看顶层）
+    tool_results = [
+        {
+            "tool": "service.restart",
+            "api_key": secret_value,
+            "bind_password": bind_value,
+            "stdout": "ok",
+        }
+    ]
+
+    # spy: 收集 LLM 收到的 user prompt
+    captured: dict[str, str] = {}
+
+    class _SpyLLMClient(RealLLMClient):
+        async def summarize(self, tr, user_intent):  # noqa: ANN001
+            # 真实 sanitize 后拼 user prompt（与 RealLLMClient.summarize 一致）
+            sanitized = self._sanitize_for_summary(tr)
+            captured["sanitized"] = repr(sanitized)
+            return "spy ok"
+
+    spy = _SpyLLMClient(RealLLMConfig(provider="real", api_key="dummy"))
+
+    async def _run() -> None:
+        await spy.summarize(tool_results, "test intent")
+
+    asyncio.run(_run())
+
+    # S9 守门断言：敏感字段值被 REDACTED
+    sanitized_str = captured["sanitized"]
+    assert (
+        "***REDACTED***" in sanitized_str
+    ), f"sanitized output missing REDACTED marker: {sanitized_str}"
+    assert (
+        secret_value not in sanitized_str
+    ), f"api_key plaintext leaked to LLM feed: {sanitized_str}"
+    assert (
+        bind_value not in sanitized_str
+    ), f"bind_password plaintext leaked to LLM feed: {sanitized_str}"
+
+
 # ---- T3: 间接注入防御纵深 — tool_result 含注入文本 → summarize 前拦下 ---------
 
 

@@ -113,3 +113,4 @@
 **X 工单（T1+T2+T3）已起**：建议分支 `feat/x-sse-whoami-vitest`，2-3 commit 拆开，B1 VM 复证是 PASS 必要条件。
 **基线 dev=`d60e4a7`（2026-07-11 之三十一）**：X P4 SSE done 截胡修复 + Demo/Tools 卡片配色统一合入。L 域 4 Router 工单待下个 L 执行窗口实施。pytest 512/17。
 **基线 dev=`c1e8c51`（未动，2026-07-11 之三十二）**：L 域 4 Router 工单 6 commit 已落地 feat/l-4-router-completion（未合 dev），等另一窗口审阅。pytest 530/17（512+18）。X P4 已合 d60e4a7。
+**基线 dev=`9002e10`（未动，2026-07-12 之三十三）**：L 域 verified 后 LLM 自然语言总结工单已落地 feat/l-verified-natural-language（`db75ca0` stream+orch / `c4c86dc` llm+test / `HEAD` docs+test，未合 dev 待审）。3 commit 含 `natural_language` 事件 + 决策⑫ 间接注入防御纵深 `detect_tool_output_injection` + `LLMAdapter.summarize` + `RealLLMClient.summarize` + S9 浅过滤 `_sanitize_for_summary` 6 类 api_key/authorization/bind_password/secret/token/password → `***REDACTED***`。4 新用例（T1 fake 固定 / T2 timeout 不阻断 / T3 inject 拦下 / T4 S9 spy REDACTED）全 PASS，pytest **534/17**（530 + 4 数学吻合）。真端点 httpx POST 走 `KYLIN_LLM_SUMMARIZE_TIMEOUT=5s` 待 D 在 VM 配 env+密钥实证。
