@@ -387,6 +387,95 @@ class RealLLMClient:
                 "probe_error": type(exc).__name__,
             }
 
+    # ============================================================
+    # 自然语言总结（verified 后调，仅前端聊天区展示）
+    # ============================================================
+
+    # S9 浅过滤黑名单（与 audit_logger._SENSITIVE_KEYS 同口径，阶段0独立维护）：
+    # tool_results dict 内含 api_key / authorization / bind_password / secret /
+    # token / password 这 6 类字段值调 LLM 前浅替换为 "***REDACTED***"；
+    # key 名原样保留（非凭据）。
+    _SENSITIVE_KEYS: frozenset[str] = frozenset(
+        {"api_key", "authorization", "bind_password", "secret", "token", "password"}
+    )
+
+    @staticmethod
+    def _sanitize_for_summary(tool_results: list[dict]) -> list[dict]:
+        """S9 浅过滤 tool_results：6 类敏感字段值替换 ***REDACTED*** 后再喂 LLM。
+
+        仅做 shallow dict 浅替换（顶层 key 命中即替换值；嵌套 dict/list 不递归——LLM 看 stdout
+        摘要即可，工具结果里嵌套敏感值（如 args.api_key）已被 tool_args 闸/结果闸拦在 LLM 之前）。
+        """
+        if not tool_results:
+            return tool_results
+        sanitized: list[dict] = []
+        for item in tool_results:
+            if not isinstance(item, dict):
+                sanitized.append(item)
+                continue
+            redacted = {
+                k: ("***REDACTED***" if k.lower() in RealLLMClient._SENSITIVE_KEYS else v)
+                for k, v in item.items()
+            }
+            sanitized.append(redacted)
+        return sanitized
+
+    async def summarize(self, tool_results: list[dict], user_intent: str) -> str | None:
+        """真 LLM 自然语言总结（verified 后调，前端聊天区展示）。
+
+        行为：
+        - fixture 模式 → 返 "已完成:<tool_names>"（与 fake _fake_summary_fn 同口径，便于联调）
+        - real 模式 → S9 浅过滤后 → 调 httpx POST /chat/completions（独立 timeout）；
+          返回 str（LLM 输出）或 None（拒答 / 超时 / 异常）—— 由 orchestrator 决定 emit 是否，
+          **不阻断** FINISHED 状态机（S8 fail-closed 不杀状态机）。
+        - timeout 由 KYLIN_LLM_SUMMARIZE_TIMEOUT 覆盖（默认 5s）
+        """
+        summarize_timeout = float(_env_or("KYLIN_LLM_SUMMARIZE_TIMEOUT", "5"))
+        sanitized = self._sanitize_for_summary(tool_results)
+
+        if self.is_fixture:
+            # fixture 也走 sanity 浅过滤后再固定排序输出（与 _fake_summary_fn 同结果）
+            if not sanitized:
+                return "已完成:（无工具结果）"
+            names = sorted({str(r.get("tool", "?")) for r in sanitized if isinstance(r, dict)})
+            return f"已完成:{','.join(names)}"
+
+        # 真端点
+        system_prompt = (
+            "你是运维总结员，将工具执行结果归纳为一段话给用户。"
+            "**绝不输出任何凭据**，S9 已被前置过滤。"
+        )
+        user_prompt = (
+            "工具结果:\n"
+            + json.dumps(sanitized, ensure_ascii=False, indent=2)
+            + "\n\n用户意图:\n"
+            + user_intent
+        )
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        headers = {"Content-Type": "application/json"}
+        if self.config.api_key:
+            headers["Authorization"] = f"Bearer {self.config.api_key}"
+        body = {
+            "model": self.config.model,
+            "messages": messages,
+            "temperature": 0.1,
+            "max_tokens": 256,
+        }
+        url = self.config.base_url.rstrip("/") + "/chat/completions"
+        try:
+            async with httpx.AsyncClient(timeout=summarize_timeout) as client:
+                resp = await client.post(url, json=body, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"]
+            return str(content) if content else None
+        except (httpx.HTTPError, KeyError, IndexError, TimeoutError):
+            # 拒答 / 超时 / 协议异常 → None，orchestrator 不 emit 不阻断 FINISHED
+            return None
+
 
 __all__ = [
     "CompletionFn",

@@ -450,7 +450,8 @@ class Orchestrator:
         )
 
         # 自然语言总结（verified 后 LLM 调 tool_results 生成，仅前端聊天区展示）：
-        # - 间接注入防御纵深（决策⑫扩展接口）：summarize 前先调 detect_tool_output_injection 全量扫 tool_results；
+        # - 间接注入防御纵深（决策⑫扩展接口）：summarize 前先调
+        #   detect_tool_output_injection 全量扫 tool_results；
         #   拦下 → 不 emit natural_language + 仅 audit 一行（不可信，不进 SSE；S3 字节级不动）；
         #   放行 → emit natural_language {text, sensitive_filtered}；
         # - LLM 调失败（超时/异常）：仅 log warn，不阻断 FINISHED 状态机

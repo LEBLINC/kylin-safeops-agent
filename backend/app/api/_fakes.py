@@ -220,6 +220,21 @@ def _last_user_content(messages: list[Message]) -> str:
     return ""
 
 
+async def _fake_summary_fn(tool_results: list[dict], user_intent: str) -> str | None:
+    """fake 自然语言总结（确定性，CI 友好，async 与 LLMAdapter.SummaryFn 契约一致）。
+
+    输出 "已完成:<tool_names>"（与 LLMAdapter._default_summary_fn 同款），
+    之所以单独存在是为了让 _fakes.build_fake_llm 的语义显式："fake 桩对外可见
+    的 summarize 行为是固定的"，便于测试断言。async 包装是为了适配
+    backend.app.llm.adapter.SummaryFn 的 Awaitable[str | None] 类型别名，
+    即便内部不需要 IO 也走 await；真 LLM.summarize 同样签名。
+    """
+    if not tool_results:
+        return "已完成:（无工具结果）"
+    names = sorted({str(r.get("tool", "?")) for r in tool_results if isinstance(r, dict)})
+    return f"已完成:{','.join(names)}"
+
+
 def _intent_for_message(content: str) -> str:
     """按关键词选 fake 意图（不再写死 service_name/path；解析 user message 提取）。
 
@@ -290,8 +305,10 @@ def build_fake_llm(intent_json: str | None = None) -> LLMAdapter:
 
     - 显式传 intent_json：completion_fn 永远返回它（测试用固定意图）。
     - 不传：按最后一条 user 消息关键词选意图（任务丁）——含"重启/restart"→ service.restart(R3,
-      confirm/admin)；含"压缩/轮转/rotate/清日志"→ log.compress_rotate(R2, confirm/operator)；
+      confirm/admin）；含"压缩/轮转/rotate/清日志"→ log.compress_rotate(R2, confirm/operator)；
       其它 → system.info(R0, allow)。使状态机能真实进 WAIT_APPROVAL，解 X 审批联调阻塞。
+    - summary_fn：固定 _fake_summary_fn → "已完成:<tool_names>"；真 LLM 由
+      D VM 在 D-side 接入后改 RealLLMClient.summarize_fn 注入本 LLMAdapter。
     """
     if intent_json is not None:
         payload = intent_json
@@ -299,9 +316,9 @@ def build_fake_llm(intent_json: str | None = None) -> LLMAdapter:
         async def _fixed_completion(messages: list[Message]) -> str:
             return payload
 
-        return LLMAdapter(completion_fn=_fixed_completion)
+        return LLMAdapter(completion_fn=_fixed_completion, summary_fn=_fake_summary_fn)
 
     async def _keyword_completion(messages: list[Message]) -> str:
         return _intent_for_message(_last_user_content(messages))
 
-    return LLMAdapter(completion_fn=_keyword_completion)
+    return LLMAdapter(completion_fn=_keyword_completion, summary_fn=_fake_summary_fn)

@@ -37,6 +37,12 @@ CompletionFn: TypeAlias = Callable[[list[Message]], Awaitable[str]]
 # 可注入的流式补全函数：输入消息列表，异步产出文本增量片段。
 StreamFn: TypeAlias = Callable[[list[Message]], AsyncIterator[str]]
 
+# 可注入的自然语言总结函数：输入 (tool_results, user_intent) 返回 str | None。
+# 返 None 表示 LLM 拒答/超时/无内容（前端聊天区不显示自然语言，状态机照常 FINISHED）。
+# 默认实现见 LLMAdapter._default_summary_fn（确定性、CI 友好）；真 LLM 路径由 LLMAdapter
+# 装配时通过 summary_fn=RealLLMClient.summarize_fn 注入（D VM evidence 后接）。
+SummaryFn: TypeAlias = Callable[[list[dict], str], Awaitable[str | None]]
+
 
 @dataclass
 class LLMConfig:
@@ -165,10 +171,15 @@ class LLMAdapter:
         completion_fn: CompletionFn | None = None,
         stream_fn: StreamFn | None = None,
         tool_specs: list[ToolSpec] | None = None,
+        summary_fn: SummaryFn | None = None,
     ) -> None:
         self.config = config or LLMConfig()
         self._completion_fn = completion_fn or self._default_completion
         self._stream_fn = stream_fn or self._default_stream
+        # 自然语言总结函数（verified 后调，间接注入防御纵深由 orchestrator 拦）
+        # 默认 _default_summary_fn：确定性 "已完成:<tool_names>"，CI 友好；真 LLM
+        # 路径通过 summary_fn=RealLLMClient.summarize_fn 注入（D VM 接入后）。
+        self._summary_fn = summary_fn or self._default_summary_fn
         # 工具清单（O18）：注入 system prompt 让真 LLM 知道每个工具的 input_schema。
         # None 时退化为旧行为（仅信封 schema）；fixture 靠关键词硬编码不依赖此项。
         self._tool_specs = tool_specs
@@ -264,3 +275,27 @@ class LLMAdapter:
         ]
         async for piece in self._stream_fn(convo):
             yield piece
+
+    async def _default_summary_fn(self, tool_results: list[dict], user_intent: str) -> str | None:
+        """默认自然语言总结实现（确定性，CI 友好）。
+
+        把 tool_results 里的工具名去重排序，输出 "已完成:<tool_names>"。
+        真实 LLM 路径走 summary_fn 注入（RealLLMClient.summarize / fake _fake_summary_fn）。
+        """
+        # 防御性：tool_results 可能是 None / 空，单测覆盖
+        if not tool_results:
+            return "已完成:（无工具结果）"
+        names = sorted({str(r.get("tool", "?")) for r in tool_results if isinstance(r, dict)})
+        return f"已完成:{','.join(names)}"
+
+    async def summarize(self, tool_results: list[dict], user_intent: str) -> str | None:
+        """自然语言总结接口（verified 后调，仅前端聊天区展示）。
+
+        返回 None 表示 LLM 拒答/超时/无内容；orchestrator 不 emit natural_language 事件，
+        但状态机照常 FINISHED（S8 fail-closed 不杀状态机）。
+        间接注入防御纵深由 orchestrator 在调本方法**之前**先跑 detect_tool_output_injection，
+        LLM 喂的 tool_results 已 S9 浅过滤 + 不可信（is_untrusted）封装。
+        """
+        if self._summary_fn is None:
+            return None
+        return await self._summary_fn(tool_results, user_intent)
