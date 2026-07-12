@@ -273,6 +273,23 @@ class ToolCallResponse(BaseModel):
     reason: str = Field(default="", description="未执行原因")
 
 
+class ToolCallDetail(BaseModel):
+    """GET /api/tools/calls/{call_id} 响应体（X D6 新增）。
+
+    call_id 在 MVP 阶段视为 trace_id：返回该 trace 最后一条 EXECUTING/EXECUTED
+    记录的派生物（tool 名 + args + exit_code + timestamp）。
+    返回 None 字段表示该 trace 没找到对应阶段记录。
+    """
+
+    call_id: str = Field(..., description="call_id（MVP=trace_id；后续可扩展 seq 定位）")
+    trace_id: str = Field(..., description="所属 trace_id")
+    seq: int = Field(..., description="该 call 在 trace 中的 seq")
+    tool_name: str = Field(..., description="工具名（payload.tool）")
+    args: dict = Field(default_factory=dict, description="工具参数（payload.args）")
+    exit_code: int = Field(..., description="工具退出码（payload.exit_code）")
+    timestamp: float = Field(..., description="epoch 秒（从 created_at 解析）")
+
+
 # ---- sessions ------------------------------------------------------------
 
 
@@ -331,9 +348,19 @@ class SystemOverview(BaseModel):
         ..., description="根分区使用率（百分比）；任务戊由 df 真实解析（未采集时 0.0）"
     )
     zombie_processes: int = Field(..., description="僵尸进程数；任务戊由 ps 真实统计（未采集时 0）")
-    tool_calls_today: int = Field(..., description="今日工具调用次数")
-    denied_today: int = Field(..., description="今日被策略拒绝次数")
-    services: list[ServiceStatus] = Field(default_factory=list, description="关键服务状态列表")
+    tool_calls_today: int = Field(
+        default=0,
+        description="今日工具调用次数（X D3 真填）：审计 EXECUTING/EXECUTED + 今天 00:00 起 COUNT",
+    )
+    denied_today: int = Field(
+        default=0,
+        description="今日被拒绝次数（X D3 真填）：审计 phase=REJECTED + 今天 00:00 起 COUNT",
+    )
+    services: list[ServiceStatus] = Field(
+        default_factory=list,
+        description="关键服务状态列表（X D3 真填）：从审计 phase=EXECUTED 派生，"
+        "按 tool_name LIKE 'service.%' 前缀过滤 + 去重",
+    )
     # 任务D/戊：数据来源态显式标注（防桩数据冒充真数据，审计/诚实红线）。
     # "stub_executor"=无任何字段从真实 stdout 还原；"partial"=部分字段（disk/zombie）已真、
     # 其余仍缺真实源；"real"=全部上报数值均从真实 stdout 还原（cpu/memory 缺源前不可达）。
@@ -350,6 +377,55 @@ class SystemOverview(BaseModel):
     )
 
 
+# ---- /api/system/overview/history -------------------------------------------
+
+
+class OverviewHistoryPoint(BaseModel):
+    """/api/system/overview/history 单个时间点。"""
+
+    ts: float = Field(..., description="epoch 秒（小时桶起点）")
+    cpu: float = Field(..., description="CPU 使用率（百分比）；缺源时 0.0")
+    mem: float = Field(..., description="内存使用率（百分比）；缺源时 0.0")
+    disk: float = Field(..., description="根分区使用率（百分比）；缺源时 0.0")
+
+
+class OverviewHistoryResponse(BaseModel):
+    """GET /api/system/overview/history 响应体（X D1 新增）。
+
+    按小时聚合最近 N 小时（默认 24 / max 168）的 cpu/mem/disk 指标；
+    当前审计库未落 overview 探针 → series 通常为空（前端 sparkline 显示"暂无数据"）。
+    """
+
+    hours: int = Field(..., description="回看窗口小时数（已 clamp 到 1..168）")
+    series: list[OverviewHistoryPoint] = Field(
+        default_factory=list, description="按时间升序的指标序列；缺数据时为 []"
+    )
+
+
+# ---- /api/system/stats -----------------------------------------------------
+
+
+class SystemStats(BaseModel):
+    """GET /api/system/stats 响应体（X D5 新增）。
+
+    来自审计库聚合：by_tool / by_risk / by_status 三个维度。
+    """
+
+    hours: int = Field(..., description="回看窗口小时数（已 clamp 到 1..168）")
+    by_tool: dict[str, int] = Field(
+        default_factory=dict,
+        description="工具调用次数按 tool_name 聚合（来自 EXECUTING/EXECUTED records）",
+    )
+    by_risk: dict[str, int] = Field(
+        default_factory=dict,
+        description="按 risk_level（R0/R1/R2/R3）分布（来自 INTENT_PARSED records）",
+    )
+    by_status: dict[str, int] = Field(
+        default_factory=dict,
+        description="按终态 status（FINISHED/REJECTED/WAIT_APPROVAL）分布",
+    )
+
+
 # ---- rca -----------------------------------------------------------------
 
 
@@ -360,12 +436,28 @@ class RCAAnalyzeRequest(BaseModel):
 
     problem_type: str = Field(..., description="问题类型，如 disk_full")
     description: str = Field(..., description="问题描述")
+    evidence: list[dict[str, object]] = Field(
+        default_factory=list,
+        description=(
+            "可选证据列表（X 联调新增）。每条 dict 含 tool_name / stdout / exit_code / "
+            "tool_result 键；传非空 → 真接 DefaultRCAEngine.analyze 走完整 playbook；"
+            "空/不传 → 兜底只按 problem_type/description 产 '采集建议' 模板壳子"
+            "（evidence_count=0）。防御纵深：evidence 仅供 RCA 分析，不触发执行。"
+        ),
+    )
 
 
 class RCAAnalyzeResponse(BaseModel):
     """POST /api/rca/analyze 响应体。"""
 
     trace_id: str = Field(..., description="本次 RCA 分析的 trace_id")
+    evidence_count: int = Field(
+        default=0,
+        description=(
+            "本次喂给 RCA 引擎的证据条数（X 联调新增）。>0 表示真接 LLM/真分析；"
+            "=0 表示走 problem_type/description 模板壳子（前端可在不传 evidence 时拿空模板）"
+        ),
+    )
 
 
 class RCAReportResponse(BaseModel):

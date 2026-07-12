@@ -37,16 +37,18 @@ async def analyze(
     body: RCAAnalyzeRequest,
     _user: str = Depends(verify_token),
 ) -> RCAAnalyzeResponse:
-    """RCA 分析入口（独立于 chat）：按 problem_type/description 产报告并暂存，返回 trace_id。
+    """RCA 分析入口（独立于 chat）：按 problem_type/description/evidence 产报告并暂存。
 
-    空证据 + 明确 problem_type 时，DefaultRCAEngine 返回"采集建议"型报告（非空）；
+    - evidence 非空 → 真接 DefaultRCAEngine.analyze 走完整 playbook（evidence_count > 0）
+    - evidence 空 → 兜底按 problem_type/description 产 "采集建议" 模板壳子
+      （evidence_count=0，前端可拿空模板）
     RCA 只产报告，不执行任何工具/命令（红线：本端点不触发执行）。
     """
     trace_id = uuid.uuid4().hex
-    # 独立端点无 chat 链路证据，按 problem_type/description 编排"采集建议"报告
-    report = _rca_engine.analyze_problem(body.problem_type, body.description)
+    # 独立端点：evidence 透传给 RCA 引擎；空列表走 problem_type/description 模板壳子
+    report = _rca_engine.analyze_problem(body.problem_type, body.description, body.evidence or None)
     _reports[trace_id] = report
-    return RCAAnalyzeResponse(trace_id=trace_id)
+    return RCAAnalyzeResponse(trace_id=trace_id, evidence_count=len(body.evidence))
 
 
 @router.get("/{trace_id}", response_model=RCAReportResponse)
