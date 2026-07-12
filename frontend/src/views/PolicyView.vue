@@ -58,8 +58,8 @@ onMounted(async () => {
     <PageHeader title="策略规则" subtitle="只读展示当前安全护栏规则、风险等级与保护路径" />
 
     <el-alert v-if="apiLoadFailed && !isMockEnabled()" type="warning" show-icon :closable="false"
-      title="策略规则 API 尚未接入"
-      description="当前展示为前端示例规则，非后端真实策略数据" />
+      title="策略规则 API 加载失败"
+      description="当前展示为前端默认规则，非后端实时策略数据" />
 
     <div class="risk-row">
       <PageSection title="风险等级">

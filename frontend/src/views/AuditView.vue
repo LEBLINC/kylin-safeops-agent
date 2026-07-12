@@ -112,8 +112,8 @@ function handleTraceRowClick(row: AuditTrace) {
       type="info"
       show-icon
       :closable="false"
-      title="审计 REST 查询接口尚未接入"
-      description="当前 /api/audit/* 系列接口待后端实现；Chat 页 SSE 的 audit_appended 实时展示已可用。"
+      title="暂无审计记录"
+      description="当前无审计 trace 数据，发起一次智能对话后即可在此回溯。"
     />
 
     <PageSection title="审计记录详情">

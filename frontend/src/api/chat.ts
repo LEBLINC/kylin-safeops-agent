@@ -174,6 +174,8 @@ export function connectChatStream(
   }
 
   let isClosed = false
+  source.addEventListener('natural_language', e => onMessage(JSON.parse(e.data) as StreamEvent))
+
   source.addEventListener('done', () => {
     isClosed = true
     onDone?.()

@@ -79,13 +79,17 @@ export interface PolicyEvent {
  * 来源建议：GET /api/policy/rules。
  */
 export interface PolicyRule {
-  /** 规则 ID，统一使用 rule_id。 */
+  /** 规则 ID，统一使用 rule_id（前端内部字段名；后端返回 id，API 层做映射）。 */
   rule_id: string
   /** 规则名称。 */
   name: string
+  /** 规则详细描述（后端字段 description）。 */
+  description?: string
   where?: string
   severity: string
   action: PolicyDecision
   reason?: string
+  /** 审批所需最低角色。 */
+  approval_role?: string | null
   safer_alternative?: string | null
 }

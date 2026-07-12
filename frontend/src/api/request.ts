@@ -34,6 +34,21 @@ export const request = axios.create({
 })
 
 /**
+ * 请求拦截器：注入 X-User-Role。
+ *
+ * L 的 4 个新 Router（approvals/audit/policy/demo）统一使用
+ * require_proxy_identity 依赖，dev 模式下要求此 header，否则 401。
+ * Chat 等老端点用 verify_token，dev 模式下不校验此 header，带了也无害。
+ */
+request.interceptors.request.use(config => {
+  const role = import.meta.env.VITE_CURRENT_USER_ROLE
+  if (role) {
+    config.headers.set('X-User-Role', role)
+  }
+  return config
+})
+
+/**
  * 响应拦截器。
  *
  * 成功时：直接返回 response.data，让 api 文件拿到业务数据。

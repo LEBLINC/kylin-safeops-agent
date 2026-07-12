@@ -23,6 +23,7 @@ export type EventType =
   | 'executing'
   | 'tool_result'
   | 'verified'
+  | 'natural_language'
   | 'rejected'
   | 'rca'
   | 'audit_appended'
@@ -228,5 +229,13 @@ export interface RejectedEventData {
   cause: 'policy_deny' | 'user_reject' | 'injection'
   /** Denied tools list (has values for policy_deny, empty for user_reject). */
   denied_tools: string[]
+}
+
+/** natural_language 事件 data 结构（L 新增，dev=154f767）。 */
+export interface NaturalLanguageData {
+  /** LLM 生成的最终自然语言回复文本。 */
+  text: string
+  /** L 端已过滤敏感字段时为 true，前端可提示用户。 */
+  sensitive_filtered: boolean
 }
 
