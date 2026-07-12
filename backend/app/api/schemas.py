@@ -273,6 +273,23 @@ class ToolCallResponse(BaseModel):
     reason: str = Field(default="", description="未执行原因")
 
 
+class ToolCallDetail(BaseModel):
+    """GET /api/tools/calls/{call_id} 响应体（X D6 新增）。
+
+    call_id 在 MVP 阶段视为 trace_id：返回该 trace 最后一条 EXECUTING/EXECUTED
+    记录的派生物（tool 名 + args + exit_code + timestamp）。
+    返回 None 字段表示该 trace 没找到对应阶段记录。
+    """
+
+    call_id: str = Field(..., description="call_id（MVP=trace_id；后续可扩展 seq 定位）")
+    trace_id: str = Field(..., description="所属 trace_id")
+    seq: int = Field(..., description="该 call 在 trace 中的 seq")
+    tool_name: str = Field(..., description="工具名（payload.tool）")
+    args: dict = Field(default_factory=dict, description="工具参数（payload.args）")
+    exit_code: int = Field(..., description="工具退出码（payload.exit_code）")
+    timestamp: float = Field(..., description="epoch 秒（从 created_at 解析）")
+
+
 # ---- sessions ------------------------------------------------------------
 
 
