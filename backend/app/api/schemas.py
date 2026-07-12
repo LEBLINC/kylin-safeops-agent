@@ -360,12 +360,28 @@ class RCAAnalyzeRequest(BaseModel):
 
     problem_type: str = Field(..., description="问题类型，如 disk_full")
     description: str = Field(..., description="问题描述")
+    evidence: list[dict[str, object]] = Field(
+        default_factory=list,
+        description=(
+            "可选证据列表（X 联调新增）。每条 dict 含 tool_name / stdout / exit_code / "
+            "tool_result 键；传非空 → 真接 DefaultRCAEngine.analyze 走完整 playbook；"
+            "空/不传 → 兜底只按 problem_type/description 产 '采集建议' 模板壳子"
+            "（evidence_count=0）。防御纵深：evidence 仅供 RCA 分析，不触发执行。"
+        ),
+    )
 
 
 class RCAAnalyzeResponse(BaseModel):
     """POST /api/rca/analyze 响应体。"""
 
     trace_id: str = Field(..., description="本次 RCA 分析的 trace_id")
+    evidence_count: int = Field(
+        default=0,
+        description=(
+            "本次喂给 RCA 引擎的证据条数（X 联调新增）。>0 表示真接 LLM/真分析；"
+            "=0 表示走 problem_type/description 模板壳子（前端可在不传 evidence 时拿空模板）"
+        ),
+    )
 
 
 class RCAReportResponse(BaseModel):
