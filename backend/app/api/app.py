@@ -240,6 +240,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
     _cleanup_task = asyncio.create_task(_periodic_cleanup())
 
+    # B4 commit 2 L-H16: setup_logging 注入 JSON / console formatter
+    from backend.app.main_logging import setup_logging
+
+    setup_logging()
     logger.info("API layer initialized: bus=%s, registry=%s", _bus, _registry)
 
     yield
@@ -347,6 +351,11 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # B4 commit 2 L-H16: trace_id contextvar middleware
+    from backend.app.api.middleware import TraceIdMiddleware
+
+    app.add_middleware(TraceIdMiddleware)
 
     # 路由挂载：延迟 import 避免 routers ↔ app 循环依赖
     # （routers 从本模块 import get_bus/get_registry/... 作 Depends）。
