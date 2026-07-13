@@ -102,8 +102,12 @@ function openDetailDialog(tool: ToolDefinition) {
 const callDialogVisible = ref(false)
 /** 当前正在操作的工具定义。 */
 const callTarget = ref<ToolDefinition | null>(null)
-/** 用户在弹窗中输入的 JSON 参数字符串。 */
-const callArgs = ref('{}')
+/** 表单模式下的参数对象。 */
+const callArgsObject = ref<Record<string, unknown>>({})
+/** 是否切换到 JSON 编辑模式。 */
+const jsonEditMode = ref(false)
+/** JSON 编辑模式下的文本。 */
+const callArgsJson = ref('{}')
 /** 最近一次调用结果（ToolCallResponse）。 */
 const callResult = ref<{ executed: boolean; result?: any; verdict?: any; reason?: string } | null>(null)
 /** 调用中。 */
@@ -112,6 +116,35 @@ const calling = ref(false)
 /** R0/R1 只读工具允许手动调用，R2+ 须走 Chat→审批链路。 */
 function isReadOnly(risk: string) {
   return risk === 'R0' || risk === 'R1'
+}
+
+/** 从 input_schema 提取属性定义列表，供表单渲染。 */
+interface ArgField {
+  key: string
+  label: string
+  type: 'text' | 'number' | 'switch' | 'json'
+  default: unknown
+  description?: string
+}
+function argFields(schema: Record<string, unknown> | undefined): ArgField[] {
+  const props = (schema as any)?.properties
+  if (!props || typeof props !== 'object') return []
+  return Object.keys(props).map(key => {
+    const prop = (props as any)[key] || {}
+    const propType = prop.type || 'string'
+    let fieldType: ArgField['type'] = 'text'
+    if (propType === 'number' || propType === 'integer') fieldType = 'number'
+    else if (propType === 'boolean') fieldType = 'switch'
+    else if (propType === 'object' || propType === 'array') fieldType = 'json'
+
+    return {
+      key,
+      label: prop.title || prop.description ? `${key}` : key,
+      type: fieldType,
+      default: prop.default,
+      description: prop.title || prop.description || ''
+    }
+  })
 }
 
 function defaultArgs(schema: Record<string, unknown>): Record<string, unknown> {
@@ -137,24 +170,52 @@ function defaultArgs(schema: Record<string, unknown>): Record<string, unknown> {
   return args
 }
 
-/** 打开调用弹窗：预填默认 JSON 参数。 */
-
+/** 打开调用弹窗：根据 input_schema 预填表单。 */
 function openCallDialog(tool: ToolDefinition) {
   callTarget.value = tool
-  callArgs.value = JSON.stringify(defaultArgs(tool.input_schema || {}), null, 2)
+  jsonEditMode.value = false
+  const schema = tool.input_schema || {}
+  callArgsObject.value = defaultArgs(schema)
+  callArgsJson.value = JSON.stringify(callArgsObject.value, null, 2)
   callResult.value = null
   callDialogVisible.value = true
+}
+
+/** 切换 JSON 编辑模式时同步数据。 */
+function toggleJsonMode() {
+  jsonEditMode.value = !jsonEditMode.value
+  if (jsonEditMode.value) {
+    // 表单 → JSON
+    callArgsJson.value = JSON.stringify(callArgsObject.value, null, 2)
+  } else {
+    // JSON → 表单
+    try {
+      callArgsObject.value = JSON.parse(callArgsJson.value)
+    } catch {
+      // 解析失败留在 JSON 模式
+      jsonEditMode.value = true
+    }
+  }
+}
+
+/** 表单模式下更新单个参数。 */
+function setFormArg(key: string, value: unknown) {
+  callArgsObject.value[key] = value
 }
 
 /** 执行手动工具调用。 */
 async function executeCall() {
   if (!callTarget.value || calling.value) return
   let args: Record<string, unknown> = {}
-  try {
-    args = JSON.parse(callArgs.value)
-  } catch {
-    callResult.value = { executed: false, reason: '参数 JSON 格式错误' }
-    return
+  if (jsonEditMode.value) {
+    try {
+      args = JSON.parse(callArgsJson.value)
+    } catch {
+      callResult.value = { executed: false, reason: '参数 JSON 格式错误' }
+      return
+    }
+  } else {
+    args = callArgsObject.value
   }
   calling.value = true
   try {
@@ -263,13 +324,60 @@ onMounted(async () => {
       <template v-if="callTarget">
         <p class="call-desc">{{ callTarget.description }}</p>
 
+        <!-- 参数表单 / JSON 切换 -->
         <div class="call-section">
-          <label class="call-label">参数（JSON）</label>
+          <div class="call-args-header">
+            <label class="call-label">参数</label>
+            <el-button size="small" text @click="toggleJsonMode">
+              {{ jsonEditMode ? '切换表单' : '编辑 JSON' }}
+            </el-button>
+          </div>
+
+          <!-- 表单模式 -->
+          <template v-if="!jsonEditMode">
+            <div v-if="!argFields(callTarget.input_schema).length" class="empty-tip">该工具无需参数</div>
+            <div v-for="field in argFields(callTarget.input_schema)" :key="field.key" class="arg-field">
+              <div class="arg-field-head">
+                <code>{{ field.key }}</code>
+                <span v-if="field.description" class="arg-field-desc">{{ field.description }}</span>
+              </div>
+              <el-input
+                v-if="field.type === 'text'"
+                :model-value="String(callArgsObject[field.key] ?? '')"
+                @update:model-value="(v: unknown) => setFormArg(field.key, v)"
+                size="small"
+              />
+              <el-input-number
+                v-else-if="field.type === 'number'"
+                :model-value="Number(callArgsObject[field.key] ?? 0)"
+                @update:model-value="(v: unknown) => setFormArg(field.key, v)"
+                size="small"
+                controls-position="right"
+                style="width: 100%"
+              />
+              <el-switch
+                v-else-if="field.type === 'switch'"
+                :model-value="Boolean(callArgsObject[field.key])"
+                @update:model-value="(v: unknown) => setFormArg(field.key, v)"
+                size="small"
+              />
+              <el-input
+                v-else
+                :model-value="JSON.stringify(callArgsObject[field.key], null, 2)"
+                @update:model-value="(v: unknown) => { try { callArgsObject[field.key] = JSON.parse(v as string) } catch {} }"
+                type="textarea"
+                :rows="3"
+                size="small"
+              />
+            </div>
+          </template>
+
+          <!-- JSON 模式 -->
           <el-input
-            v-model="callArgs"
+            v-else
+            v-model="callArgsJson"
             type="textarea"
             :rows="6"
-            placeholder='{"key": "value"}'
           />
         </div>
 
@@ -281,13 +389,65 @@ onMounted(async () => {
             </el-tag>
             <span v-if="callResult.reason" class="result-reason">{{ callResult.reason }}</span>
           </div>
+
+          <!-- 策略裁决 -->
           <div v-if="callResult.verdict" class="result-block">
             <label class="call-label">策略裁决</label>
-            <pre>{{ JSON.stringify(callResult.verdict, null, 2) }}</pre>
+            <div class="verdict-card">
+              <div class="verdict-row">
+                <span class="verdict-key">裁决</span>
+                <el-tag :type="callResult.verdict.decision === 'allow' ? 'success' : callResult.verdict.decision === 'deny' ? 'danger' : 'warning'" size="small">
+                  {{ callResult.verdict.decision }}
+                </el-tag>
+              </div>
+              <div v-if="callResult.verdict.final_risk" class="verdict-row">
+                <span class="verdict-key">风险等级</span>
+                <RiskTag :level="callResult.verdict.final_risk" />
+              </div>
+              <div v-if="callResult.verdict.matched_rules?.length" class="verdict-row">
+                <span class="verdict-key">命中规则</span>
+                <span class="verdict-val">{{ callResult.verdict.matched_rules.join(', ') }}</span>
+              </div>
+              <div v-if="callResult.verdict.reason" class="verdict-row">
+                <span class="verdict-key">原因</span>
+                <span class="verdict-val">{{ callResult.verdict.reason }}</span>
+              </div>
+            </div>
           </div>
+
+          <!-- 执行结果 -->
           <div v-if="callResult.result" class="result-block">
             <label class="call-label">执行结果</label>
-            <pre>{{ JSON.stringify(callResult.result, null, 2) }}</pre>
+            <div class="result-detail-card">
+              <div class="detail-row">
+                <span class="detail-key">工具</span>
+                <code>{{ callResult.result.tool }}</code>
+              </div>
+              <div v-if="callResult.result.exit_code !== undefined" class="detail-row">
+                <span class="detail-key">退出码</span>
+                <el-tag :type="callResult.result.exit_code === 0 ? 'success' : 'danger'" size="small">
+                  {{ callResult.result.exit_code }}
+                </el-tag>
+              </div>
+              <div v-if="callResult.result.duration_ms !== undefined" class="detail-row">
+                <span class="detail-key">耗时</span>
+                <span class="detail-val">{{ callResult.result.duration_ms }} ms</span>
+              </div>
+              <div v-if="callResult.result.is_untrusted !== undefined" class="detail-row">
+                <span class="detail-key">可信度</span>
+                <el-tag :type="callResult.result.is_untrusted ? 'warning' : 'success'" size="small">
+                  {{ callResult.result.is_untrusted ? '不可信' : '可信' }}
+                </el-tag>
+              </div>
+              <div v-if="callResult.result.stdout_truncated" class="detail-row full-width">
+                <span class="detail-key">stdout</span>
+                <pre class="stdout-block">{{ callResult.result.stdout_truncated }}</pre>
+              </div>
+              <div v-if="callResult.result.stderr_truncated" class="detail-row full-width">
+                <span class="detail-key">stderr</span>
+                <pre class="stderr-block">{{ callResult.result.stderr_truncated }}</pre>
+              </div>
+            </div>
           </div>
         </div>
       </template>
@@ -451,6 +611,39 @@ onMounted(async () => {
   margin-bottom: 6px;
 }
 
+/* 参数表单 */
+.call-args-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.arg-field {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.arg-field-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.arg-field-head code {
+  font-size: 13px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.arg-field-desc {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
 .call-result {
   margin-top: 8px;
   padding: 14px;
@@ -475,17 +668,104 @@ onMounted(async () => {
   margin-top: 12px;
 }
 
-.result-block pre {
-  margin: 4px 0 0;
-  padding: 10px;
+/* 裁决卡片 */
+.verdict-card {
+  padding: 12px 14px;
   background: #fff;
   border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.verdict-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.verdict-key {
+  min-width: 60px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.verdict-val {
+  color: #334155;
+  line-height: 1.5;
+}
+
+/* 执行结果卡片 */
+.result-detail-card {
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.detail-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.detail-row.full-width {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.detail-key {
+  min-width: 48px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.detail-val {
+  color: #334155;
+}
+
+.detail-row code {
+  font-size: 12px;
+  color: #2563eb;
+  background: rgba(37, 99, 235, 0.06);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.stdout-block {
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  width: 100%;
+  box-sizing: border-box;
+  background: #1e293b;
+  color: #e2e8f0;
   border-radius: 6px;
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-all;
-  max-height: 200px;
+  max-height: 160px;
+  overflow: auto;
+}
+
+.stderr-block {
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  width: 100%;
+  box-sizing: border-box;
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 120px;
   overflow: auto;
 }
 

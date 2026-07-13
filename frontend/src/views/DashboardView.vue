@@ -24,22 +24,9 @@ type CockpitMetric = {
   variant: MetricVariant
 }
 
-const overview = ref<SystemOverview>({
-  cpu_usage: 49,
-  memory_usage: 68,
-  root_disk_usage: 49,
-  zombie_processes: 3,
-  tool_calls_today: 0,
-  denied_today: 5,
-  data_source: 'stub_executor',
-  probed_tools: [],
-  services: [
-    { name: 'nginx', status: 'running' },
-    { name: 'safeops-agent', status: 'running' },
-    { name: 'auditd', status: 'running' }
-  ]
-})
-
+const overview = ref<SystemOverview | null>(null)
+/** 接口成功返回后置 true，区分"加载中"和"加载失败"。 */
+const overviewLoaded = ref(false)
 const overviewLoadFailed = ref(false)
 
 /** 历史时序点，来自 /api/system/overview/history，驱动四张指标卡 sparkline。 */
@@ -67,12 +54,12 @@ function serviceStatus(raw: string): string {
   return 'warning'
 }
 
-const cpuUsage = computed(() => clamp(toNumber(overview.value.cpu_usage, 49)))
-const memoryUsage = computed(() => clamp(toNumber(overview.value.memory_usage, 68)))
-const diskUsage = computed(() => clamp(toNumber(overview.value.root_disk_usage, 49)))
-const zombieCount = computed(() => Math.max(0, toNumber(overview.value.zombie_processes, 0)))
-const deniedToday = computed(() => Math.max(0, toNumber(overview.value.denied_today, 0)))
-const services = computed(() => overview.value.services ?? [])
+const cpuUsage = computed(() => clamp(toNumber(overview.value?.cpu_usage, 0)))
+const memoryUsage = computed(() => clamp(toNumber(overview.value?.memory_usage, 0)))
+const diskUsage = computed(() => clamp(toNumber(overview.value?.root_disk_usage, 0)))
+const zombieCount = computed(() => Math.max(0, toNumber(overview.value?.zombie_processes, 0)))
+const deniedToday = computed(() => Math.max(0, toNumber(overview.value?.denied_today, 0)))
+const services = computed(() => overview.value?.services ?? [])
 
 const servicesRunning = computed(() =>
   services.value.filter((service) => service.status === 'running' || service.status === 'active').length
@@ -210,6 +197,7 @@ const serviceBars = computed(() => {
 onMounted(async () => {
   try {
     overview.value = await getSystemOverview()
+    overviewLoaded.value = true
   } catch {
     overviewLoadFailed.value = true
   }
@@ -245,7 +233,13 @@ onMounted(async () => {
       subtitle="数据驾驶舱：用图表化卡片展示资源、趋势、服务与安全态势"
     />
 
-    <section class="dashboard-hero">
+    <!-- 加载中：等待 API 返回 -->
+    <div v-if="!overviewLoaded && !overviewLoadFailed" class="dashboard-loading">
+      <el-skeleton :rows="4" animated />
+      <p class="loading-hint">正在拉取系统概览…</p>
+    </div>
+
+    <section v-else class="dashboard-hero">
       <div class="hero-summary">
         <div class="hero-kicker">LoongArch / SafeOps Console</div>
         <h2>安全智能运维态势</h2>
@@ -263,7 +257,7 @@ onMounted(async () => {
             <span>实时服务</span>
           </div>
           <div>
-            <strong>{{ overview.probed_tools?.length || 0 }}</strong>
+            <strong>{{ overview?.probed_tools?.length || 0 }}</strong>
             <span>已采集工具</span>
           </div>
           <div>
@@ -320,13 +314,13 @@ onMounted(async () => {
       description="系统概览接口暂不可用，当前展示为默认数据"
     />
     <el-alert
-      v-else-if="overview.data_source === 'stub_executor'"
+      v-else-if="overview?.data_source === 'stub_executor'"
       class="source-alert"
       type="info"
       show-icon
       :closable="false"
       title="采集管道未接通"
-      :description="`data_source=${overview.data_source}，探针未返回真实指标。已采集工具：${(overview.probed_tools || []).join(', ') || '无'}`"
+      :description="`data_source=${overview?.data_source}，探针未返回真实指标。已采集工具：${(overview?.probed_tools || []).join(', ') || '无'}`"
     />
 
     <section class="lower-grid">
@@ -905,6 +899,16 @@ onMounted(async () => {
 .stats-pill strong {
   font-size: 15px;
   color: #1e293b;
+}
+
+.dashboard-loading {
+  padding: 24px 20px;
+}
+.loading-hint {
+  margin-top: 12px;
+  color: var(--ks-text-muted);
+  font-size: 13px;
+  text-align: center;
 }
 
 @media (max-width: 1280px) {
