@@ -71,6 +71,9 @@ async def post_chat(
     session = OrchestratorSession(trace_id=trace_id, orchestrator=orchestrator)
     registry.register(session)
 
+    # L-M3：审计 actor 溯源（用 principal_for_idor 派生的 Principal）
+    orchestrator.set_actor(principal.user, principal.roles)
+
     # L-H1：body.session_id 走 assert_owner
     if body.session_id is not None:
         store.assert_owner(body.session_id, principal.user, is_admin="admin" in principal.roles)

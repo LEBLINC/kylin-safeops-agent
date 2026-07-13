@@ -23,6 +23,34 @@ from backend.app.api.deps import require_proxy_identity
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
 
+def _require_auditor_mode_aware():  # type: ignore[no-untyped-def]
+    """L-H2：mode-aware auditor/admin 校验。
+    - dev 模式（联调）：require_proxy_identity 同款放行（开发期快速联调）；
+    - proxy 模式（生产）：必须 roles 满足 {auditor, admin}，否则 fail-closed 403。
+    helper 而非全局依赖——按端点接入可与决策⑨ mode-aware 一致。
+    """
+
+    def _dep(
+        principal: Principal = Depends(require_proxy_identity),
+    ) -> Principal:
+        from backend.app.api.deps import _auth_mode  # cycle-safe local import
+
+        if _auth_mode() == "proxy" and not ({"auditor", "admin"} & principal.roles):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"audit/* needs auditor or admin role; "
+                    f"got roles={sorted(principal.roles)} (fail-closed)"
+                ),
+            )
+        return principal
+
+    return _dep
+
+
+_auditor_dep = _require_auditor_mode_aware()
+
+
 @router.get("/traces", response_model=schemas.AuditTraceListResponse)
 async def list_traces(
     limit: int = 50,
@@ -30,7 +58,7 @@ async def list_traces(
     since: str | None = None,
     until: str | None = None,
     audit: AuditSink = Depends(get_audit),
-    _principal: Principal = Depends(require_proxy_identity),
+    _principal: Principal = Depends(_auditor_dep),
 ) -> schemas.AuditTraceListResponse:
     """列 trace（按 created_at 倒序，分页 + 时间过滤）。
 
@@ -56,7 +84,7 @@ async def list_traces(
 async def get_trace_detail(
     trace_id: str,
     audit: AuditSink = Depends(get_audit),
-    _principal: Principal = Depends(require_proxy_identity),
+    _principal: Principal = Depends(_auditor_dep),
 ) -> schemas.AuditTraceDetail:
     """单条 trace 详情（含 records + verify_chain 状态）。
 
@@ -83,7 +111,7 @@ async def get_trace_detail(
 async def verify_chain_endpoint(
     trace_id: str,
     audit: AuditSink = Depends(get_audit),
-    _principal: Principal = Depends(require_proxy_identity),
+    _principal: Principal = Depends(_auditor_dep),
 ) -> schemas.AuditVerifyResponse:
     """服务端 recompute 整链（不返任何中间 hash 算法给前端）。
 
@@ -103,7 +131,7 @@ async def verify_chain_endpoint(
 async def export_trace(
     trace_id: str,
     audit: AuditSink = Depends(get_audit),
-    _principal: Principal = Depends(require_proxy_identity),
+    _principal: Principal = Depends(_auditor_dep),
 ) -> Response:
     """导出单条 trace 为 jsonl（每行一条 record，S9 敏感字段已过滤）。
 
