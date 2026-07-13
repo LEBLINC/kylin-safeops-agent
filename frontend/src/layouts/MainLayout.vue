@@ -89,7 +89,7 @@ const sidebarExpanded = ref(false)
       </header>
 
       <main class="content">
-        <router-view />
+        <router-view :key="$route.fullPath" />
       </main>
     </section>
   </div>

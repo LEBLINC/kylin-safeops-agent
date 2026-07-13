@@ -59,6 +59,7 @@ export interface PolicyEvent {
   trace_id: string
   /** 工具名，统一使用 tool。 */
   tool?: string
+  risk_level?: string
   final_risk?: RiskLevel
   decision: PolicyDecision
   /** 单条规则 ID，统一使用 rule_id。 */

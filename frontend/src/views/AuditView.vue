@@ -34,13 +34,33 @@ function handleTraceRowClick(row: AuditTrace) {
 function handlePageChange(page: number) {
   audit.loadTraces(page)
 }
+
+function formatPayloadVal(val: unknown): string {
+  if (val === null || val === undefined) return '-'
+  if (typeof val === 'object') return JSON.stringify(val)
+  return String(val)
+}
+
+function phaseTagType(phase: string): 'success' | 'warning' | 'danger' | 'info' | 'primary' {
+  const m: Record<string, 'success' | 'warning' | 'danger' | 'info' | 'primary'> = {
+    user_input: 'info',
+    INTENT_PARSED: 'primary',
+    EXECUTING: 'warning',
+    EXECUTED: 'success',
+    policy_verdict: 'warning',
+    FINISHED: 'success',
+    REJECTED: 'danger'
+  }
+  return m[phase] || 'info'
+}
 </script>
 
 <template>
   <div class="ks-page">
     <PageHeader title="审计日志" subtitle="按 trace_id 回溯完整链路，并校验哈希链防篡改" />
 
-    <div class="audit-top">
+    <div class="audit-main">
+      <!-- 左：Trace 列表 -->
       <PageSection title="Trace 列表">
         <el-table :data="audit.traces" @row-click="handleTraceRowClick" highlight-current-row stripe size="small">
           <el-table-column label="Trace ID" width="200">
@@ -71,11 +91,30 @@ function handlePageChange(page: number) {
         </div>
       </PageSection>
 
-      <HashChainViewer
-        v-if="audit.verifyResult"
-        :valid="audit.verifyResult.valid"
-        :records="audit.verifyResult.records"
-      />
+      <!-- 右：审计记录详情 -->
+      <PageSection title="审计记录详情">
+        <el-table :data="audit.records" size="small">
+          <el-table-column prop="seq" label="#" width="50" align="center" />
+          <el-table-column label="阶段" width="140">
+            <template #default="{ row }">
+              <el-tag size="small" :type="phaseTagType(row.phase)" effect="dark">{{ row.phase }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="时间" width="170">
+            <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+          </el-table-column>
+          <el-table-column label="payload" min-width="260">
+            <template #default="{ row }">
+              <div class="payload-table">
+                <div v-for="(val, key) in row.payload" :key="key" class="payload-row">
+                  <span class="payload-key">{{ key }}</span>
+                  <span class="payload-val">{{ formatPayloadVal(val) }}</span>
+                </div>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+      </PageSection>
     </div>
 
     <el-alert
@@ -87,31 +126,18 @@ function handlePageChange(page: number) {
       description="当前无审计 trace 数据，发起一次智能对话后即可在此回溯。"
     />
 
-    <PageSection title="审计记录详情">
-      <el-table :data="audit.records" size="small">
-        <el-table-column prop="seq" label="#" width="50" align="center" />
-        <el-table-column prop="phase" label="阶段" width="150">
-          <template #default="{ row }">
-            <el-tag size="small" type="info" effect="plain">{{ row.phase }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="时间" width="170">
-          <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
-        </el-table-column>
-        <el-table-column label="payload" min-width="200">
-          <template #default="{ row }">
-            <pre class="payload-pre">{{ prettyJson(row.payload) }}</pre>
-          </template>
-        </el-table-column>
-      </el-table>
-    </PageSection>
+    <HashChainViewer
+      v-if="audit.verifyResult"
+      :valid="audit.verifyResult.valid"
+      :records="audit.verifyResult.records"
+    />
   </div>
 </template>
 
 <style scoped>
-.audit-top {
+.audit-main {
   display: grid;
-  grid-template-columns: 3fr 2fr;
+  grid-template-columns: 1fr 1fr;
   gap: 16px;
   align-items: start;
 }
@@ -130,14 +156,34 @@ function handlePageChange(page: number) {
   font-size: 12px;
   cursor: default;
 }
-.payload-pre {
-  margin: 0;
-  padding: 4px 0;
-  white-space: pre-wrap;
-  max-height: 100px;
-  overflow: auto;
+.payload-table {
+  display: grid;
+  gap: 2px;
+}
+.payload-row {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 6px;
+  align-items: baseline;
+  padding: 2px 6px;
+  border-radius: 4px;
   font-size: 12px;
-  color: #475569;
-  background: transparent;
+  line-height: 1.5;
+}
+.payload-row:nth-child(even) {
+  background: #f8fafc;
+}
+.payload-key {
+  color: #64748b;
+  font-weight: 600;
+  font-family: monospace;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.payload-val {
+  color: #1e293b;
+  word-break: break-all;
 }
 </style>

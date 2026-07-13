@@ -671,10 +671,11 @@ export const useChatStore = defineStore('chat', {
       if (isMockEnabled()) return
       try {
         const res = await request.get('/api/auth/whoami') as unknown as { user: string; roles: string[]; mode: string }
-        this.currentUser = res.user
-        this.currentUserRoles = res.roles
+        this.currentUser = res.user ?? 'dev'
+        const roles = Array.isArray(res.roles) ? res.roles : []
+        this.currentUserRoles = roles
         const rank: Record<string, number> = { viewer: 1, auditor: 1, operator: 2, admin: 3 }
-        this.currentUserRole = res.roles.reduce(
+        this.currentUserRole = roles.reduce(
           (top: string, r: string) => (rank[r] ?? 0) > (rank[top] ?? 0) ? r : top,
           'viewer'
         )

@@ -122,7 +122,7 @@ function isReadOnly(risk: string) {
 interface ArgField {
   key: string
   label: string
-  type: 'text' | 'number' | 'switch' | 'json'
+  type: 'text' | 'number' | 'switch' | 'list' | 'json'
   default: unknown
   description?: string
 }
@@ -135,7 +135,11 @@ function argFields(schema: Record<string, unknown> | undefined): ArgField[] {
     let fieldType: ArgField['type'] = 'text'
     if (propType === 'number' || propType === 'integer') fieldType = 'number'
     else if (propType === 'boolean') fieldType = 'switch'
-    else if (propType === 'object' || propType === 'array') fieldType = 'json'
+    else if (propType === 'object') fieldType = 'json'
+    else if (propType === 'array') {
+      const itemsType = prop?.items?.type || ''
+      fieldType = (itemsType === 'string') ? 'list' : 'json'
+    }
 
     return {
       key,
@@ -360,6 +364,18 @@ onMounted(async () => {
                 :model-value="Boolean(callArgsObject[field.key])"
                 @update:model-value="(v: unknown) => setFormArg(field.key, v)"
                 size="small"
+              />
+              <el-select
+                v-else-if="field.type === 'list'"
+                :model-value="Array.isArray(callArgsObject[field.key]) ? callArgsObject[field.key] as any[] : []"
+                @update:model-value="(v: unknown) => setFormArg(field.key, v)"
+                multiple
+                filterable
+                allow-create
+                default-first-option
+                placeholder="输入后回车添加…"
+                size="small"
+                style="width: 100%"
               />
               <el-input
                 v-else

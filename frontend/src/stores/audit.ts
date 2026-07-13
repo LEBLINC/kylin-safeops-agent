@@ -21,8 +21,9 @@ export const useAuditStore = defineStore('audit', {
       const offset = (this.page - 1) * this.pageSize
       try {
         const resp: any = await getAuditTraces({ limit: this.pageSize, offset })
-        this.traces = resp?.items || resp || []
-        this.total = resp?.total || this.traces.length
+        const list = resp?.items ?? resp
+        this.traces = Array.isArray(list) ? list : []
+        this.total = resp?.total ?? this.traces.length
       } catch {
         if (!isMockEnabled()) return
         this.traces = [
@@ -42,7 +43,8 @@ export const useAuditStore = defineStore('audit', {
 
     async loadDetail(traceId: string) {
       try {
-        this.records = await getAuditTraceDetail(traceId)
+        const detail: any = await getAuditTraceDetail(traceId)
+        this.records = Array.isArray(detail?.records) ? detail.records : Array.isArray(detail) ? detail : []
       } catch {
         if (!isMockEnabled()) return
         this.records = [
