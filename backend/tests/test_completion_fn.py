@@ -42,7 +42,7 @@ def test_t3_completion_fn_timeout_emits_error() -> None:
 
     asyncio.run(_run())
     # Orchestrator 兜底验证: run() except 块不 raise (代码 review 已知行为)。
-    # 此处仅验证: 异常透传到 plan() 调用方,orchestrator.run() 在 line 216 except (httpx.HTTPError, RuntimeError)
+    # 此处仅验证: 异常透传到 plan() 调用方,orchestrator.run() except (httpx.HTTPError, RuntimeError)
     # 不含 TimeoutException;**TimeoutException 是 httpx 的子...实际**
     # httpx.HTTPError 是基础类 — 需验证基类覆盖
     assert issubclass(

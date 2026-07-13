@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from unittest import mock
 
@@ -140,7 +141,3 @@ def test_t2_summarize_prompt_uses_wrap_for_feedback() -> None:
     asyncio.run(_run2())
     user_prompt2 = json.dumps(captured2["body"], ensure_ascii=False)
     assert "AKIA-1234" not in user_prompt2, "S9 浅过滤失守: api_key 仍在 prompt"
-
-
-# 延迟 import asyncio(顶部 import 优先级)
-import asyncio

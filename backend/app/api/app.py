@@ -102,9 +102,14 @@ def get_llm() -> LLMAdapter:
         # 录制模式：包 LLMAdapter(completion_fn=RealLLMClient().completion_fn)，
         # 与 demo_stage4_e2e.py 真端点场景 G 一致；保证返 LLMAdapter（mypy + 接口契约）。
         from backend.app.llm.adapter import LLMAdapter as _LLMAdapter
-        from backend.app.llm.real_client import RealLLMClient  # 延迟导入，未用不付出 import 成本
+        from backend.app.llm.real_client import (
+            RealLLMClient,  # 延迟导入，未用不付出 import 成本
+            load_real_llm_config_from_env,  # noqa: PLC0415
+        )
 
-        real = RealLLMClient()
+        # X 报告 bug 修复：从 env 真读 KYLIN_LLM_* 配置（RealLLMClient() 无参会走
+        # 默认 base_url=http://localhost:8000/v1 即自调，KYLIN_LLM_BASE_URL 等 env 形同虚设）。
+        real = RealLLMClient(load_real_llm_config_from_env())
         return _LLMAdapter(completion_fn=real.completion_fn)
     return build_fake_llm()
 
