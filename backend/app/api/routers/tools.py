@@ -11,15 +11,18 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.app.agent.ports import AuditSink
 from backend.app.api.app import get_audit, get_gateway
-from backend.app.api.deps import verify_token
+from backend.app.api.auth import Principal
+from backend.app.api.deps import require_proxy_identity, verify_token
 from backend.app.api.schemas import (
     ToolCallDetail,
+    ToolCallListResponse,
     ToolCallRequest,
     ToolCallResponse,
+    ToolCallSummary,
     ToolRegistryItem,
 )
 from backend.app.contracts.intent import CandidateTool
@@ -138,3 +141,35 @@ async def get_tool_call_detail(
         exit_code=int(payload.get("exit_code", 0)),
         timestamp=ts,
     )
+
+
+@router.get("/", response_model=ToolCallListResponse)
+async def list_tool_calls(
+    tool: str = Query(..., description="工具名（精确匹配 payload.tool）"),
+    limit: int = Query(default=10, ge=1, le=100, description="返回条数上限（1..100）"),
+    audit: AuditSink = Depends(get_audit),
+    _principal: Principal = Depends(require_proxy_identity),
+) -> ToolCallListResponse:
+    """D7 新增：按工具名查历史调用列表（从 audit EXECUTING/EXECUTED 派生）。
+
+    数据源：审计库 phase IN ('EXECUTING','EXECUTED') 且
+    json_extract(payload, '$.tool') = tool_name；按 created_at DESC 排序；limit 上限 100。
+    S9：payload 敏感字段已通过 SqliteAuditSink.list_tool_calls_by_tool
+    _SENSITIVE_KEYS 黑名单过滤（api_key → "***REDACTED***" 等）。
+
+    用途：前端"某工具历史调用"面板；与 D6 /api/tools/calls/{call_id} 详情端点配对。
+    """
+    rows = audit.list_tool_calls_by_tool(tool=tool, limit=limit)
+    items = [
+        ToolCallSummary(
+            call_id=row["trace_id"],
+            trace_id=row["trace_id"],
+            tool=str(row["payload"].get("tool", "")),
+            status=str(row["phase"]),
+            duration_ms=0,
+            risk_level="",
+            created_at=str(row["created_at"]),
+        )
+        for row in rows
+    ]
+    return ToolCallListResponse(items=items, total=len(items))

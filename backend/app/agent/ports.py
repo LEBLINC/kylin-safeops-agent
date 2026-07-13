@@ -50,6 +50,18 @@ class AuditSink(Protocol):
         until: str | None = None,
     ) -> int: ...
     def get_trace_records(self, trace_id: str) -> list[dict]: ...
+    def list_tool_calls_by_tool(
+        self,
+        *,
+        tool: str,
+        limit: int = 10,
+    ) -> list[dict]:
+        """按工具名列历史调用（commit 2 D7 /api/tools/calls 用）。
+
+        数据源：phase IN ('EXECUTING','EXECUTED') + json_extract(payload, '$.tool') = tool。
+        返回每条：{trace_id, seq, phase, payload, created_at}；S9 敏感字段过滤。
+        """
+        ...
 
 
 @runtime_checkable
