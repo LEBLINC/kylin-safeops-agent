@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -24,6 +25,8 @@ from backend.app.contracts.audit import (
     compute_curr_hash,
 )
 from backend.app.db.session import connect
+
+logger = logging.getLogger(__name__)
 
 #: 终态相位字面值（== agent.state_machine.TERMINAL_STATES 的 .value）。
 #: retention 的终态闸据此判定一条 trace 是否已闭合；此处用字面常量而非 import
@@ -42,6 +45,16 @@ class SqliteAuditSink:
     def __init__(self, db: str | Path | sqlite3.Connection = ":memory:") -> None:
         self._conn = db if isinstance(db, sqlite3.Connection) else connect(db)
         self._lock = threading.Lock()
+        # L-B4-3：断电安全 + 写并发抗锁死（架构整改 H5）。
+        # synchronous=FULL：fsync 强制保证断电不丢；busy_timeout=5000ms：写锁等待兜底
+        # （与 db.session.connect() 已设 WAL 不冲突；这里每 sink 实例级）。
+        # :memory: 数据库支持同步 PRAGMA（WAL no-op 但 synchronous/busy_timeout 生效）。
+        try:
+            self._conn.execute("PRAGMA synchronous=FULL")
+            self._conn.execute("PRAGMA busy_timeout=5000")
+        except sqlite3.DatabaseError as exc:
+            # PRAGMA 失败属系统级故障：日志告警，不 raise（S8 fail-closed）
+            logger.warning("SqliteAuditSink PRAGMA 失败（durability 降级）: %s", exc)
 
     def append(self, record: AuditRecord) -> None:
         """同步落库一条审计记录。S7：只落库，绝不重算/覆盖 hash。
@@ -204,8 +217,19 @@ class SqliteAuditSink:
         return total
 
     def close(self) -> None:
-        """关闭底层连接（lifespan shutdown 时由 L 调用）。"""
-        self._conn.close()
+        """L-B4-3：lifespan shutdown 时 flush WAL + 关闭连接。
+
+        顺序：flush (PRAGMA wal_checkpoint FULL) → _conn.close。
+        S8 兜底：flush 失败仅 logger.warning，不影响 close（不杀状态机）。
+        注：不置 self._conn=None——老测试期望 close 后 _conn.execute 抛
+        sqlite3.ProgrammingError（而非 AttributeError），保持原契约。
+        """
+        try:
+            self.flush()
+        except Exception:  # noqa: BLE001 S8：flush 失败仅 log，不阻断 close
+            logger.warning("audit flush 在 close 阶段失败（S8 兜底）", exc_info=True)
+        finally:
+            self._conn.close()
 
     # ---- 历史查询（commit 2 增量，/api/audit/* 用）-----------------------------
 
@@ -340,6 +364,21 @@ class SqliteAuditSink:
         )
         row = self._conn.execute(sql, tuple(params)).fetchone()
         return int(row["n"])
+
+    def flush(self) -> None:
+        """L-B4-3：checkpoint WAL 数据到主库文件，确保 lifespan shutdown 不丢 audit。
+
+        S8 兜底：checkpoint 失败仅 logger.warning，不 raise（S8 fail-closed 不杀状态机）。
+        :memory: 数据库跳过（wal_checkpoint 对 in-memory 是 no-op）。
+        """
+        if self._conn is None:
+            return
+        try:
+            # FULL 模式：truncate WAL 文件 + 把所有 page flush 到主库
+            # 与 journal_mode=WAL 配合实现 shutdown 安全
+            self._conn.execute("PRAGMA wal_checkpoint(FULL)")
+        except sqlite3.DatabaseError as exc:
+            logger.warning("audit flush checkpoint 失败（S8 兜底）: %s", exc)
 
     @staticmethod
     def _broken(trace_id: str, count: int, seq: int, reason: str) -> ChainVerifyResult:
