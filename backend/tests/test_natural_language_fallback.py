@@ -19,7 +19,7 @@ def test_t3_summarize_failure_no_natural_language_event() -> None:
     from backend.app.llm.adapter import LLMConfig
 
     # build minimal orchestrator
-    cfg = LLMConfig(provider="real", base_url="http://mock")
+    LLMConfig(provider="real", base_url="http://mock")
     llm = mock.MagicMock()
     audit = SqliteAuditSink(":memory:")
 
@@ -67,7 +67,7 @@ def test_t4_summarize_failure_increments_metrics() -> None:
     from backend.app.contracts.untrusted import ToolResult
     from backend.app.llm.adapter import LLMConfig
 
-    cfg = LLMConfig(provider="real", base_url="http://mock")
+    LLMConfig(provider="real", base_url="http://mock")
     llm = mock.MagicMock()
     audit = SqliteAuditSink(":memory:")
 

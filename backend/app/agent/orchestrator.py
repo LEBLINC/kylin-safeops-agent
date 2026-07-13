@@ -547,7 +547,7 @@ class Orchestrator:
             except Exception:  # noqa: BLE001 审计失败不杀状态机 (S8 兜底)
                 log.warning("summarize_failed audit append failed (S8 兜底)")
             log.warning(
-                "natural_language summarize failed (B6 L-C6 fallback 静默 metrics): %s, fallback_count=%d",
+                "natural_language summarize failed (L-C6 fallback): %s, fallback_count=%d",
                 type(exc).__name__,
                 self._fallback_count,
             )
