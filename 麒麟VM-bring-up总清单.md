@@ -116,6 +116,28 @@
 | T12 | — | L | `?probe=true` 主动连通性探测 | health 端点 backlog |
 | T13 | — | L | `get_llm()` docstring 改"demo-only 设计意图" | ADR-0003 后续跟进 |
 
+---
+
+## ★架构审计 + 整改工单核验后阶段6 真实未合 L backlog（dev ac4ba0e 之三十八，2026-07-13）
+
+> **核验过程**：架构者读 `架构审计报告-dev-154f767.md` + `整改工单-154f767-L.md`，
+> 字节级对照当前 dev=`ac4ba0e` 代码逐条核**真伪**（审计报告与整改工单有几处不准 / 漏项，已记偏差）。
+
+### 6 批分组（18 commit 总）
+
+| 批 | 内容 | commit | 优先级 |
+|---|---|---|---|
+| **B1 Blocker** | 审计 durability:audit 写异步化 + lifespan drain + synchronous=FULL | 3 | 🔴 |
+| **B2 授权层** | IDOR 修 + audit role + actor 写入 + policy role | 4 | 🟠 |
+| **B3 LLM 硬化** | summarize prompt 定界 + HMAC 加 method/path/body/nonce + LRU | 2 | 🟠 |
+| **B4 韧性 + 可观测** | EventBus queue maxsize + logging dictConfig + /health readiness | 2 | 🟠 |
+| **B5 CI + 灰度** | testpaths + mypy + 请求体大小 + 错误文案 + SSE auth + Auth REDACTED | 4 | 🟡 |
+| **B6 注入 + 降级** | D-10 共谋 + natural_language 降级 + escalate except:pass | 3 | 🟡 |
+
+### 留痕偏差（架构者失误留底）
+- 之前凭记忆列 L-D1/T13/T5/T6 当新工单，全部已合；X-proxy SSE 阻塞已合；D P0/P1/P2 全已合
+- 整改工单比审计报告更全（HMAC 加 nonce + LRU；audit drain 等），以整改工单为权威
+
 **X 工单（T1+T2+T3）已起**：建议分支 `feat/x-sse-whoami-vitest`，2-3 commit 拆开，B1 VM 复证是 PASS 必要条件。
 **基线 dev=`d60e4a7`（2026-07-11 之三十一）**：X P4 SSE done 截胡修复 + Demo/Tools 卡片配色统一合入。L 域 4 Router 工单待下个 L 执行窗口实施。pytest 512/17。
 **基线 dev=`c1e8c51`（未动，2026-07-11 之三十二）**：L 域 4 Router 工单 6 commit 已落地 feat/l-4-router-completion（未合 dev），等另一窗口审阅。pytest 530/17（512+18）。X P4 已合 d60e4a7。
