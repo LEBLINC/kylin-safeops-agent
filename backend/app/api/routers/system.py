@@ -34,22 +34,27 @@ Executor 切真后这是一条"绕审计的真实执行路径"。审阅窗口（
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import time
 from collections.abc import Iterable
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import JSONResponse
 
 from backend.app.agent.ports import AuditSink
-from backend.app.api.app import get_audit, get_gateway
+from backend.app.api.app import get_audit, get_bus, get_gateway, get_registry
 from backend.app.api.deps import verify_token
+from backend.app.api.event_bus import EventBus
 from backend.app.api.schemas import (
     OverviewHistoryResponse,
+    ReadinessResponse,
     ServiceStatus,
     SystemOverview,
     SystemStats,
 )
+from backend.app.api.session_registry import SessionRegistry
 from backend.app.contracts.intent import CandidateTool
 from backend.app.contracts.untrusted import ToolResult
 from backend.app.mcp.gateway import MCPGateway
@@ -367,3 +372,53 @@ def _hours_to_timedelta(hours: int):  # type: ignore[no-untyped-def]
     import datetime as _dt
 
     return _dt.timedelta(hours=hours)
+
+
+# ============================================================
+# B4 commit 3: /health/ready readiness 端点
+# ============================================================
+
+
+@router.get("/ready", response_model=None)
+async def readiness(
+    audit: AuditSink = Depends(get_audit),
+    bus: EventBus = Depends(get_bus),
+    registry: SessionRegistry = Depends(get_registry),
+) -> ReadinessResponse | JSONResponse:
+    """K8s readiness 探针:DB write OK + bus 存活 + registry.active_count < 阈值.
+
+    Returns 200 on ready=True; raise 503 on ready=False.
+    """
+    db_ok = False
+    bus_ok = False
+    registry_ok = False
+    active = 0
+    try:
+        db_ok = audit.ping()
+    except Exception:  # noqa: BLE001
+        db_ok = False
+    try:
+        active = int(bus.active_count)
+    except Exception:  # noqa: BLE001
+        active = 0
+    bus_ok = True  # 单实例 EventBus 必活
+    registry_ok = active < int(os.environ.get("KYLIN_SSE_QUEUE_MAX", "100") or "100")
+    overall = db_ok and bus_ok and registry_ok
+    if not overall:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ready": overall,
+                "db": db_ok,
+                "bus": bus_ok,
+                "registry": registry_ok,
+                "active_sessions": active,
+            },
+        )
+    return ReadinessResponse(
+        ready=overall,
+        db=db_ok,
+        bus=bus_ok,
+        registry=registry_ok,
+        active_sessions=active,
+    )

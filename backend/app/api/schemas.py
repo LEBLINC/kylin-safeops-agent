@@ -552,3 +552,13 @@ class LLMHealthProbe(LLMHealth):
     probe_status: str = Field(..., description='"ok"/"skipped"/"failed"/"timeout"')
     probe_latency_ms: int | None = Field(default=None, description="探测延迟（毫秒）")
     probe_error: str | None = Field(default=None, description="失败原因（仅状态码/错误类型）")
+
+
+class ReadinessResponse(BaseModel):
+    """K8s readiness 探针响应。"""
+
+    ready: bool = Field(..., description="整体 readiness（db AND bus AND registry）")
+    db: bool = Field(..., description="AuditSink.ping() 是否成功")
+    bus: bool = Field(..., description="EventBus 是否存活")
+    registry: bool = Field(..., description="SessionRegistry.active_count 是否在阈值内")
+    active_sessions: int = Field(default=0, description="当前活跃会话数")
