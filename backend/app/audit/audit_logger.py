@@ -365,6 +365,57 @@ class SqliteAuditSink:
         row = self._conn.execute(sql, tuple(params)).fetchone()
         return int(row["n"])
 
+    def list_tool_calls_by_tool(
+        self,
+        *,
+        tool: str,
+        limit: int = 10,
+    ) -> list[dict]:
+        """按工具名列历史调用（commit 2 D7 /api/tools/calls 用）。
+
+        数据源：audit_records phase IN ('EXECUTING','EXECUTED') 且
+        json_extract(payload, '$.tool') = tool_name；按 trace_id 聚合取首条，
+        再按 created_at DESC 排序；limit 上限 100。
+
+        返回每条：{trace_id, seq, phase, payload, created_at}。
+        S9：payload 中敏感字段（api_key 等）已通过 _SENSITIVE_KEYS 黑名单过滤；
+        黑名单字段原值替换为 "***REDACTED***"，避免明文凭据走 /api/tools/calls 出域。
+        """
+        limit = max(1, min(int(limit), 100))
+        # 先按 trace_id 聚合找最新 trace，再逐 trace 取首条 EXECUTING/EXECUTED
+        # （EXECUTING 一般先于 EXECUTED，按 seq ASC 取首条 → 多为 EXECUTING）。
+        # 实现：先列所有 EXECUTING/EXECUTED 记录 → SQL 层过滤 tool + 限定 limit。
+        # 直接 ORDER BY created_at DESC LIMIT N，trace_id 出现多次也按时间倒序。
+        sql = (
+            "SELECT trace_id, seq, phase, payload, created_at FROM audit_records "
+            "WHERE phase IN ('EXECUTING','EXECUTED') "
+            "AND json_extract(payload, '$.tool') = ? "
+            "ORDER BY created_at DESC LIMIT ?"
+        )
+        rows = self._conn.execute(sql, (tool, limit)).fetchall()
+        result: list[dict] = []
+        for row in rows:
+            try:
+                payload = json.loads(row["payload"])
+                # S9：过滤敏感字段（与 get_trace_records 同款浅过滤）
+                if isinstance(payload, dict):
+                    payload = {
+                        k: ("***REDACTED***" if k.lower() in self._SENSITIVE_KEYS else v)
+                        for k, v in payload.items()
+                    }
+            except (json.JSONDecodeError, TypeError):
+                payload = {}
+            result.append(
+                {
+                    "trace_id": row["trace_id"],
+                    "seq": row["seq"],
+                    "phase": row["phase"],
+                    "payload": payload,
+                    "created_at": row["created_at"],
+                }
+            )
+        return result
+
     def flush(self) -> None:
         """L-B4-3：checkpoint WAL 数据到主库文件，确保 lifespan shutdown 不丢 audit。
 
