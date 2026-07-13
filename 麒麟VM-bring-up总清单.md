@@ -90,6 +90,12 @@
 
 ---
 
+**基线 dev=`febd7e5`（2026-07-13 之三十七）**：L 域 `?probe=true` 审计化 + SSE `audit_appended` 推送已合。X/D prompt 已重写并发出（X P0 接口切真 + X P1 SSE 端点 + X P2 契约校验 / D P0 probe 审计 VM 实证 + D P1 5 接口端到端真接入），等协作者回执。pytest 557/17，全四道闸绿。
+
+**L 域后续候选 backlog（架构者待选）**：见之三十七清单。
+
+---
+
 ## 阶段6 backlog（2026-06-19 另一窗口架构审阅 → 治债清单）
 
 > 来自 dev=`e2bd033` 架构审阅的 5 条中低优治债 + L 域 3 条遗留。**非阻断 VM 真跑**，但建议阶段6 启动前清零。
@@ -110,9 +116,37 @@
 | T12 | — | L | `?probe=true` 主动连通性探测 | health 端点 backlog |
 | T13 | — | L | `get_llm()` docstring 改"demo-only 设计意图" | ADR-0003 后续跟进 |
 
+---
+
+## ★架构审计 + 整改工单核验后阶段6 真实未合 L backlog（dev ac4ba0e 之三十八，2026-07-13）
+
+> **核验过程**：架构者读 `架构审计报告-dev-154f767.md` + `整改工单-154f767-L.md`，
+> 字节级对照当前 dev=`ac4ba0e` 代码逐条核**真伪**（审计报告与整改工单有几处不准 / 漏项，已记偏差）。
+
+### 6 批分组（18 commit 总）
+
+| 批 | 内容 | commit | 优先级 |
+|---|---|---|---|
+| **B1 Blocker** | 审计 durability:audit 写异步化 + lifespan drain + synchronous=FULL | 3 | 🔴 |
+| **B2 授权层** | IDOR 修 + audit role + actor 写入 + policy role | 4 | 🟠 |
+| **B3 LLM 硬化** | summarize prompt 定界 + HMAC 加 method/path/body/nonce + LRU | 2 | 🟠 |
+| **B4 韧性 + 可观测** | EventBus queue maxsize + logging dictConfig + /health readiness | 2 | 🟠 |
+| **B5 CI + 灰度** | testpaths + mypy + 请求体大小 + 错误文案 + SSE auth + Auth REDACTED | 4 | 🟡 |
+| **B6 注入 + 降级** | D-10 共谋 + natural_language 降级 + escalate except:pass | 3 | 🟡 |
+
+### 留痕偏差（架构者失误留底）
+- 之前凭记忆列 L-D1/T13/T5/T6 当新工单，全部已合；X-proxy SSE 阻塞已合；D P0/P1/P2 全已合
+- 整改工单比审计报告更全（HMAC 加 nonce + LRU；audit drain 等），以整改工单为权威
+
 **X 工单（T1+T2+T3）已起**：建议分支 `feat/x-sse-whoami-vitest`，2-3 commit 拆开，B1 VM 复证是 PASS 必要条件。
 **基线 dev=`d60e4a7`（2026-07-11 之三十一）**：X P4 SSE done 截胡修复 + Demo/Tools 卡片配色统一合入。L 域 4 Router 工单待下个 L 执行窗口实施。pytest 512/17。
 **基线 dev=`c1e8c51`（未动，2026-07-11 之三十二）**：L 域 4 Router 工单 6 commit 已落地 feat/l-4-router-completion（未合 dev），等另一窗口审阅。pytest 530/17（512+18）。X P4 已合 d60e4a7。
 **基线 dev=`9002e10`（未动，2026-07-12 之三十三）**：L 域 verified 后 LLM 自然语言总结工单已落地 feat/l-verified-natural-language（`db75ca0` stream+orch / `c4c86dc` llm+test / `HEAD` docs+test，未合 dev 待审）。3 commit 含 `natural_language` 事件 + 决策⑫ 间接注入防御纵深 `detect_tool_output_injection` + `LLMAdapter.summarize` + `RealLLMClient.summarize` + S9 浅过滤 `_sanitize_for_summary` 6 类 api_key/authorization/bind_password/secret/token/password → `***REDACTED***`。4 新用例（T1 fake 固定 / T2 timeout 不阻断 / T3 inject 拦下 / T4 S9 spy REDACTED）全 PASS，pytest **534/17**（530 + 4 数学吻合）。真端点 httpx POST 走 `KYLIN_LLM_SUMMARIZE_TIMEOUT=5s` 待 D 在 VM 配 env+密钥实证。
 
 **基线 dev=`ed3ef82`（2026-07-12 之三十四）**：X A7 SSE Content-Type 修复 + 4 文档留痕。`chat.py:118` `media_type="text/event-stream; charset=utf-8"` 防中文 Latin-1 乱码。`backend/tests/test_sse_charset.py` 3 用例（content-type 头 / UTF-8 字节流 / 源码静态防回归）全 PASS，pytest **537/17**（534 + 3 数学吻合 ✅），四道闸全绿（CI 两次 reformat 已 amend 修齐），force push 用 `--force-with-lease` 安全模式。
+
+**基线 dev=`a82f984`（2026-07-13 之三十五）**：L 域 X 接入联调 5 接口 + D2 §5 红线守门工单已落地 feat/l-x-integration-5-apis（`718074f` rca / `82c71d7` overview / `fd3807b` tools / `b84b55d` D2 守门 / `HEAD` docs，未合 dev 待审）。4 commit 含 `/api/rca/analyze` 接 evidence + 响应 evidence_count；`/api/system/overview` services/tool_calls_today/denied_today 真填；新增 `/api/system/overview/history?hours=1..168`（series 空待 overview_probe 落库）+ `/api/system/stats?hours=1..168`（by_tool/by_risk/by_status 三维度聚合）；新增 `/api/tools/calls/{call_id}` 详情 + S9 args REDACTED。D2 §5 红线守门 3 用例钉死 Chat 永远走 fixture（ADR-0003 demo-only）。16 新用例（3 RCA + 6 overview + 4 tools + 3 D2）全 PASS，pytest **553/17**（537 + 16 数学吻合 ✅），四道闸全绿。C3 严守（仅 backend/app + backend/tests + 4 文档）。
+
+**基线 dev=`c99d760`（2026-07-13 之三十六）**：L 域 ?probe=true 审计化 + SSE audit_appended 工单已落地 feat/l-probe-audit（`da8072a` probe audit / `721d452` tests，未合 dev 待审）。2 commit 含 `RealLLMClient.probe(audit_sink=...)` 在 failed/timeout 路径写 `SqliteAuditSink` 一条 AuditRecord(phase=probe_failed, trace_id=probe-{epoch_ms}, payload 含 probe_status/latency_ms/error_detail/model/base_url, curr_hash=SHA256(GENESIS+canonical_json(payload)))；`/api/llm/health?probe=true` 路由同步 emit SSE `audit_appended` 事件到固定 channel `probe-watch`，前端 SSE 订阅可见；新增 `GET /api/llm/health/events` 订阅端点。S8 兜底：审计/SSE 失败仅 log warn，不杀 probe 响应。S9：payload 含 model+base_url（非凭据），api_key 绝不入 payload；probe_error 仍仅 status_code / TimeoutException 类名。4 新用例（T1 failed 写审计 / T2 SSE audit_appended / T3 timeout 走审计 / T4 fixture noop 不写审计）全 PASS，pytest **557/17**（553 + 4 数学吻合 ✅），四道闸全绿。C3 严守（仅 backend/app + backend/tests + 4 文档）。
+
+**基线 dev=`f9f17a6`（2026-07-13 之三十九 L 域审计库 durability Blocker）**：2 commit（`5925a77` L-B4-3 synchronous=FULL + busy_timeout=5000 + flush() / `a1912ee` L-B4-2 lifespan shutdown drain 顺序 registry→bus→audit→session_store）。L-B4-3：SqliteAuditSink PRAGMA synchronous=FULL + busy_timeout=5000ms + flush() PRAGMA wal_checkpoint(FULL) + close() 顺序 flush→close（S8 兜底 flush 失败仅 log warn 不 raise）。L-B4-2：lifespan shutdown 段 `drain_orchestrator_tasks`（asyncio.wait_for 10s + 超时 cancel）+ `bus.drain_all()`（幂等移除所有 queue）+ `audit.flush() + audit.close()`。**L-B4-1 to_thread 跳过**（Windows sqlite3 thread safety 问题需 P2 调研；commit 2 改为 P2 backlog 留痕）。9 新用例（4 durability T1-T4 + 5 drain T1-T5）全 PASS，pytest **566/17**（557 + 9 数学吻合 ✅），四道闸全绿。

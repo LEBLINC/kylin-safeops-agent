@@ -2,15 +2,22 @@
 
 registry：列举已注册工具；★字段适配 ToolSpec.name → 输出键名 "tool"（前端用 tool）。
 call：手动单工具调用，仍走 gateway.call 完整三道闸（注册+结构+策略）。
+
+D6 新增：GET /api/tools/calls/{call_id} — 单条工具调用详情（从审计库派生）。
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+import json
+from datetime import datetime
 
-from backend.app.api.app import get_gateway
+from fastapi import APIRouter, Depends, HTTPException
+
+from backend.app.agent.ports import AuditSink
+from backend.app.api.app import get_audit, get_gateway
 from backend.app.api.deps import verify_token
 from backend.app.api.schemas import (
+    ToolCallDetail,
     ToolCallRequest,
     ToolCallResponse,
     ToolRegistryItem,
@@ -66,4 +73,68 @@ async def post_tool_call(
         result=outcome.result.model_dump() if outcome.result is not None else None,
         verdict=outcome.verdict.model_dump() if outcome.verdict is not None else None,
         reason=outcome.reason,
+    )
+
+
+@router.get("/calls/{call_id}", response_model=ToolCallDetail)
+async def get_tool_call_detail(
+    call_id: str,
+    _user: str = Depends(verify_token),
+    audit: AuditSink = Depends(get_audit),
+) -> ToolCallDetail:
+    """D6 新增：单条工具调用详情（MVP call_id = trace_id）。
+
+    数据来源：审计库 phase=EXECUTING|EXECUTED + 该 trace 末条记录
+    （payload.tool/args/exit_code + created_at）。
+    trace_id 找不到 / 无对应阶段记录 → 404（与 audit/traces/{trace_id} 行为对齐）。
+
+    S9：payload 中敏感字段（api_key 等）已 SqliteAuditSink.get_trace_records 过滤；
+    本端点复用 _conn 直查时也走相同黑名单（_SENSITIVE_KEYS）过滤，避免明文凭据返出。
+    """
+    from backend.app.audit.audit_logger import SqliteAuditSink
+
+    conn = getattr(audit, "_conn", None)
+    if conn is None:
+        # 非 SqliteAuditSink 实现（如测试用 FakeAudit）→ 404
+        raise HTTPException(status_code=404, detail=f"unknown call_id: {call_id}")
+
+    # 找该 trace 末条 EXECUTING/EXECUTED 记录
+    sql = (
+        "SELECT seq, payload, created_at FROM audit_records "
+        "WHERE trace_id = ? AND phase IN ('EXECUTING', 'EXECUTED') "
+        "ORDER BY seq DESC LIMIT 1"
+    )
+    row = conn.execute(sql, (call_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"unknown call_id: {call_id}")
+
+    try:
+        payload = json.loads(row["payload"])
+    except (json.JSONDecodeError, TypeError):
+        payload = {}
+
+    # S9：payload 敏感字段过滤（与 audit_logger._SENSITIVE_KEYS 同口径）
+    sensitive_keys = getattr(audit, "_SENSITIVE_KEYS", SqliteAuditSink._SENSITIVE_KEYS)
+    raw_args = payload.get("args", {})
+    if isinstance(raw_args, dict):
+        safe_args = {
+            k: ("***REDACTED***" if k.lower() in sensitive_keys else v) for k, v in raw_args.items()
+        }
+    else:
+        safe_args = {}
+
+    # created_at ISO 字符串 → epoch 秒
+    try:
+        ts = datetime.fromisoformat(row["created_at"]).timestamp()
+    except (TypeError, ValueError):
+        ts = 0.0
+
+    return ToolCallDetail(
+        call_id=call_id,
+        trace_id=call_id,
+        seq=int(row["seq"]),
+        tool_name=str(payload.get("tool", "")),
+        args=safe_args,
+        exit_code=int(payload.get("exit_code", 0)),
+        timestamp=ts,
     )

@@ -339,16 +339,28 @@ class RealLLMClient:
             "base_url": self.config.base_url,
         }
 
-    async def probe(self, timeout_s: float = 3.0) -> dict[str, object]:
+    async def probe(
+        self,
+        timeout_s: float = 3.0,
+        audit_sink: object | None = None,
+    ) -> dict[str, object]:
         """主动探测真端点连通性（?probe=true 专用）。
 
         - 独立 budget（不走 _RateLimiter / _TokenCounter，probe 是运维专用调用）
         - S9：probe_error 只报 status_code / error class，不暴露原文
+        - audit_sink（可选）：失败/超时落 SqliteAuditSink，phase=probe_failed，
+          trace_id=probe-{epoch_ms}，payload 含 status_code/error_class/latency_ms/model；
+          ok / skipped 不写审计（运维运维噪音最小）
 
-        Returns dict with keys: probe_status, probe_latency_ms, probe_error
+        Returns dict with keys: probe_status, probe_latency_ms, probe_error, audit_trace_id
         """
         if self.is_fixture:
-            return {"probe_status": "skipped", "probe_latency_ms": None, "probe_error": None}
+            return {
+                "probe_status": "skipped",
+                "probe_latency_ms": None,
+                "probe_error": None,
+                "audit_trace_id": None,
+            }
         import time
 
         url = self.config.base_url.rstrip("/") + "/chat/completions"
@@ -367,25 +379,114 @@ class RealLLMClient:
                 resp = await client.post(url, json=body, headers=headers)
             latency_ms = int((time.monotonic() - t0) * 1000)
             if resp.is_success:
-                return {"probe_status": "ok", "probe_latency_ms": latency_ms, "probe_error": None}
+                return {
+                    "probe_status": "ok",
+                    "probe_latency_ms": latency_ms,
+                    "probe_error": None,
+                    "audit_trace_id": None,
+                }
+            audit_trace_id = self._audit_probe_failure(
+                audit_sink=audit_sink,
+                probe_status="failed",
+                latency_ms=latency_ms,
+                error_detail=f"status_code={resp.status_code}",
+            )
             return {
                 "probe_status": "failed",
                 "probe_latency_ms": latency_ms,
                 # S9：只报状态码，不暴露 response body
                 "probe_error": f"status_code={resp.status_code}",
+                "audit_trace_id": audit_trace_id,
             }
         except httpx.TimeoutException:
+            latency_ms = int((time.monotonic() - t0) * 1000)
+            audit_trace_id = self._audit_probe_failure(
+                audit_sink=audit_sink,
+                probe_status="timeout",
+                latency_ms=latency_ms,
+                error_detail="TimeoutException",
+            )
             return {
                 "probe_status": "timeout",
-                "probe_latency_ms": int((time.monotonic() - t0) * 1000),
+                "probe_latency_ms": latency_ms,
                 "probe_error": "TimeoutException",
+                "audit_trace_id": audit_trace_id,
             }
         except Exception as exc:  # noqa: BLE001
+            latency_ms = int((time.monotonic() - t0) * 1000)
+            error_detail = type(exc).__name__
+            audit_trace_id = self._audit_probe_failure(
+                audit_sink=audit_sink,
+                probe_status="failed",
+                latency_ms=latency_ms,
+                error_detail=error_detail,
+            )
             return {
                 "probe_status": "failed",
-                "probe_latency_ms": int((time.monotonic() - t0) * 1000),
-                "probe_error": type(exc).__name__,
+                "probe_latency_ms": latency_ms,
+                "probe_error": error_detail,
+                "audit_trace_id": audit_trace_id,
             }
+
+    def _audit_probe_failure(
+        self,
+        *,
+        audit_sink: object | None,
+        probe_status: str,
+        latency_ms: int,
+        error_detail: str,
+    ) -> str | None:
+        """probe 失败/超时时落 SqliteAuditSink（运维历史可见）。
+
+        防御纵深：audit_sink 为 None 时静默跳过（fake sink / 测试路径）；append
+        抛错时仅 log warn 不抛（审计失败不杀 probe 响应，S8 一致性）。
+        S9：error_detail 是 type(exc).__name__ 或 status_code=NNN（已 sanitize），
+        绝不暴露 base_url/api_key/response body。
+
+        Returns 写入的 audit trace_id（audit_sink=None 或 append 失败 → None）
+        """
+        if audit_sink is None:
+            return None
+        # audit_sink 鸭子类型取 append；非 AuditSink 实现 → 静默
+        append_fn = getattr(audit_sink, "append", None)
+        if not callable(append_fn):
+            return None
+
+        # probe-{epoch_ms}：秒级 epoch 足够区分（probe 是低频运维操作）
+        import time
+
+        trace_id = f"probe-{int(time.time() * 1000)}"
+        # payload 严格控制字段名 + 不含凭据；status_code / error_class 已 sanitize
+        # (HTTP status_code 是 int，error_class 是 type(exc).__name__)
+        payload = {
+            "probe_status": probe_status,
+            "latency_ms": latency_ms,
+            "error_detail": error_detail,
+            "model": self.config.model,
+            "base_url": self.config.base_url,  # 非凭据（运维需要看接哪个端点）
+        }
+        try:
+            from backend.app.contracts.audit import (
+                GENESIS_HASH,
+                AuditRecord,
+                compute_curr_hash,
+            )
+
+            curr_hash = compute_curr_hash(GENESIS_HASH, payload)
+            record = AuditRecord(
+                trace_id=trace_id,
+                seq=0,
+                phase="probe_failed",
+                payload=payload,
+                prev_hash=GENESIS_HASH,
+                curr_hash=curr_hash,
+            )
+            append_fn(record)
+            return trace_id
+        except Exception as exc:  # noqa: BLE001
+            # S8：审计失败不杀 probe 响应；log warn 即可
+            logger.warning("probe audit append failed (S8 fail-closed 兜底): %s", exc)
+            return None
 
     # ============================================================
     # 自然语言总结（verified 后调，仅前端聊天区展示）
