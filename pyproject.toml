@@ -3,11 +3,14 @@
 
 [tool.pytest.ini_options]
 pythonpath = ["."]              # 冻结 仓库根=导入根：backend.app.* 与 mcp_servers.os_ops 一致可导
-testpaths = ["backend/tests", "mcp_servers/rca/tests"]
+testpaths = ["backend/tests", "mcp_servers/rca/tests", "deploy/sso/tests", "deploy/proxy/tests"]
 
 [tool.mypy]
 python_version = "3.10"         # 下限 3.10（契约用 PEP 604）；麒麟 V11 靶机实测 Python 3.11.6，按 3.10 写下限兼容
 plugins = ["pydantic.mypy"]     # 否则 D2 contracts 的 pydantic v2 模型会误报 / 漏校
+files = ["backend/app", "deploy/sso", "deploy/proxy"]
+exclude = ["deploy/sso/tests", "deploy/proxy/tests"]  # B5 commit 1 + deploy tests 目录不进 mypy
+explicit_package_bases = true   # 多个 deploy 目录同名 module 冲突解决（B5 commit 1）
 
 [tool.ruff]
 line-length = 100

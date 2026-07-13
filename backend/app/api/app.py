@@ -357,6 +357,11 @@ def create_app() -> FastAPI:
 
     app.add_middleware(TraceIdMiddleware)
 
+    # B5 commit 2 L-M5: 请求体大小上限 (Content-Length gate; chunked 增量后续)
+    from backend.app.api.middleware import RequestSizeLimitMiddleware
+
+    app.add_middleware(RequestSizeLimitMiddleware)
+
     # 路由挂载：延迟 import 避免 routers ↔ app 循环依赖
     # （routers 从本模块 import get_bus/get_registry/... 作 Depends）。
     from backend.app.api.routers import api_router
