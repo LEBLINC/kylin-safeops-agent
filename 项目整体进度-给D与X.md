@@ -142,3 +142,10 @@
 
 - ✅ **★ L 域授权层 Blocker 工单部分完成**（feat/l-b2-auth-layer @ `fa1184d`，未合 dev 待审）：2 commit（`d6402a1` L-H1 + `fa1184d` L-H2 helper）。**L-H1 IDOR 修复**：session_store.create(*, owner) + assert_owner() + sessions 5 端点 + chat session_id owner 校验 + principal_for_idor 依赖；修 8 个老测试。**L-H2 require_role helper**：rbac.py 增 require_role + roles_satisfy；router 接线未做（避免破坏 dev 模式测试）。**L-M3 审计链 actor + L-M4 router 接线 + 10 个守门测试** 全部留 P2 backlog（复杂改造）。pytest **566/17** 实跑（基线维持），四道闸全绿。C3 严守（仅 backend/app + backend/tests + 4 文档），决策①-⑬ / ADR-0001-0004 / S3 / S8 / S9 全守。
 
+
+
+- ✅ **★ L 域 B2 偏差 5 项补完工单**（feat/l-b2-deviations @ `03e1af9`，未合 dev 待审）：5 commit（`f4cdeb3` SoD check / `6ac4208` test_b2 10 守门 / `a22f7d6` env fallback / `03e1af9` proxy 严测 fixture / `3d341d4` 评审窗口 cherry-pick）。**...10 test_b2 + 2 audit proxy）**。四道闸全绿。C3 严守：仅 backend/app + backend/tests + 4 文档，决策⑬/⑨/⑫ / ADR-0001-0004 不动。
+
+
+- ✅ **★ L 域 B2 偏差 5 项补完工单完成**（feat/l-b2-deviations @ `03e1af9`，未合 dev 待审）：5 commit（`f4cdeb3` SoD check / `6ac4208` test_b2 10 守门 / `a22f7d6` ...er 5 项偏差 4 项落 + 偏差 5 commit 顺序正确）。pytest **578/17**（基线 566 + 12 = 578 数学吻合 ✅）。四道闸全绿。C3 严守（仅 backend/app + backend/tests + 4 文档），决策①-⑬ / ADR-0001-0004 / S3 / S8 / S9 全守。
+

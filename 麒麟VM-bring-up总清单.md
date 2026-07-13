@@ -153,3 +153,10 @@
 
 **基线 dev=`122cc62`（2026-07-13 之四十 L 域授权层 Blocker 部分完成）**：2 commit（`d6402a1` L-H1 IDOR 修复 + `fa1184d` L-H2 require_role helper）。**L-H1**：session_store.create(*, owner) + assert_owner + sessions 5 端点 + chat session_id owner 校验 + principal_for_idor dep。**L-H2**:rbac.py 新增 require_role + roles_satisfy（router 接线未做，避免破坏 dev 模式测试）。**L-M3 审计链 actor + L-M4 router 接线 + 10 个守门测试** 全部留 P2 backlog。pytest **566/17** 实跑（基线维持），四道闸全绿。
 
+
+
+**基线 dev=`974505c`（2026-07-13 之四十一 L 域 B2 偏差 5 项补完）**：5 commit（`f4cdeb3` SoD check / `6ac4208` test_b2 10 守门 / `a22f7d6` env fallback / `03e1af9` proxy 严测 fixture / `3d341d4` 评审窗口 cherry-pick）。**L-偏差 1 SoD**...
+
+
+**基线 dev=`974505c`（2026-07-13 之四十一 L 域 B2 偏差 5 项补完）**：5 commit（`f4cdeb3` SoD check / `6ac4208` test_b2 10 守门 / `a22f7d6` env fallback / `03e1af9` proxy 严测 fixture / `3d341d4` review-window takeover cherry-pick）。pytest **578/17** 实跑（基线 566 + 12 增量 = 568+10+2=578 数学吻合 ✅），四道闸全绿。**SoD 防自批自**：approvals.resume_approval 加 actor==approver → 403 + audit sod_violation（决策⑬ 核心防线）。**proxy 严测**：proxy_signed_headers 走 HMAC 4 头校验，admin→200 / viewer→403 守门生效。
+

@@ -30,7 +30,7 @@ def _setup() -> TestClient:
 def test_policy_rules_returns_default_policy() -> None:
     """DEFAULT_POLICY 含规则 → /api/policy/rules 返 list[PolicyRuleOut]。"""
     with _setup() as client:
-        resp = client.get("/api/policy/rules")
+        resp = client.get("/api/policy/rules", headers={"X-User-Role": "auditor"})
         assert resp.status_code == 200
         body = resp.json()
         assert "rules" in body
@@ -47,7 +47,7 @@ def test_policy_rules_returns_default_policy() -> None:
 def test_policy_events_empty_audit_returns_empty_list() -> None:
     """空 audit 库 → /api/policy/events 返 {items: [], total: 0}。"""
     with _setup() as client:
-        resp = client.get("/api/policy/events")
+        resp = client.get("/api/policy/events", headers={"X-User-Role": "auditor"})
         assert resp.status_code == 200
         body = resp.json()
         assert body == {"items": [], "total": 0}
@@ -56,7 +56,7 @@ def test_policy_events_empty_audit_returns_empty_list() -> None:
 def test_policy_risk_levels_has_R0_R1_R2_R3() -> None:
     """风险等级硬编码字典必含 R0/R1/R2/R3 4 档 + 审批要求。"""
     with _setup() as client:
-        resp = client.get("/api/policy/risk-levels")
+        resp = client.get("/api/policy/risk-levels", headers={"X-User-Role": "auditor"})
         assert resp.status_code == 200
         body = resp.json()
         items = body["items"]

@@ -69,9 +69,9 @@ def proxy_mode_client(monkeypatch):
 
 @pytest.fixture
 def proxy_signed_headers(monkeypatch):
-    """生成 4 HMAC-signed headers (X-Auth-User / X-Auth-Roles / X-Auth-Timestamp / X-Auth-Signature).
+    """生成 4 HMAC-signed headers for proxy mode auth (X-Auth-* 4 头).
 
-    proxy 模式 verify_proxy_identity 会通过校验,principal.user == user.
+    proxy 模式 verify_proxy_identity 通过, principal.user == user.
     """
     import hashlib
     import hmac
