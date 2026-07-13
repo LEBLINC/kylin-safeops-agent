@@ -95,6 +95,8 @@ class Orchestrator:
         # L-M3：审计 actor 溯源（运行时由 chat.py 装配时调 set_actor 注入，
         # 不破坏冻结的 __init__ 签名）。actor = {user, roles} 或 None。
         self._actor: dict | None = None
+        # B6 L-C6: summarize fallback metrics (不 emit synthetic 事件, 仅静默计数)
+        self._fallback_count: int = 0
         # 暂存供 resume 使用的执行批次（原子计划：审批后整批执行）
         self._batch: list[CandidateTool] | None = None
         # WAIT_APPROVAL 时本批次 confirm 工具的最严 approval_role（供 api 层 RBAC 强制；只读暴露）
@@ -529,10 +531,25 @@ class Orchestrator:
                 user_intent=self._user_intent,
             )
         except (httpx.HTTPError, RuntimeError, TimeoutError) as exc:
-            # S8 fail-closed 不杀状态机：仅 log warn，不阻断 FINISHED
+            # B6 L-C6: 架构修订 — fallback 不 emit synthetic 自然语言事件;
+            # 仅 audit phase="summarize_failed" 留底 + metrics fallback_count++.
+            # 前端从 SSE 收不到 natural_language,自动用 verified.tool_result 兜底渲染.
+            self._fallback_count += 1
+            try:
+                self._append_audit(
+                    {
+                        "summarize_failed": True,
+                        "error_class": type(exc).__name__,
+                        "error_msg": str(exc)[:200],  # S9 截断防泄漏
+                        "fallback_count": self._fallback_count,
+                    }
+                )
+            except Exception:  # noqa: BLE001 审计失败不杀状态机 (S8 兜底)
+                log.warning("summarize_failed audit append failed (S8 兜底)")
             log.warning(
-                "natural_language summarize failed (S8 fail-closed 兜底): %s",
+                "natural_language summarize failed (B6 L-C6 fallback 静默 metrics): %s, fallback_count=%d",
                 type(exc).__name__,
+                self._fallback_count,
             )
             return
 
@@ -542,3 +559,4 @@ class Orchestrator:
 
         # 3) emit natural_language 事件（仅前端聊天区展示，不进审计哈希链 S3 字节级不动）
         self._emit("natural_language", {"text": summary, "sensitive_filtered": False})
+        # B6 L-C6: 成功路径不增加 fallback_count (synthetic 修正)
