@@ -30,6 +30,14 @@ from backend.app.security.rbac import can_approve
 router = APIRouter(prefix="/api/approvals", tags=["approvals"])
 
 
+def _admin_bypass_sod(principal: Principal) -> bool:
+    """SoD 旁路：admin 角色在运维场景可越级（决策⑬ 撤审需求）。
+
+    普通 user / operator / auditor 一律不许（即便自身已认证）。
+    """
+    return "admin" in principal.roles
+
+
 @router.post("/resume", response_model=ResumeResponse)
 async def resume_approval(
     body: ResumeRequest,
@@ -65,6 +73,31 @@ async def resume_approval(
                     f"'{required_role}' (insufficient/unknown role; fail-closed)"
                 ),
             )
+
+        # L-M3 SoD（决策⑬ 强化）：actor == approver 拒批（"自批自"红...资审计）
+        try:
+            actor = getattr(session.orchestrator, "_actor", None)  # type: ignore[arg-type]
+        except Exception:
+            actor = None
+        if isinstance(actor, dict):
+            actor_user = actor.get("user")
+            if actor_user and principal.user == actor_user and not _admin_bypass_sod(principal):
+                # 写一条 sod_violation 审计（hash 链不变：仅 payload.extra 标记）
+                try:
+                    session.orchestrator._append_audit(  # type: ignore[attr-defined]
+                        payload={
+                            "cause": "sod_violation",
+                            "actor_user": actor_user,
+                            "approver_user": principal.user,
+                            "trace_id": body.trace_id,
+                        }
+                    )
+                except Exception:
+                    pass  # S8：审计失败不杀安全决策
+                raise HTTPException(
+                    status_code=403,
+                    detail="SoD violation: actor cannot approve own plan",
+                )
 
     # L-4：per-trace 重入保护。状态检查与置位之间无 await（asyncio 单线程原子），
     # 两个 near-simultaneous resume 只有一个能占位，另一个 409，避免双 task 竞态破坏审计/SSE。

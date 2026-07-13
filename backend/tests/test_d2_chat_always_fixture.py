@@ -139,3 +139,48 @@ def test_d2_get_llm_completion_fn_not_real(monkeypatch) -> None:
         f"D2 violation: RealLLMClient.completion_fn called {real_spy['calls']} times "
         "when Chat should use fixture per ADR-0003 demo-only"
     )
+
+
+# ---- T11: KYLIN_LLM_RECORD=true → RealLLMClient spy 计数 >= 1（录制模式放行） ---
+def test_d2_record_mode_uses_real_llm(audit_sink: SqliteAuditSink, monkeypatch) -> None:
+    """D2 §5 红线守门新增（ADR-0005 demo-record-mode）：KYLIN_LLM_RECORD=true
+    显式 opt-in 录制模式 → RealLLMClient.__init__ 被调过（spy 计数 >= 1）。
+
+    守门语义：
+    - 默认 KYLIN_LLM_RECORD=false / 未设 → spy == 0（T9 守门）
+    - 录制模式 KYLIN_LLM_RECORD=true → spy >= 1（录制模式放行）
+    - 守门本身仍坚持"默认 fixture 强钉"（ADR-0003 仍守），仅显式录制场景放行
+    - /api/llm/health?probe=true 不在本测试覆盖：probe 路径是 lifespan 内显式
+      build_fake_llm()，不走 get_llm 装配，不属于本守门语义
+    """
+    from backend.app.llm import real_client as rc
+
+    real_client_inits = {"n": 0}
+
+    original_init = rc.RealLLMClient.__init__
+
+    def spy_init(self, *args, **kwargs):  # noqa: ANN001
+        real_client_inits["n"] += 1
+        original_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(rc.RealLLMClient, "__init__", spy_init)
+    monkeypatch.setenv("KYLIN_LLM_RECORD", "true")
+
+    app = create_app()
+
+    # 直接从 app.get_llm() 拿 LLM Adapter，确认 RealLLMClient 被构造过
+    async def _inspect() -> None:
+        async with lifespan(app):
+            llm = get_llm()
+            from backend.app.llm.adapter import LLMAdapter as _Adapter
+
+            assert isinstance(
+                llm, _Adapter
+            ), f"D2 record-mode: get_llm() must return LLMAdapter, got {type(llm).__name__}"
+
+    asyncio.run(_inspect())
+    assert real_client_inits["n"] >= 1, (
+        f"D2 record-mode violation: RealLLMClient.__init__ called "
+        f"{real_client_inits['n']} times when KYLIN_LLM_RECORD=true, "
+        "expected >= 1 (ADR-0005 demo-record-mode opt-in path)"
+    )

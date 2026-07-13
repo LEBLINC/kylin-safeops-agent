@@ -18,6 +18,33 @@ from backend.app.contracts.policy import PolicyEngine
 router = APIRouter(prefix="/api/policy", tags=["policy"])
 
 
+def _require_operator_auditor_mode_aware():  # type: ignore[no-untyped-def]
+    """L-M4：mode-aware operator/auditor/admin 校验（policy/* 比 audit/* 宽一档）
+    - dev 模式：放行（联调期）
+    - proxy 模式：roles ∈ {operator, auditor, admin} 才放行，否则 403
+    """
+
+    def _dep(
+        principal: Principal = Depends(require_proxy_identity),
+    ) -> Principal:
+        from backend.app.api.deps import _auth_mode
+
+        if _auth_mode() == "proxy" and not ({"operator", "auditor", "admin"} & principal.roles):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"policy/* needs operator/auditor/admin; "
+                    f"got roles={sorted(principal.roles)} (fail-closed)"
+                ),
+            )
+        return principal
+
+    return _dep
+
+
+_operator_dep = _require_operator_auditor_mode_aware()
+
+
 # 风险等级定义（决策⑬ RBAC fail-closed 同款口径，硬编码字典返）
 _RISK_LEVELS: list[dict] = [
     {
@@ -58,7 +85,7 @@ _RISK_LEVELS: list[dict] = [
 @router.get("/rules", response_model=schemas.PolicyRulesResponse)
 async def list_rules(
     engine: PolicyEngine = Depends(get_policy),
-    _principal: Principal = Depends(require_proxy_identity),
+    _principal: Principal = Depends(_operator_dep),
 ) -> schemas.PolicyRulesResponse:
     """列当前生效的策略规则（从 PolicyEngine 派生，含 description / action / severity）。"""
     try:
@@ -79,6 +106,7 @@ async def list_rules(
                 severity=r.severity,  # type: ignore[attr-defined]
                 reason=r.reason,  # type: ignore[attr-defined]
                 approval_role=r.approval_role,  # type: ignore[attr-defined]
+                safer_alternative=r.safer_alternative,  # type: ignore[attr-defined]
             )
             for r in rules
         ],
@@ -93,7 +121,7 @@ async def list_events(
     since: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
     audit: AuditSink = Depends(get_audit),
-    _principal: Principal = Depends(require_proxy_identity),
+    _principal: Principal = Depends(_operator_dep),
 ) -> schemas.PolicyEventsResponse:
     """列策略事件（从 audit policy_verdict phase 派生）。
 
@@ -113,7 +141,7 @@ async def list_events(
 
 @router.get("/risk-levels", response_model=schemas.PolicyRiskLevelsResponse)
 async def get_risk_levels(
-    _principal: Principal = Depends(require_proxy_identity),
+    _principal: Principal = Depends(_operator_dep),
 ) -> schemas.PolicyRiskLevelsResponse:
     """返 R0/R1/R2/R3 4 档风险等级定义 + 审批要求 + 样例工具。"""
     return schemas.PolicyRiskLevelsResponse(

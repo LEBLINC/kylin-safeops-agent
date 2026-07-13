@@ -165,6 +165,12 @@ class PolicyRuleOut(BaseModel):
     severity: str
     reason: str
     approval_role: str | None
+    safer_alternative: str | None = Field(
+        default=None,
+        description=(
+            "更安全的替代建议（X 联调新增；规则未配置时为 None，与 PolicyVerdict 同口径）"
+        ),
+    )
 
 
 class PolicyRulesResponse(BaseModel):
@@ -290,6 +296,45 @@ class ToolCallDetail(BaseModel):
     timestamp: float = Field(..., description="epoch 秒（从 created_at 解析）")
 
 
+class ToolCallSummary(BaseModel):
+    """GET /api/tools/calls 单条工具调用摘要（X D7 新增）。
+
+    派生自审计库 phase IN ('EXECUTING','EXECUTED') + payload.tool 精确匹配；
+    按 trace_id 聚合：该 trace 全部 EXECUTING/EXECUTED 记录里取首条（最早）作为
+    摘要——既体现"该工具首次被调用的那一条"，又便于前端按时间倒序展示历史调用。
+    S9：duration_ms / risk_level / args 不在此 schema 暴露（避免泄密/扩张字段）；
+    后续若需要可单独加 /api/tools/calls/{call_id} 详情（已存在 D6）。
+    """
+
+    call_id: str = Field(..., description="call_id（MVP=trace_id；与 ToolCallDetail 同口径）")
+    trace_id: str = Field(..., description="所属 trace_id")
+    tool: str = Field(..., description="工具名（payload.tool）")
+    status: str = Field(
+        ...,
+        description="记录相位：EXECUTING（执行中）或 EXECUTED（已执行）",
+    )
+    duration_ms: int = Field(
+        default=0,
+        description="占位：MVP 不解析耗时（审计库无 duration 字段）；前端按 0 显示",
+    )
+    risk_level: str = Field(
+        default="",
+        description="占位：MVP 不从该 phase 派生（risk_level 在 INTENT_PARSED）；保留给后续增量",
+    )
+    created_at: str = Field(..., description="记录 created_at（ISO 字符串）")
+
+
+class ToolCallListResponse(BaseModel):
+    """GET /api/tools/calls 响应体（X D7 新增）。
+
+    按工具名（query param tool）查询历史调用列表；limit 上限 100。
+    total 与 items 数量一致（MVP 无分页）。
+    """
+
+    items: list[ToolCallSummary]
+    total: int
+
+
 # ---- sessions ------------------------------------------------------------
 
 
@@ -323,6 +368,7 @@ class ChatSessionDTO(BaseModel):
     title: str = Field(..., description="会话标题")
     created_at: str = Field(..., description="创建时间 ISO 字符串")
     updated_at: str = Field(..., description="最近更新时间 ISO 字符串")
+    owner: str = Field(default="", description="会话所有者 user（L-H1 IDOR 修复）")
 
 
 # ---- system --------------------------------------------------------------

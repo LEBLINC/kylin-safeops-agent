@@ -406,7 +406,7 @@ def test_sessions_create_and_list() -> None:
         async with lifespan(app):
             async with _client(app) as client:
                 created = await client.post("/api/chat/sessions", json={"title": "排障会话"})
-                assert created.status_code == 200
+                assert created.status_code == 201
                 sid = created.json()["session_id"]
                 assert created.json()["title"] == "排障会话"
 
