@@ -30,7 +30,7 @@ from backend.app.api.app import (
 )
 from backend.app.api.auth import Principal
 from backend.app.api.deps import principal_for_idor, verify_token
-from backend.app.api.event_bus import EventBus, SSEEventSink, sse_stream
+from backend.app.api.event_bus import EventBus, EventBusQueueFull, SSEEventSink, sse_stream
 from backend.app.api.runner import drive_run
 from backend.app.api.schemas import ChatRequest, ChatResponse
 from backend.app.api.session_registry import OrchestratorSession, SessionRegistry
@@ -108,10 +108,19 @@ async def get_events(
 
     async def _event_source() -> AsyncIterator[str]:
         try:
-            async for chunk in sse_stream(bus, trace_id):
-                if await request.is_disconnected():
-                    break
-                yield chunk
+            try:
+                async for chunk in sse_stream(bus, trace_id):
+                    if await request.is_disconnected():
+                        break
+                    yield chunk
+            except EventBusQueueFull:
+                # B4 P2 后补: SSE 消费者侧兜底 → 队列满时 yield error event 而非 5xx
+                # 前端可基于该 event 重连或刷新 page。
+                # 注意: 实际触发点当前在 producer side (bus.put);本 catch 是 future-proof,
+                # 防 sse_stream / emit 改造时同步把 QueueFull 透传到 consumer。
+                yield (
+                    f"event: error\n" f'data: {{"cause":"queue_full","trace_id":"{trace_id}"}}\n\n'
+                )
         finally:
             bus.remove(trace_id)
 
