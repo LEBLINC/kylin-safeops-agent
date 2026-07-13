@@ -40,7 +40,7 @@ async def _drive_get_events(bus, trace_id, raise_queue_full=True):
 
 
 def test_t1_sse_yields_queue_full_error_event() -> None:
-    """T1: SSE 端点当 sse_stream 抛 EventBusQueueFull → yield queue_full error event + bus.remove。"""
+    """T1: SSE raises EventBusQueueFull → yield queue_full error event + bus.remove。"""
     bus = EventBus()
     trace_id = "trace-q1"
 
