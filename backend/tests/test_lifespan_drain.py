@@ -7,12 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import time
-import tempfile
-import os
 from unittest import mock
 
-from backend.app.api import app as app_module
-from backend.app.api.app import create_app, lifespan
 from backend.app.api.event_bus import EventBus
 
 
@@ -36,9 +32,10 @@ class _FakeAuditSink:
 
 # ---- T1: drain orchestrator tasks ----
 
+
 def test_shutdown_drains_running_orchestrator_tasks() -> None:
     """shutdown 时挂着的 orchestrator task 被 wait_for + cancel。"""
-    from backend.app.api.session_registry import SessionRegistry, OrchestratorSession
+    from backend.app.api.session_registry import OrchestratorSession, SessionRegistry
 
     registry = SessionRegistry()
 
@@ -70,6 +67,7 @@ def test_shutdown_drains_running_orchestrator_tasks() -> None:
 
 # ---- T2: drain bus queue ----
 
+
 def test_shutdown_drains_bus_queue() -> None:
     """bus 装 100 事件未消费，shutdown 后 drain_all() 返 1（1 个 queue）。"""
     bus = EventBus()
@@ -86,6 +84,7 @@ def test_shutdown_drains_bus_queue() -> None:
 
 
 # ---- T3: audit.close spy ----
+
 
 def test_shutdown_audit_close_called() -> None:
     """T3：lifespan shutdown 调用 sink.flush + sink.close（顺序）。
@@ -105,6 +104,7 @@ def test_shutdown_audit_close_called() -> None:
 
 
 # ---- T4: shutdown 顺序 ----
+
 
 def test_shutdown_order_registry_before_bus_before_audit() -> None:
     """shutdown 顺序：registry → bus → audit（spy 记录）。"""
@@ -133,6 +133,7 @@ def test_shutdown_order_registry_before_bus_before_audit() -> None:
 
 
 # ---- T5: drain 抛异常不阻断 audit.flush/close（S8 fail-closed） ----
+
 
 def test_shutdown_drain_exception_does_not_kill_subsequent() -> None:
     """registry drain 抛异常时，audit.flush + audit.close 仍调过（S8 兜底）。"""
