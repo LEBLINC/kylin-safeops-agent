@@ -4,8 +4,10 @@ import PageHeader from '@/layouts/PageHeader.vue'
 import PageSection from '@/components/PageSection.vue'
 import RiskTag from '@/components/RiskTag.vue'
 import StatusTag from '@/components/StatusTag.vue'
-import { getSystemOverview } from '@/api/system'
-import type { SystemOverview } from '@/types/system'
+import { getOverviewHistory, getSystemOverview, getSystemStats } from '@/api/system'
+import { getPolicyEvents } from '@/api/policy'
+import type { OverviewHistoryPoint, SystemOverview, SystemStats } from '@/types/system'
+import type { PolicyEvent } from '@/types/policy'
 
 type MetricVariant = 'blue' | 'purple' | 'cyan' | 'orange'
 
@@ -22,23 +24,20 @@ type CockpitMetric = {
   variant: MetricVariant
 }
 
-const overview = ref<SystemOverview>({
-  cpu_usage: 49,
-  memory_usage: 68,
-  root_disk_usage: 49,
-  zombie_processes: 3,
-  tool_calls_today: 0,
-  denied_today: 5,
-  data_source: 'stub_executor',
-  probed_tools: [],
-  services: [
-    { name: 'nginx', status: 'running' },
-    { name: 'safeops-agent', status: 'running' },
-    { name: 'auditd', status: 'running' }
-  ]
-})
-
+const overview = ref<SystemOverview | null>(null)
+/** 接口成功返回后置 true，区分"加载中"和"加载失败"。 */
+const overviewLoaded = ref(false)
 const overviewLoadFailed = ref(false)
+
+/** 历史时序点，来自 /api/system/overview/history，驱动四张指标卡 sparkline。 */
+const historyPoints = ref<OverviewHistoryPoint[]>([])
+/** 任务态势聚合数据，来自 /api/system/stats。 */
+const stats = ref<SystemStats | null>(null)
+/** stats 接口是否加载失败。 */
+const statsLoadFailed = ref(false)
+
+/** 从 /api/policy/events 拉取的最近策略事件，用于风险速览。 */
+const riskEvents = ref<PolicyEvent[]>([])
 
 function toNumber(value: unknown, fallback = 0) {
   const numberValue = Number(value)
@@ -55,12 +54,12 @@ function serviceStatus(raw: string): string {
   return 'warning'
 }
 
-const cpuUsage = computed(() => clamp(toNumber(overview.value.cpu_usage, 49)))
-const memoryUsage = computed(() => clamp(toNumber(overview.value.memory_usage, 68)))
-const diskUsage = computed(() => clamp(toNumber(overview.value.root_disk_usage, 49)))
-const zombieCount = computed(() => Math.max(0, toNumber(overview.value.zombie_processes, 0)))
-const deniedToday = computed(() => Math.max(0, toNumber(overview.value.denied_today, 0)))
-const services = computed(() => overview.value.services ?? [])
+const cpuUsage = computed(() => clamp(toNumber(overview.value?.cpu_usage, 0)))
+const memoryUsage = computed(() => clamp(toNumber(overview.value?.memory_usage, 0)))
+const diskUsage = computed(() => clamp(toNumber(overview.value?.root_disk_usage, 0)))
+const zombieCount = computed(() => Math.max(0, toNumber(overview.value?.zombie_processes, 0)))
+const deniedToday = computed(() => Math.max(0, toNumber(overview.value?.denied_today, 0)))
+const services = computed(() => overview.value?.services ?? [])
 
 const servicesRunning = computed(() =>
   services.value.filter((service) => service.status === 'running' || service.status === 'active').length
@@ -98,6 +97,34 @@ function areaPoints(values: number[], width = 190, height = 64) {
   return `0,${height} ${line} ${width},${height}`
 }
 
+/** 从 historyPoints 提取指定字段的时序数组，用于 sparkline。 */
+function trendFor(field: keyof OverviewHistoryPoint): number[] {
+  if (!historyPoints.value.length) return []
+  return historyPoints.value.map(p => p[field] as number)
+}
+
+/** 从 historyPoints 计算指定字段的首尾差值文本。 */
+function deltaFor(field: keyof OverviewHistoryPoint): string {
+  const pts = historyPoints.value
+  if (pts.length < 2) return '-'
+  const first = pts[0][field] as number
+  const last = pts[pts.length - 1][field] as number
+  const diff = last - first
+  if (Math.abs(diff) < 0.5) return '持平'
+  return diff > 0 ? `↑ ${diff.toFixed(1)}` : `↓ ${Math.abs(diff).toFixed(1)}`
+}
+
+/** 趋势脚注文本：有数据时显示采样范围，无数据时提示。 */
+function trendFoot(): string {
+  if (!historyPoints.value.length) return '暂无数据'
+  const n = historyPoints.value.length
+  const rangeSec = historyPoints.value.length >= 2
+    ? Math.round(historyPoints.value[n - 1].ts - historyPoints.value[0].ts)
+    : 0
+  const rangeMin = rangeSec >= 60 ? `${Math.round(rangeSec / 60)}min` : `${rangeSec}s`
+  return `${n} 个采样点 / ${rangeMin}`
+}
+
 const metrics = computed<CockpitMetric[]>(() => [
   {
     key: 'cpu',
@@ -106,9 +133,9 @@ const metrics = computed<CockpitMetric[]>(() => [
     value: `${Math.round(cpuUsage.value)}`,
     unit: '%',
     percent: cpuUsage.value,
-    trend: [42, 48, 48, 45, 31, 33, 40, 49, 46, 50, 48, 42, 31, 34, 42, 50],
-    delta: '+4.2%',
-    foot: '近 15 分钟',
+    trend: trendFor('cpu'),
+    delta: deltaFor('cpu'),
+    foot: trendFoot(),
     variant: 'blue'
   },
   {
@@ -118,9 +145,9 @@ const metrics = computed<CockpitMetric[]>(() => [
     value: `${Math.round(memoryUsage.value)}`,
     unit: '%',
     percent: memoryUsage.value,
-    trend: [66, 68, 68, 66, 58, 59, 62, 68, 66, 69, 68, 65, 58, 60, 64, 70],
-    delta: '+2.8%',
-    foot: '近 15 分钟',
+    trend: trendFor('mem'),
+    delta: deltaFor('mem'),
+    foot: trendFoot(),
     variant: 'purple'
   },
   {
@@ -130,9 +157,9 @@ const metrics = computed<CockpitMetric[]>(() => [
     value: `${Math.round(diskUsage.value)}`,
     unit: '%',
     percent: diskUsage.value,
-    trend: [45, 49, 49, 47, 39, 40, 44, 50, 47, 50, 49, 47, 39, 41, 45, 50],
-    delta: diskUsage.value >= 85 ? '高风险' : '稳定',
-    foot: '读写吞吐',
+    trend: trendFor('disk'),
+    delta: deltaFor('disk'),
+    foot: trendFoot(),
     variant: 'cyan'
   },
   {
@@ -141,39 +168,60 @@ const metrics = computed<CockpitMetric[]>(() => [
     label: '今日安全拦截',
     value: `${Math.round(deniedToday.value)}`,
     percent: clamp(deniedToday.value * 14, 5, 100),
-    trend: [4, 5, 5, 4, 1, 2, 5, 4, 5, 4, 1, 2, 5, 7],
+    trend: [],
     delta: deniedToday.value > 0 ? '需关注' : '正常',
-    foot: '拦截 / 审批',
+    foot: trendFoot(),
     variant: 'orange'
   }
 ])
 
-const serviceBars = computed(() => [
-  {
-    label: '运行',
-    value: servicesRunning.value,
-    max: Math.max(services.value.length, 3),
-    className: 'success'
-  },
-  {
-    label: '告警',
-    value: 0,
-    max: Math.max(services.value.length, 3),
-    className: 'warning'
-  },
-  {
-    label: '异常',
-    value: services.value.length - servicesRunning.value,
-    max: Math.max(services.value.length, 3),
-    className: 'danger'
-  }
-])
+/** 按工具调用次数计算 bar 宽度百分比。 */
+function barPct(count: number, dict: Record<string, number>): string {
+  const max = Math.max(...Object.values(dict), 1)
+  return `${Math.max(4, (count / max) * 100)}%`
+}
+
+function serviceWarningCount() {
+  return services.value.filter(s => s.status !== 'running' && s.status !== 'active' && s.status !== 'failed' && s.status !== 'stopped').length
+}
+
+const serviceBars = computed(() => {
+  const total = services.value.length
+  return [
+    { label: '运行', value: servicesRunning.value, max: total || 1, className: 'success' },
+    { label: '告警', value: serviceWarningCount(), max: total || 1, className: 'warning' },
+    { label: '异常', value: services.value.filter(s => s.status === 'failed' || s.status === 'stopped').length, max: total || 1, className: 'danger' }
+  ]
+})
 
 onMounted(async () => {
   try {
     overview.value = await getSystemOverview()
+    overviewLoaded.value = true
   } catch {
     overviewLoadFailed.value = true
+  }
+
+  // 后台拉策略事件用于风险速览
+  try {
+    riskEvents.value = await getPolicyEvents()
+  } catch {
+    // 接口不可用时留空
+  }
+
+  // 拉历史时序用于 sparkline 趋势
+  try {
+    const hist = await getOverviewHistory()
+    historyPoints.value = hist?.series || []
+  } catch {
+    // 接口不可用时 trend 留空，sparkline 显示"暂无数据"
+  }
+
+  // 拉任务态势聚合统计
+  try {
+    stats.value = await getSystemStats()
+  } catch {
+    statsLoadFailed.value = true
   }
 })
 </script>
@@ -185,7 +233,13 @@ onMounted(async () => {
       subtitle="数据驾驶舱：用图表化卡片展示资源、趋势、服务与安全态势"
     />
 
-    <section class="dashboard-hero">
+    <!-- 加载中：等待 API 返回 -->
+    <div v-if="!overviewLoaded && !overviewLoadFailed" class="dashboard-loading">
+      <el-skeleton :rows="4" animated />
+      <p class="loading-hint">正在拉取系统概览…</p>
+    </div>
+
+    <section v-else class="dashboard-hero">
       <div class="hero-summary">
         <div class="hero-kicker">LoongArch / SafeOps Console</div>
         <h2>安全智能运维态势</h2>
@@ -199,11 +253,11 @@ onMounted(async () => {
             <span>健康评分</span>
           </div>
           <div>
-            <strong>{{ servicesRunning }}/{{ services.length || 3 }}</strong>
+            <strong>{{ services.length ? `${servicesRunning}/${services.length}` : '-' }}</strong>
             <span>实时服务</span>
           </div>
           <div>
-            <strong>{{ overview.probed_tools?.length || 0 }}</strong>
+            <strong>{{ overview?.probed_tools?.length || 0 }}</strong>
             <span>已采集工具</span>
           </div>
           <div>
@@ -251,13 +305,22 @@ onMounted(async () => {
     </section>
 
     <el-alert
-      v-if="overviewLoadFailed || overview.data_source === 'stub_executor'"
+      v-if="overviewLoadFailed"
       class="source-alert"
       type="warning"
       show-icon
       :closable="false"
       title="接口加载失败"
-      description="系统概览接口暂不可用，当前展示为演示数据"
+      description="系统概览接口暂不可用，当前展示为默认数据"
+    />
+    <el-alert
+      v-else-if="overview?.data_source === 'stub_executor'"
+      class="source-alert"
+      type="info"
+      show-icon
+      :closable="false"
+      title="采集管道未接通"
+      :description="`data_source=${overview?.data_source}，探针未返回真实指标。已采集工具：${(overview?.probed_tools || []).join(', ') || '无'}`"
     />
 
     <section class="lower-grid">
@@ -282,36 +345,52 @@ onMounted(async () => {
         </div>
       </PageSection>
 
-      <PageSection title="任务态势分布" subtitle="执行 / 审批 / 拦截状态可视化">
-        <div class="mini-column-chart">
-          <div class="column" style="--height: 72%">
-            <i />
-            <span>执行</span>
+      <PageSection title="任务态势分布" subtitle="按工具 / 风险 / 状态三维聚合（近 24h）">
+        <div v-if="statsLoadFailed" class="empty-tip">统计接口暂不可用</div>
+        <template v-else-if="stats">
+          <div class="stats-section">
+            <label class="stats-label">按工具（by_tool）</label>
+            <div v-if="!Object.keys(stats.by_tool).length" class="empty-tip">暂无记录</div>
+            <div v-else class="stats-bars">
+              <div v-for="(count, tool) in stats.by_tool" :key="tool" class="stats-bar-row">
+                <code>{{ tool }}</code>
+                <div class="bar-track"><i class="bar-fill" :style="{ width: barPct(count, stats.by_tool) }" /></div>
+                <strong>{{ count }}</strong>
+              </div>
+            </div>
           </div>
-          <div class="column" style="--height: 38%">
-            <i />
-            <span>审批</span>
+          <div class="stats-section">
+            <label class="stats-label">按风险（by_risk）</label>
+            <div v-if="!Object.keys(stats.by_risk).length" class="empty-tip">暂无记录</div>
+            <div v-else class="stats-pills">
+              <span v-for="(count, risk) in stats.by_risk" :key="risk" class="stats-pill">
+                <RiskTag :level="risk as any" /><strong>{{ count }}</strong>
+              </span>
+            </div>
           </div>
-          <div class="column" style="--height: 56%">
-            <i />
-            <span>拦截</span>
+          <div class="stats-section">
+            <label class="stats-label">按终态（by_status）</label>
+            <div v-if="!Object.keys(stats.by_status).length" class="empty-tip">暂无记录</div>
+            <div v-else class="stats-pills">
+              <span v-for="(count, status) in stats.by_status" :key="status" class="stats-pill">
+                <StatusTag :status="status" /><strong>{{ count }}</strong>
+              </span>
+            </div>
           </div>
-          <div class="column" style="--height: 24%">
-            <i />
-            <span>风险</span>
-          </div>
-        </div>
+        </template>
+        <el-alert v-else type="info" show-icon :closable="false"
+          title="暂无数据"
+          description="审计库中暂无聚合记录，发起一次 Chat 对话后即有数据。" />
       </PageSection>
 
-      <PageSection title="风险速览" subtitle="近期裁决与异常诊断入口">
-        <div class="risk-list">
-          <div class="risk-row">
-            <RiskTag level="R4" />
-            <span>CMD001 拒绝 rm -rf /</span>
-          </div>
-          <div class="risk-row">
-            <RiskTag level="R2" />
-            <span>LOG001 日志轮转需审批</span>
+      <PageSection title="风险速览" subtitle="近期策略事件">
+        <div v-if="!riskEvents.length" class="risk-list">
+          <div class="empty-tip">暂无策略事件记录</div>
+        </div>
+        <div v-else class="risk-list">
+          <div v-for="evt in riskEvents.slice(0, 5)" :key="evt.event_id || evt.rule_id || evt.created_at" class="risk-row">
+            <RiskTag :level="(evt.final_risk || 'R1') as any" />
+            <span>{{ evt.rule_id || evt.reason || '-' }}</span>
           </div>
         </div>
 
@@ -752,6 +831,84 @@ onMounted(async () => {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 14px;
+}
+
+/* stats 三维聚合 */
+.stats-section {
+  margin-bottom: 14px;
+}
+.stats-section:last-child { margin-bottom: 0; }
+
+.stats-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 8px;
+}
+
+.stats-bars {
+  display: grid;
+  gap: 8px;
+}
+
+.stats-bar-row {
+  display: grid;
+  grid-template-columns: 130px 1fr 32px;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.stats-bar-row code {
+  font-size: 12px;
+  color: #334155;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats-bar-row strong {
+  text-align: right;
+  color: var(--ks-text);
+}
+
+.bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #3b82f6, #06b6d4);
+}
+
+.stats-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stats-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.stats-pill strong {
+  font-size: 15px;
+  color: #1e293b;
+}
+
+.dashboard-loading {
+  padding: 24px 20px;
+}
+.loading-hint {
+  margin-top: 12px;
+  color: var(--ks-text-muted);
+  font-size: 13px;
+  text-align: center;
 }
 
 @media (max-width: 1280px) {

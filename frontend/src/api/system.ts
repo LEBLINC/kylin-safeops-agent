@@ -1,5 +1,5 @@
 import { request } from './request'
-import type { SystemOverview } from '@/types/system'
+import type { OverviewHistoryResponse, SystemOverview, SystemStats } from '@/types/system'
 
 /**
  * system.ts
@@ -96,4 +96,49 @@ export function getProcessList() {
  */
 export function getServiceStatus() {
   return request.get('/api/system/services')
+}
+
+/**
+ * 获取系统概览历史时序数据。
+ *
+ * 使用位置：
+ * - DashboardView.vue 的四张指标卡 sparkline 趋势图。
+ *
+ * 请求方式：
+ * - GET /api/system/overview/history?range=15m
+ *
+ * 请求参数：
+ * @param range 时间范围，默认 "15m"（支持 5m / 15m / 1h）。
+ *
+ * 返回数据：
+ * - { points: TrendPoint[], range_seconds: number }
+ * - points 按 ts 升序排列，前端按 key 提取各指标数组驱动 sparkline。
+ */
+export function getOverviewHistory(hours = 24) {
+  return request.get<OverviewHistoryResponse, OverviewHistoryResponse>(
+    '/api/system/overview/history',
+    { params: { hours } }
+  )
+}
+
+/**
+ * 获取任务态势聚合统计。
+ *
+ * 使用位置：
+ * - DashboardView.vue 的任务态势分布柱状图。
+ *
+ * 请求方式：
+ * - GET /api/system/stats
+ *
+ * 请求参数：
+ * @param since 统计起始时间（ISO），默认当日 00:00。
+ * @param until 统计截止时间（ISO），默认当前。
+ *
+ * 返回数据：
+ * - { executed, approved, denied, risk_total }
+ */
+export function getSystemStats(hours = 24) {
+  return request.get<SystemStats, SystemStats>('/api/system/stats', {
+    params: { hours }
+  })
 }
