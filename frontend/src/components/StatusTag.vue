@@ -39,7 +39,10 @@ function tag() {
     approved: { label: '已通过', type: 'success' },
     rejected: { label: '已拒绝', type: 'danger' },
     escalated: { label: '已转审批', type: 'warning' },
-    // 安全策略裁决
+    // 审计终态
+    FINISHED: { label: '已完成', type: 'success' },
+    REJECTED: { label: '已拒绝', type: 'danger' },
+    WAIT_APPROVAL: { label: '待审批', type: 'warning' },
     allow: { label: '允许', type: 'success' },
     deny: { label: '拒绝', type: 'danger' },
     confirm: { label: '需确认', type: 'warning' }
