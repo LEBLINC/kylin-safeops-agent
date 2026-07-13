@@ -3,7 +3,7 @@ import { onMounted, ref } from 'vue'
 import PageHeader from '@/layouts/PageHeader.vue'
 import PageSection from '@/components/PageSection.vue'
 import RiskTag from '@/components/RiskTag.vue'
-import { callTool, getToolRegistry } from '@/api/tools'
+import { callTool, getToolRegistry, listToolCalls } from '@/api/tools'
 import type { ToolDefinition } from '@/types/tool'
 
 /**
@@ -90,10 +90,23 @@ function toolCardStyle(risk: string) {
 // ---- 工具详情弹窗 ----
 const detailDialogVisible = ref(false)
 const detailTarget = ref<ToolDefinition | null>(null)
+const callHistory = ref<any[]>([])
+const callHistoryLoading = ref(false)
 
-function openDetailDialog(tool: ToolDefinition) {
+async function openDetailDialog(tool: ToolDefinition) {
   detailTarget.value = tool
+  callHistory.value = []
   detailDialogVisible.value = true
+  // D7：拉历史调用列表
+  callHistoryLoading.value = true
+  try {
+    const resp: any = await listToolCalls(tool.tool, 10)
+    callHistory.value = resp?.items || []
+  } catch {
+    callHistory.value = []
+  } finally {
+    callHistoryLoading.value = false
+  }
 }
 
 // ---- 手动调用 ----
@@ -122,7 +135,7 @@ function isReadOnly(risk: string) {
 interface ArgField {
   key: string
   label: string
-  type: 'text' | 'number' | 'switch' | 'json'
+  type: 'text' | 'number' | 'switch' | 'list' | 'json'
   default: unknown
   description?: string
 }
@@ -135,7 +148,11 @@ function argFields(schema: Record<string, unknown> | undefined): ArgField[] {
     let fieldType: ArgField['type'] = 'text'
     if (propType === 'number' || propType === 'integer') fieldType = 'number'
     else if (propType === 'boolean') fieldType = 'switch'
-    else if (propType === 'object' || propType === 'array') fieldType = 'json'
+    else if (propType === 'object') fieldType = 'json'
+    else if (propType === 'array') {
+      const itemsType = prop?.items?.type || ''
+      fieldType = (itemsType === 'string') ? 'list' : 'json'
+    }
 
     return {
       key,
@@ -305,9 +322,18 @@ onMounted(async () => {
         </div>
         <div class="call-section">
           <label class="call-label">历史调用记录</label>
-          <el-alert type="info" show-icon :closable="false"
-            title="暂无调用记录"
-            description="通过 Chat 对话触发的工具调用会在此展示。点单条记录可跳转 /tools/call/{call_id} 查看详情。" />
+          <div v-if="callHistoryLoading" class="empty-tip">加载中…</div>
+          <div v-else-if="!callHistory.length" class="empty-tip">暂无调用记录</div>
+          <div v-else class="history-list">
+            <div v-for="item in callHistory" :key="item.call_id" class="history-row"
+              @click="$router.push(`/tools/${item.call_id}`)">
+              <code class="history-call-id">{{ item.call_id?.slice(0, 16) }}…</code>
+              <StatusTag :status="item.status" />
+              <span class="history-dur">{{ item.duration_ms }}ms</span>
+              <RiskTag :level="item.risk_level || 'R0'" />
+              <span class="history-time">{{ item.created_at?.slice(0, 16) }}</span>
+            </div>
+          </div>
         </div>
       </template>
       <template #footer>
@@ -360,6 +386,18 @@ onMounted(async () => {
                 :model-value="Boolean(callArgsObject[field.key])"
                 @update:model-value="(v: unknown) => setFormArg(field.key, v)"
                 size="small"
+              />
+              <el-select
+                v-else-if="field.type === 'list'"
+                :model-value="Array.isArray(callArgsObject[field.key]) ? callArgsObject[field.key] as any[] : []"
+                @update:model-value="(v: unknown) => setFormArg(field.key, v)"
+                multiple
+                filterable
+                allow-create
+                default-first-option
+                placeholder="输入后回车添加…"
+                size="small"
+                style="width: 100%"
               />
               <el-input
                 v-else
@@ -806,4 +844,41 @@ onMounted(async () => {
   word-break: break-all;
   max-height: 240px;
   overflow: auto;
+}
+
+.history-list {
+  display: grid;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.15s;
+}
+.history-row:hover {
+  background: #f1f5f9;
+}
+.history-call-id {
+  font-size: 11px;
+  color: #64748b;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.history-dur {
+  color: #94a3b8;
+  font-family: monospace;
+}
+.history-time {
+  color: #94a3b8;
+  font-size: 11px;
+  margin-left: auto;
 }</style>

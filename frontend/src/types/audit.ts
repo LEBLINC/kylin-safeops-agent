@@ -27,15 +27,14 @@
  * @field created_at 请求创建时间。
  * @field summary 审计摘要，供列表快速浏览。
  */
+/** 与后端 schemas.py AuditTraceSummary 字段对齐。 */
 export interface AuditTrace {
   trace_id: string
-  session_id?: string
-  user?: string
-  intent?: string
-  risk_level?: string
-  decision?: string
-  created_at?: string
-  summary?: string
+  first_user_intent: string
+  record_count: number
+  state: string
+  first_seen: string
+  last_seen: string
 }
 
 /**
@@ -57,15 +56,14 @@ export interface AuditTrace {
  * @field curr_hash 当前审计记录的 hash。
  * @field created_at 写入审计记录的时间。
  */
+/** 与后端 schemas.py AuditRecord 字段对齐。 */
 export interface AuditRecord {
-  id: string
-  trace_id: string
   seq: number
-  record_type: string
-  content: unknown
+  phase: string
+  payload: Record<string, unknown>
   prev_hash: string
   curr_hash: string
-  created_at?: string
+  created_at: string
 }
 
 /**

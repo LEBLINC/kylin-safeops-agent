@@ -36,6 +36,35 @@ const stats = ref<SystemStats | null>(null)
 /** stats 接口是否加载失败。 */
 const statsLoadFailed = ref(false)
 
+type DonutKind = 'risk' | 'status'
+
+type DonutSegment = {
+  key: string
+  label: string
+  count: number
+  pct: number
+  color: string
+  lightColor: string
+  path: string
+  explodeX: number
+  explodeY: number
+  description: string
+}
+
+/** 当前悬浮的风险 / 终态环形图片段。 */
+const activeRiskKey = ref('')
+const activeStatusKey = ref('')
+
+function activateDonut(kind: DonutKind, key: string) {
+  if (kind === 'risk') activeRiskKey.value = key
+  else activeStatusKey.value = key
+}
+
+function clearDonut(kind: DonutKind) {
+  if (kind === 'risk') activeRiskKey.value = ''
+  else activeStatusKey.value = ''
+}
+
 /** 从 /api/policy/events 拉取的最近策略事件，用于风险速览。 */
 const riskEvents = ref<PolicyEvent[]>([])
 
@@ -180,6 +209,190 @@ function barPct(count: number, dict: Record<string, number>): string {
   const max = Math.max(...Object.values(dict), 1)
   return `${Math.max(4, (count / max) * 100)}%`
 }
+
+/** 风险等级颜色映射。 */
+function riskColor(risk: string): string {
+  const m: Record<string, string> = { R0: '#22c55e', R1: '#06b6d4', R2: '#f59e0b', R3: '#f43f5e', R4: '#dc2626' }
+  return m[risk] || '#94a3b8'
+}
+
+/** 工具调用按次数降序，取前 N。 */
+function topTools(dict: Record<string, number>, n: number): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(dict).sort((a, b) => b[1] - a[1]).slice(0, n)
+  )
+}
+
+/** 环形图总数。 */
+function donutTotal(dict: Record<string, number>): number {
+  return Object.values(dict).reduce((sum, count) => sum + count, 0)
+}
+
+/** 将十六进制颜色与白色混合，用于环形图渐变高光。 */
+function lightenColor(hex: string, ratio = 0.28): string {
+  const normalized = hex.replace('#', '')
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return hex
+
+  const red = parseInt(normalized.slice(0, 2), 16)
+  const green = parseInt(normalized.slice(2, 4), 16)
+  const blue = parseInt(normalized.slice(4, 6), 16)
+  const mix = (channel: number) => Math.round(channel + (255 - channel) * ratio)
+
+  return `#${[mix(red), mix(green), mix(blue)]
+    .map(channel => channel.toString(16).padStart(2, '0'))
+    .join('')}`
+}
+
+function riskLabel(risk: string): string {
+  const labels: Record<string, string> = {
+    R0: '只读查询',
+    R1: '轻量诊断',
+    R2: '需要确认',
+    R3: '高风险',
+    R4: '禁止执行'
+  }
+  return labels[risk] || risk
+}
+
+function riskDescription(risk: string): string {
+  const descriptions: Record<string, string> = {
+    R0: '仅查询数据，不会修改系统状态',
+    R1: '低影响诊断操作，可直接执行',
+    R2: '执行前需要用户明确确认',
+    R3: '可能产生较大影响，需要重点关注',
+    R4: '命中禁止策略，任务不会执行'
+  }
+  return descriptions[risk] || '查看该风险等级的任务占比'
+}
+
+function statusMeta(status: string): { label: string; color: string; description: string } {
+  const normalized = status.toLowerCase()
+
+  if (['completed', 'complete', 'success', 'succeeded', 'done', 'finished', '已完成', '完成'].includes(normalized)) {
+    return { label: '已完成', color: '#22c55e', description: '任务已正常执行完成' }
+  }
+  if (['rejected', 'denied', 'blocked', '拒绝', '已拒绝'].includes(normalized)) {
+    return { label: '已拒绝', color: '#f43f5e', description: '任务被策略或权限规则拒绝' }
+  }
+  if (['failed', 'failure', 'error', '异常', '失败'].includes(normalized)) {
+    return { label: '执行失败', color: '#ef4444', description: '任务执行过程中发生异常' }
+  }
+  if (['running', 'processing', 'pending', 'queued', '执行中', '等待中'].includes(normalized)) {
+    return { label: '执行中', color: '#3b82f6', description: '任务仍在队列或执行流程中' }
+  }
+  if (['cancelled', 'canceled', '已取消', '取消'].includes(normalized)) {
+    return { label: '已取消', color: '#94a3b8', description: '任务已被用户或系统取消' }
+  }
+
+  return { label: status, color: '#8b5cf6', description: '该终态在近 24 小时内的任务占比' }
+}
+
+function polarPoint(cx: number, cy: number, radius: number, angle: number) {
+  const radians = (angle * Math.PI) / 180
+  return {
+    x: cx + radius * Math.sin(radians),
+    y: cy - radius * Math.cos(radians)
+  }
+}
+
+function annularSectorPath(
+  startAngle: number,
+  endAngle: number,
+  outerRadius = 58,
+  innerRadius = 37,
+  cx = 70,
+  cy = 70
+): string {
+  const outerStart = polarPoint(cx, cy, outerRadius, startAngle)
+  const outerEnd = polarPoint(cx, cy, outerRadius, endAngle)
+  const innerEnd = polarPoint(cx, cy, innerRadius, endAngle)
+  const innerStart = polarPoint(cx, cy, innerRadius, startAngle)
+  const largeArcFlag = endAngle - startAngle > 180 ? 1 : 0
+
+  return [
+    `M ${outerStart.x.toFixed(3)} ${outerStart.y.toFixed(3)}`,
+    `A ${outerRadius} ${outerRadius} 0 ${largeArcFlag} 1 ${outerEnd.x.toFixed(3)} ${outerEnd.y.toFixed(3)}`,
+    `L ${innerEnd.x.toFixed(3)} ${innerEnd.y.toFixed(3)}`,
+    `A ${innerRadius} ${innerRadius} 0 ${largeArcFlag} 0 ${innerStart.x.toFixed(3)} ${innerStart.y.toFixed(3)}`,
+    'Z'
+  ].join(' ')
+}
+
+function buildDonutSegments(
+  dict: Record<string, number>,
+  preferredOrder: string[],
+  colorFor: (key: string) => string,
+  labelFor: (key: string) => string,
+  descriptionFor: (key: string) => string
+): DonutSegment[] {
+  const total = donutTotal(dict)
+  if (!total) return []
+
+  const orderedKeys = [
+    ...preferredOrder.filter(key => Number(dict[key]) > 0),
+    ...Object.keys(dict)
+      .filter(key => !preferredOrder.includes(key) && Number(dict[key]) > 0)
+      .sort((a, b) => Number(dict[b]) - Number(dict[a]))
+  ]
+
+  let cursor = 0
+
+  return orderedKeys.map(key => {
+    const count = Number(dict[key]) || 0
+    const pct = count / total
+    const sweep = pct * 360
+    const gap = sweep > 8 ? Math.min(2.8, sweep * 0.16) : Math.max(0.35, sweep * 0.06)
+    const startAngle = cursor + gap / 2
+    const endAngle = cursor + sweep - gap / 2
+    const middleAngle = cursor + sweep / 2
+    const middleRadians = (middleAngle * Math.PI) / 180
+    const color = colorFor(key)
+
+    cursor += sweep
+
+    return {
+      key,
+      label: labelFor(key),
+      count,
+      pct: Math.round(pct * 100),
+      color,
+      lightColor: lightenColor(color),
+      path: annularSectorPath(startAngle, Math.max(startAngle + 0.2, endAngle)),
+      explodeX: Number((Math.sin(middleRadians) * 4.5).toFixed(2)),
+      explodeY: Number((-Math.cos(middleRadians) * 4.5).toFixed(2)),
+      description: descriptionFor(key)
+    }
+  })
+}
+
+const riskDonutSegments = computed(() =>
+  buildDonutSegments(
+    stats.value?.by_risk ?? {},
+    ['R0', 'R1', 'R2', 'R3', 'R4'],
+    riskColor,
+    riskLabel,
+    riskDescription
+  )
+)
+
+const statusDonutSegments = computed(() =>
+  buildDonutSegments(
+    stats.value?.by_status ?? {},
+    ['completed', 'success', 'done', 'rejected', 'denied', 'failed', 'running', 'pending', 'cancelled'],
+    status => statusMeta(status).color,
+    status => statusMeta(status).label,
+    status => statusMeta(status).description
+  )
+)
+
+const activeRiskSegment = computed(() =>
+  riskDonutSegments.value.find(segment => segment.key === activeRiskKey.value)
+)
+
+const activeStatusSegment = computed(() =>
+  statusDonutSegments.value.find(segment => segment.key === activeStatusKey.value)
+)
+
 
 function serviceWarningCount() {
   return services.value.filter(s => s.status !== 'running' && s.status !== 'active' && s.status !== 'failed' && s.status !== 'stopped').length
@@ -348,33 +561,187 @@ onMounted(async () => {
       <PageSection title="任务态势分布" subtitle="按工具 / 风险 / 状态三维聚合（近 24h）">
         <div v-if="statsLoadFailed" class="empty-tip">统计接口暂不可用</div>
         <template v-else-if="stats">
+          <!-- 风险与终态分布：并排的交互式环形图 -->
+          <div class="distribution-grid">
+            <article class="distribution-card">
+              <div class="distribution-head">
+                <label class="stats-label">风险分布</label>
+                <span>{{ donutTotal(stats.by_risk) }} 次</span>
+              </div>
+
+              <div v-if="!riskDonutSegments.length" class="empty-tip">暂无记录</div>
+              <div v-else class="donut-content" @mouseleave="clearDonut('risk')">
+                <div class="donut-stage">
+                  <svg viewBox="0 0 140 140" class="donut-chart" role="img" aria-label="风险分布环形图">
+                    <defs>
+                      <linearGradient
+                        v-for="(seg, idx) in riskDonutSegments"
+                        :id="`risk-donut-gradient-${idx}`"
+                        :key="`risk-gradient-${seg.key}`"
+                        x1="0"
+                        y1="0"
+                        x2="1"
+                        y2="1"
+                      >
+                        <stop offset="0%" :stop-color="seg.lightColor" />
+                        <stop offset="100%" :stop-color="seg.color" />
+                      </linearGradient>
+                      <filter id="risk-donut-shadow" x="-40%" y="-40%" width="180%" height="180%">
+                        <feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#0f172a" flood-opacity="0.18" />
+                      </filter>
+                    </defs>
+
+                    <circle class="donut-backdrop" cx="70" cy="70" r="49" />
+                    <g
+                      v-for="(seg, idx) in riskDonutSegments"
+                      :key="seg.key"
+                      class="donut-segment-group"
+                      :transform="activeRiskKey === seg.key ? `translate(${seg.explodeX} ${seg.explodeY})` : undefined"
+                      @mouseenter="activateDonut('risk', seg.key)"
+                    >
+                      <path
+                        :d="seg.path"
+                        :fill="`url(#risk-donut-gradient-${idx})`"
+                        class="donut-slice"
+                        :class="{
+                          'is-active': activeRiskKey === seg.key,
+                          'is-dimmed': activeRiskKey && activeRiskKey !== seg.key
+                        }"
+                        :filter="activeRiskKey === seg.key ? 'url(#risk-donut-shadow)' : undefined"
+                      >
+                        <title>{{ `${seg.label}：${seg.count} 次，占 ${seg.pct}%` }}</title>
+                      </path>
+                    </g>
+
+                    <circle class="donut-hole" cx="70" cy="70" r="31" />
+                    <text x="70" y="67" text-anchor="middle" class="donut-center-value">
+                      {{ activeRiskSegment?.count ?? donutTotal(stats.by_risk) }}
+                    </text>
+                    <text x="70" y="84" text-anchor="middle" class="donut-center-label">
+                      {{ activeRiskSegment?.label ?? '风险总数' }}
+                    </text>
+                  </svg>
+                </div>
+
+                <transition name="donut-detail" mode="out-in">
+                  <div
+                    :key="activeRiskKey || 'risk-default'"
+                    class="donut-caption"
+                    :class="{ 'is-active': activeRiskSegment }"
+                    :style="{ '--segment-color': activeRiskSegment?.color || '#3b82f6' }"
+                  >
+                    <template v-if="activeRiskSegment">
+                      <div class="donut-caption-title">
+                        <i />
+                        <strong>{{ activeRiskSegment.label }}</strong>
+                        <span>{{ activeRiskSegment.count }} 次 · {{ activeRiskSegment.pct }}%</span>
+                      </div>
+                      <p>{{ activeRiskSegment.description }}</p>
+                    </template>
+                    <template v-else>
+                      <strong>悬浮查看详情</strong>
+                      <p>查看风险等级、数量和占比</p>
+                    </template>
+                  </div>
+                </transition>
+              </div>
+            </article>
+
+            <article class="distribution-card">
+              <div class="distribution-head">
+                <label class="stats-label">终态分布</label>
+                <span>{{ donutTotal(stats.by_status) }} 条</span>
+              </div>
+
+              <div v-if="!statusDonutSegments.length" class="empty-tip">暂无记录</div>
+              <div v-else class="donut-content" @mouseleave="clearDonut('status')">
+                <div class="donut-stage">
+                  <svg viewBox="0 0 140 140" class="donut-chart" role="img" aria-label="终态分布环形图">
+                    <defs>
+                      <linearGradient
+                        v-for="(seg, idx) in statusDonutSegments"
+                        :id="`status-donut-gradient-${idx}`"
+                        :key="`status-gradient-${seg.key}`"
+                        x1="0"
+                        y1="0"
+                        x2="1"
+                        y2="1"
+                      >
+                        <stop offset="0%" :stop-color="seg.lightColor" />
+                        <stop offset="100%" :stop-color="seg.color" />
+                      </linearGradient>
+                      <filter id="status-donut-shadow" x="-40%" y="-40%" width="180%" height="180%">
+                        <feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#0f172a" flood-opacity="0.18" />
+                      </filter>
+                    </defs>
+
+                    <circle class="donut-backdrop" cx="70" cy="70" r="49" />
+                    <g
+                      v-for="(seg, idx) in statusDonutSegments"
+                      :key="seg.key"
+                      class="donut-segment-group"
+                      :transform="activeStatusKey === seg.key ? `translate(${seg.explodeX} ${seg.explodeY})` : undefined"
+                      @mouseenter="activateDonut('status', seg.key)"
+                    >
+                      <path
+                        :d="seg.path"
+                        :fill="`url(#status-donut-gradient-${idx})`"
+                        class="donut-slice"
+                        :class="{
+                          'is-active': activeStatusKey === seg.key,
+                          'is-dimmed': activeStatusKey && activeStatusKey !== seg.key
+                        }"
+                        :filter="activeStatusKey === seg.key ? 'url(#status-donut-shadow)' : undefined"
+                      >
+                        <title>{{ `${seg.label}：${seg.count} 条，占 ${seg.pct}%` }}</title>
+                      </path>
+                    </g>
+
+                    <circle class="donut-hole" cx="70" cy="70" r="31" />
+                    <text x="70" y="67" text-anchor="middle" class="donut-center-value">
+                      {{ activeStatusSegment?.count ?? donutTotal(stats.by_status) }}
+                    </text>
+                    <text x="70" y="84" text-anchor="middle" class="donut-center-label">
+                      {{ activeStatusSegment?.label ?? '终态总数' }}
+                    </text>
+                  </svg>
+                </div>
+
+                <transition name="donut-detail" mode="out-in">
+                  <div
+                    :key="activeStatusKey || 'status-default'"
+                    class="donut-caption"
+                    :class="{ 'is-active': activeStatusSegment }"
+                    :style="{ '--segment-color': activeStatusSegment?.color || '#8b5cf6' }"
+                  >
+                    <template v-if="activeStatusSegment">
+                      <div class="donut-caption-title">
+                        <i />
+                        <strong>{{ activeStatusSegment.label }}</strong>
+                        <span>{{ activeStatusSegment.count }} 条 · {{ activeStatusSegment.pct }}%</span>
+                      </div>
+                      <p>{{ activeStatusSegment.description }}</p>
+                    </template>
+                    <template v-else>
+                      <strong>悬浮查看详情</strong>
+                      <p>查看任务终态、数量和占比</p>
+                    </template>
+                  </div>
+                </transition>
+              </div>
+            </article>
+          </div>
+
+          <!-- 工具 TOP（排序） -->
           <div class="stats-section">
-            <label class="stats-label">按工具（by_tool）</label>
+            <label class="stats-label">工具调用 TOP</label>
             <div v-if="!Object.keys(stats.by_tool).length" class="empty-tip">暂无记录</div>
             <div v-else class="stats-bars">
-              <div v-for="(count, tool) in stats.by_tool" :key="tool" class="stats-bar-row">
+              <div v-for="(count, tool) in topTools(stats.by_tool, 6)" :key="tool" class="stats-bar-row">
                 <code>{{ tool }}</code>
                 <div class="bar-track"><i class="bar-fill" :style="{ width: barPct(count, stats.by_tool) }" /></div>
                 <strong>{{ count }}</strong>
               </div>
-            </div>
-          </div>
-          <div class="stats-section">
-            <label class="stats-label">按风险（by_risk）</label>
-            <div v-if="!Object.keys(stats.by_risk).length" class="empty-tip">暂无记录</div>
-            <div v-else class="stats-pills">
-              <span v-for="(count, risk) in stats.by_risk" :key="risk" class="stats-pill">
-                <RiskTag :level="risk as any" /><strong>{{ count }}</strong>
-              </span>
-            </div>
-          </div>
-          <div class="stats-section">
-            <label class="stats-label">按终态（by_status）</label>
-            <div v-if="!Object.keys(stats.by_status).length" class="empty-tip">暂无记录</div>
-            <div v-else class="stats-pills">
-              <span v-for="(count, status) in stats.by_status" :key="status" class="stats-pill">
-                <StatusTag :status="status" /><strong>{{ count }}</strong>
-              </span>
             </div>
           </div>
         </template>
@@ -389,7 +756,7 @@ onMounted(async () => {
         </div>
         <div v-else class="risk-list">
           <div v-for="evt in riskEvents.slice(0, 5)" :key="evt.event_id || evt.rule_id || evt.created_at" class="risk-row">
-            <RiskTag :level="(evt.final_risk || 'R1') as any" />
+            <RiskTag :level="(evt.risk_level || evt.final_risk || 'R1') as any" />
             <span>{{ evt.rule_id || evt.reason || '-' }}</span>
           </div>
         </div>
@@ -837,40 +1204,225 @@ onMounted(async () => {
 .stats-section {
   margin-bottom: 14px;
 }
-.stats-section:last-child { margin-bottom: 0; }
+
+.stats-section:last-child {
+  margin-bottom: 0;
+}
 
 .stats-label {
   display: block;
-  font-size: 13px;
-  font-weight: 600;
+  margin: 0;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.distribution-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.distribution-card {
+  min-width: 0;
+  padding: 12px 10px 10px;
+  overflow: hidden;
+  border: 1px solid rgba(191, 219, 254, 0.82);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 82% 10%, rgba(59, 130, 246, 0.1), transparent 38%),
+    linear-gradient(150deg, rgba(255, 255, 255, 0.98), rgba(239, 246, 255, 0.86));
+  box-shadow: 0 10px 24px rgba(30, 64, 175, 0.07);
+}
+
+.distribution-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.distribution-head > span {
+  flex-shrink: 0;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.donut-content {
+  min-width: 0;
+}
+
+.donut-stage {
+  width: 142px;
+  max-width: 100%;
+  margin: 2px auto 0;
+  aspect-ratio: 1;
+}
+
+.donut-chart {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+.donut-backdrop {
+  fill: none;
+  stroke: #e8f0fb;
+  stroke-width: 22;
+}
+
+.donut-segment-group {
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.donut-slice {
+  cursor: pointer;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition:
+    transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.18s ease,
+    filter 0.18s ease;
+}
+
+.donut-slice:hover,
+.donut-slice.is-active {
+  transform: scale(1.075);
+}
+
+.donut-slice.is-dimmed {
+  opacity: 0.3;
+}
+
+.donut-hole {
+  fill: rgba(255, 255, 255, 0.98);
+  stroke: rgba(219, 234, 254, 0.9);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.donut-center-value {
+  fill: #172033;
+  font-size: 22px;
+  font-weight: 850;
+  pointer-events: none;
+}
+
+.donut-center-label {
+  fill: #7c8ba1;
+  font-size: 9px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.donut-caption {
+  --segment-color: #3b82f6;
+  min-height: 54px;
+  margin-top: -2px;
+  padding: 9px 10px;
+  border: 1px dashed rgba(148, 163, 184, 0.38);
+  border-radius: 11px;
+  background: rgba(248, 250, 252, 0.76);
   color: #475569;
-  margin-bottom: 8px;
+  text-align: left;
+}
+
+.donut-caption.is-active {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--segment-color) 34%, white);
+  background: color-mix(in srgb, var(--segment-color) 7%, white);
+}
+
+.donut-caption > strong {
+  display: block;
+  color: #334155;
+  font-size: 12px;
+}
+
+.donut-caption-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.donut-caption-title i {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--segment-color);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--segment-color) 14%, transparent);
+}
+
+.donut-caption-title strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #1e293b;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.donut-caption-title span {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--segment-color);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.donut-caption p {
+  margin: 4px 0 0;
+  color: #7c8ba1;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.donut-detail-enter-active,
+.donut-detail-leave-active {
+  transition:
+    opacity 0.14s ease,
+    transform 0.14s ease;
+}
+
+.donut-detail-enter-from,
+.donut-detail-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
 }
 
 .stats-bars {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .stats-bar-row {
   display: grid;
-  grid-template-columns: 130px 1fr 32px;
+  grid-template-columns: 120px 1fr 32px;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   font-size: 13px;
 }
 
 .stats-bar-row code {
-  font-size: 12px;
-  color: #334155;
   overflow: hidden;
+  color: #334155;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .stats-bar-row strong {
-  text-align: right;
   color: var(--ks-text);
+  font-size: 12px;
+  text-align: right;
 }
 
 .bar-fill {
@@ -878,27 +1430,6 @@ onMounted(async () => {
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #3b82f6, #06b6d4);
-}
-
-.stats-pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.stats-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border: 1px solid rgba(148, 163, 184, 0.24);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.7);
-}
-
-.stats-pill strong {
-  font-size: 15px;
-  color: #1e293b;
 }
 
 .dashboard-loading {
@@ -914,6 +1445,12 @@ onMounted(async () => {
 @media (max-width: 1280px) {
   .dashboard-hero,
   .lower-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 420px) {
+  .distribution-grid {
     grid-template-columns: 1fr;
   }
 }
