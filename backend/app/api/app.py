@@ -86,8 +86,26 @@ def get_session_store() -> SessionStore:
 
 
 def get_llm() -> LLMAdapter:
-    """获取 LLMAdapter。demo-only 设计意图（ADR-0003），非 TODO；
-    D VM 经 dependency_overrides 注入真实 LLM。"""
+    """获取 LLMAdapter。
+
+    默认 demo-only 装配（ADR-0003）：返 ``build_fake_llm()``，**非 TODO**。
+    D VM 经 ``dependency_overrides[get_llm]`` 注入真实 LLM。
+
+    录制模式（ADR-0005 demo-record-mode，仅录视频场景使用）：当 env
+    ``KYLIN_LLM_RECORD=true``（大小写/空白不敏感），改返 ``RealLLMClient()``——
+    直接连 env 注入的 ``KYLIN_LLM_BASE_URL`` / ``KYLIN_LLM_API_KEY`` /
+    ``KYLIN_LLM_MODEL`` 等配置（见 ``backend/app/llm/real_client.py``）。
+    默认 ``KYLIN_LLM_RECORD`` 未设或 ``false`` 时仍走 fake。**生产
+    ``KYLIN_LLM_RECORD`` 永远 false**。
+    """
+    if os.environ.get("KYLIN_LLM_RECORD", "").strip().lower() == "true":
+        # 录制模式：包 LLMAdapter(completion_fn=RealLLMClient().completion_fn)，
+        # 与 demo_stage4_e2e.py 真端点场景 G 一致；保证返 LLMAdapter（mypy + 接口契约）。
+        from backend.app.llm.adapter import LLMAdapter as _LLMAdapter
+        from backend.app.llm.real_client import RealLLMClient  # 延迟导入，未用不付出 import 成本
+
+        real = RealLLMClient()
+        return _LLMAdapter(completion_fn=real.completion_fn)
     return build_fake_llm()
 
 
