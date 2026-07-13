@@ -18,11 +18,11 @@ from backend.app.api.app import create_app, get_audit, get_policy
 from backend.app.api.auth import Principal
 from backend.app.api.deps import require_proxy_identity
 from backend.app.audit import SqliteAuditSink
+from backend.app.mcp.registry import ToolRegistry
 from backend.app.security import RuleBasedPolicyEngine
 from backend.app.security.policy_loader import DEFAULT_POLICY_DICT
 from backend.app.security.policy_rules import PolicyRule, PolicySet, ProtectedPaths
 from mcp_servers.os_ops import all_specs
-from backend.app.mcp.registry import ToolRegistry
 
 
 def _admin() -> Principal:
@@ -88,7 +88,9 @@ def test_policy_rules_includes_safer_alternative() -> None:
         assert "CMD001" in by_id
         assert by_id["CMD001"]["safer_alternative"] == "限定到具体子目录，并先 dry-run。"
         # DBLOG001 也应有非空值（policy_loader.py:81）
-        assert by_id["DBLOG001"]["safer_alternative"] == "改用 log.compress_rotate 或通知 DBA 处置。"
+        assert (
+            by_id["DBLOG001"]["safer_alternative"] == "改用 log.compress_rotate 或通知 DBA 处置。"
+        )
 
 
 # ---- T2：规则无 safer_alternative → response 含 None default 不报错 ----------

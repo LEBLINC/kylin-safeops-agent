@@ -546,12 +546,12 @@ class RealLLMClient:
             "你是运维总结员，将工具执行结果归纳为一段话给用户。"
             "**绝不输出任何凭据**，S9 已被前置过滤。"
         )
-        user_prompt = (
-            "工具结果:\n"
-            + json.dumps(sanitized, ensure_ascii=False, indent=2)
-            + "\n\n用户意图:\n"
-            + user_intent
-        )
+        # L-H9 / 决策⑫ 间接注入防御纵深：santized 工具结果套 wrap_many_for_feedback
+        # + GUARD_PROMPT 守卫句；不可信工具输出不能伪装成指令注入 LLM
+        from backend.app.llm.feedback import GUARD_PROMPT
+
+        payload_text = json.dumps(sanitized, ensure_ascii=False, indent=2)
+        user_prompt = GUARD_PROMPT + "\n\n" + payload_text + "\n\n用户意图:\n" + user_intent
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
