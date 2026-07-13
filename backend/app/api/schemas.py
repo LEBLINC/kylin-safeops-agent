@@ -165,6 +165,12 @@ class PolicyRuleOut(BaseModel):
     severity: str
     reason: str
     approval_role: str | None
+    safer_alternative: str | None = Field(
+        default=None,
+        description=(
+            "更安全的替代建议（X 联调新增；规则未配置时为 None，与 PolicyVerdict 同口径）"
+        ),
+    )
 
 
 class PolicyRulesResponse(BaseModel):

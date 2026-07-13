@@ -106,6 +106,7 @@ async def list_rules(
                 severity=r.severity,  # type: ignore[attr-defined]
                 reason=r.reason,  # type: ignore[attr-defined]
                 approval_role=r.approval_role,  # type: ignore[attr-defined]
+                safer_alternative=r.safer_alternative,  # type: ignore[attr-defined]
             )
             for r in rules
         ],
