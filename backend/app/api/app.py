@@ -362,6 +362,11 @@ def create_app() -> FastAPI:
 
     app.add_middleware(RequestSizeLimitMiddleware)
 
+    # B5 P3 (L-M5 chunked path): ASGI 守门 wrap receive 累计 (chunked 路径)
+    from backend.app.api.middleware import ASGIMaxBodySizeMiddleware
+
+    app.add_middleware(ASGIMaxBodySizeMiddleware)
+
     # 路由挂载：延迟 import 避免 routers ↔ app 循环依赖
     # （routers 从本模块 import get_bus/get_registry/... 作 Depends）。
     from backend.app.api.routers import api_router
