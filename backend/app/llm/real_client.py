@@ -47,7 +47,7 @@ class RealLLMConfig:
     """真 LLM 客户端配置（env 注入，S9 绝不入库）。"""
 
     provider: str = "real"  # "real" = 真端点；"fixture" = 不联网测试桩
-    base_url: str = "http://localhost:8000/v1"
+    base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     model: str = "qwen2.5"
     api_key: str = ""  # env 注入
     timeout: float = 30.0
