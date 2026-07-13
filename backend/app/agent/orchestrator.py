@@ -92,6 +92,9 @@ class Orchestrator:
         self._prev_hash = GENESIS_HASH
         # 观测→re-plan 多轮上限（有界，防死循环）
         self._max_observation_rounds = max(1, max_observation_rounds)
+        # L-M3：审计 actor 溯源（运行时由 chat.py 装配时调 set_actor 注入，
+        # 不破坏冻结的 __init__ 签名）。actor = {user, roles} 或 None。
+        self._actor: dict | None = None
         # 暂存供 resume 使用的执行批次（原子计划：审批后整批执行）
         self._batch: list[CandidateTool] | None = None
         # WAIT_APPROVAL 时本批次 confirm 工具的最严 approval_role（供 api 层 RBAC 强制；只读暴露）
@@ -120,11 +123,22 @@ class Orchestrator:
             raise RuntimeError(f"illegal transition {self.state.value} -> {dst.value}")
         self.state = dst
 
-    def _append_audit(self, payload: dict) -> AuditRecord:
+    def _append_audit(
+        self,
+        payload: dict,
+        *,
+        actor: dict | None = None,
+    ) -> AuditRecord:
         """在当前状态产一条哈希链审计记录并落库，同时 emit audit_appended。
 
         phase = 当前状态名；payload 为结构化推理摘要（手册固定字段子集）。
+        actor = {user, roles} 三段由调用方注入（L-M3 决策⑨ traceability），
+            让审计链能溯源"谁触发了这条记录"。缺失场景留 None（兼容旧调用方）。
         """
+        if actor is None and self._actor is not None:
+            actor = self._actor
+        if actor is not None:
+            payload = {**payload, "actor": actor}
         curr_hash = compute_curr_hash(self._prev_hash, payload)
         record = AuditRecord(
             trace_id=self.trace_id,
@@ -140,6 +154,14 @@ class Orchestrator:
         # 审计增长本身是一个流事件（与状态无关，统一推送）
         self._emit("audit_appended", {"seq": record.seq, "curr_hash": record.curr_hash})
         return record
+
+    def set_actor(self, user: str, roles: frozenset[str]) -> None:
+        """L-M3：装配时由 chat.py 注入 principal，审计链 payload 自动带 actor。
+
+        不破坏 Orchestrator 冻结签名；调用时机：构造后、drive_run.run() 前一次。
+        内部 self._actor 兜底调用 _append_audit 时填入 payload 的 actor 字段。
+        """
+        self._actor = {"user": user, "roles": sorted(roles)}
 
     def _emit(self, type_: EventType, data: dict) -> None:
         """推送一条前端事件。EventType 由调用点显式给定，不由状态推导。"""

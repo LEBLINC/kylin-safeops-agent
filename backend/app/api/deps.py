@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import os
 
-from fastapi import Header, HTTPException
+from fastapi import Depends, Header, HTTPException
 
 from backend.app.api.auth import Principal, verify_proxy_identity
 
@@ -111,3 +111,19 @@ async def require_proxy_identity(
     if principal is None:
         raise HTTPException(status_code=401, detail="missing or invalid proxy-signed identity")
     return principal
+
+
+async def principal_for_idor(
+    user: str = Depends(verify_token),
+    x_user_role: str | None = Header(default=None, alias="X-User-Role"),
+) -> Principal:
+    """L-H1 IDOR 校验专用：从已验证身份派生 Principal。
+
+    - dev 模式：user="dev"，roles 从 X-User-Role 头归一（小写）
+    - proxy 模式：user 来自 verify_token（签名头），roles 从 X-User-Role 头派生
+      （X 域联调时通过反代注入；与现有 verify_token 行为一致）
+    """
+    roles: frozenset[str] = frozenset()
+    if x_user_role:
+        roles = frozenset({r.strip().lower() for r in x_user_role.split(",") if r.strip()})
+    return Principal(user=user, roles=roles)

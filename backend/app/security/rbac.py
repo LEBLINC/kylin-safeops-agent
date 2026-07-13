@@ -31,3 +31,45 @@ def can_approve(caller_role: str | None, approval_role: str | None) -> bool:
     if allowed is None:
         return False
     return approval_role in allowed
+
+
+# ---- L-H2 + L-M4：扩展（commit 2）---------------------------------------
+
+from collections.abc import Iterable  # noqa: E402  # 增量导入（向后兼容原文件）
+
+from backend.app.api.auth import Principal  # noqa: E402
+
+
+def roles_satisfy(principal: Principal, required: Iterable[str]) -> bool:
+    """principal.roles 是否与 required 集合有交集（L-H2 通用 helper）。"""
+    return bool(set(required) & principal.roles)
+
+
+def require_role(role_set: frozenset[str] | set[str]):  # type: ignore[no-untyped-def]
+    """L-H2 + L-M4：FastAPI 依赖 — principal.roles 与 role_set 交集为空时返 403。
+
+    用法：
+        @router.get(...)
+        def endpoint(
+            principal: Principal = Depends(require_role({"auditor", "admin"})),
+        ): ...
+
+    注意：本文件为 security 纯函数层（L 域 deps.py 不能依赖 security 但
+    security 可依赖 api deps）。本 helper 仅作**计算工具**暴露；调用方在 router
+    里串 ``Depends(verify_token)`` 取得 principal 后再做手动校验或本 helper。
+    直接作 Depends() 用法保留以备后端 API 层演进（commit 2 不启用，避免打破
+    既有 dev 模式测试）。
+    """
+    required = frozenset(role_set)
+
+    def _dep(principal: Principal) -> Principal:
+        if not roles_satisfy(principal, required):
+            from fastapi import HTTPException
+
+            raise HTTPException(
+                status_code=403,
+                detail=f"role required: {sorted(required)}",
+            )
+        return principal
+
+    return _dep

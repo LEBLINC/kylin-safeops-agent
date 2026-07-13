@@ -323,6 +323,7 @@ class ChatSessionDTO(BaseModel):
     title: str = Field(..., description="会话标题")
     created_at: str = Field(..., description="创建时间 ISO 字符串")
     updated_at: str = Field(..., description="最近更新时间 ISO 字符串")
+    owner: str = Field(default="", description="会话所有者 user（L-H1 IDOR 修复）")
 
 
 # ---- system --------------------------------------------------------------

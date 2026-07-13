@@ -21,14 +21,30 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+class SessionNotFound(LookupError):
+    """session_id 不存在（L-H1 IDOR fail-closed 404）。"""
+
+    def __init__(self, session_id: str) -> None:
+        super().__init__(f"session {session_id} not found")
+        self.session_id = session_id
+
+
+class SessionForbidden(PermissionError):
+    """会话存在但 caller 非 owner 且非 admin（L-H1 IDOR fail-closed 403）。"""
+
+    def __init__(self, session_id: str) -> None:
+        super().__init__(f"session {session_id} not accessible")
+        self.session_id = session_id
+
+
 class SessionStore:
     """内存对话会话表，按 session_id 索引。"""
 
     def __init__(self) -> None:
         self._sessions: dict[str, ChatSessionDTO] = {}
 
-    def create(self, title: str | None = None) -> ChatSessionDTO:
-        """新建会话，自动生成 session_id 与时间戳。"""
+    def create(self, title: str | None = None, *, owner: str) -> ChatSessionDTO:
+        """新建会话，自动生成 session_id 与时间戳；owner 必填（L-H1 IDOR 修复）。"""
         session_id = uuid.uuid4().hex
         now = _now_iso()
         session = ChatSessionDTO(
@@ -36,6 +52,7 @@ class SessionStore:
             title=title or "新会话",
             created_at=now,
             updated_at=now,
+            owner=owner,
         )
         self._sessions[session_id] = session
         return session
@@ -44,9 +61,26 @@ class SessionStore:
         """按 id 取会话。"""
         return self._sessions.get(session_id)
 
-    def list(self) -> list[ChatSessionDTO]:
-        """返回所有会话，按更新时间倒序（最近在前）。"""
-        return sorted(self._sessions.values(), key=lambda s: s.updated_at, reverse=True)
+    def list_for(self, principal_user: str, is_admin: bool) -> list[ChatSessionDTO]:
+        """L-H1：列会话按 owner 过滤；admin 看到全部。"""
+        all_sess = sorted(self._sessions.values(), key=lambda s: s.updated_at, reverse=True)
+        if is_admin:
+            return all_sess
+        return [s for s in all_sess if s.owner == principal_user]
+
+    def assert_owner(self, session_id: str, principal_user: str, is_admin: bool) -> ChatSessionDTO:
+        """L-H1：owner 校验。fail-closed 抛 SessionNotFound 或 SessionForbidden。
+
+        - session_id 不存在 → SessionNotFound（404）
+        - owner 不匹配且非 admin → SessionForbidden（403）
+        - owner 匹配 / admin role → 返 ChatSessionDTO
+        """
+        sess = self._sessions.get(session_id)
+        if sess is None:
+            raise SessionNotFound(session_id)
+        if is_admin or sess.owner == principal_user:
+            return sess
+        raise SessionForbidden(session_id)
 
     def touch(self, session_id: str) -> None:
         """更新会话的 updated_at（有新请求时调用）；不存在则忽略。"""
