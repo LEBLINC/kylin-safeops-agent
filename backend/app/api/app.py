@@ -221,17 +221,82 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     yield
 
-    # Shutdown
+    # L-B4-2：lifespan shutdown 顺序 drain（架构整改 H6）。
+    # 顺序：registry → bus → audit → session_store
+    #   - registry 先停：避免新 task 启动（防与 drain 抢锁）
+    #   - bus 收尾：清理 queue
+    #   - audit 落盘：flush + close（防 WAL 数据丢）
+    #   - session_store 末尾：会话表落库
+    # S8 兜底：drain 阶段每步 try/except + logger.warning + 继续后续（不杀状态机）
+    _DRAIN_TIMEOUT = 10.0  # 秒
+
+    # 阶段 1：停 _cleanup_task
     if _cleanup_task is not None:
         _cleanup_task.cancel()
+        try:
+            await _cleanup_task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001 S8
+            pass
+
+    # 阶段 2：drain registry（等待所有 RUNNING orchestrator task 完成）
+    if _registry is not None:
+        try:
+            running = [
+                s.task
+                for s in _registry.snapshot()
+                if not s.is_done and s.task is not None and not s.task.done()
+            ]
+            if running:
+                logger.info(
+                    "lifespan shutdown: draining %d running orchestrator tasks", len(running)
+                )
+                done, pending = await asyncio.wait(running, timeout=_DRAIN_TIMEOUT)
+                for t in pending:
+                    t.cancel()
+                for t in pending:
+                    try:
+                        await t
+                    except (asyncio.CancelledError, Exception):  # noqa: BLE001 S8
+                        pass
+        except Exception:  # noqa: BLE001 S8
+            logger.exception("lifespan shutdown: registry drain 阶段异常（继续）")
+
+    # 阶段 3：drain bus（清空 queue）
+    if _bus is not None:
+        try:
+            drained = _bus.drain_all()
+            logger.info("lifespan shutdown: bus drain 移除 %d 个空 queue", drained)
+        except Exception:  # noqa: BLE001 S8
+            logger.exception("lifespan shutdown: bus drain 阶段异常（继续）")
+
+    # 阶段 4：audit flush + close（防 WAL 数据丢）
     if _audit is not None:
-        _audit.close()  # type: ignore[attr-defined]  # SqliteAuditSink 持 DB 句柄需显式关闭
+        try:
+            # L-B4-3：checkpoint WAL 数据到主库
+            _audit.flush()  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 S8
+            logger.exception("lifespan shutdown: audit flush 阶段异常（继续）")
+        try:
+            _audit.close()  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 S8
+            logger.exception("lifespan shutdown: audit close 阶段异常（继续）")
+
+    # 阶段 5：session_store 落库（如有）
+    if _session_store is not None:
+        try:
+            # SessionStore 无显式 close；此处预留钩子给未来 DB 落盘
+            pass
+        except Exception:  # noqa: BLE001 S8
+            logger.exception("lifespan shutdown: session_store 阶段异常（继续）")
+
+    # 阶段 6：清理全局引用
     _bus = None
     _registry = None
     _gateway = None
     _session_store = None
     _audit = None
-    logger.info("API layer shutdown complete")
+    _cleanup_task = None
+    logger.info("API layer shutdown complete (L-B4-2 顺序 drain 完毕)")
 
 
 # ============================================================

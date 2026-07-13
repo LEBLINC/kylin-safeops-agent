@@ -62,6 +62,17 @@ class EventBus:
         """移除 trace_id 队列（清理资源）。"""
         self._queues.pop(trace_id, None)
 
+    def drain_all(self) -> int:
+        """L-B4-2：lifespan shutdown 阶段移除所有队列，返回移除数。
+
+        幂等：已 done / 已 None 的队列也算移除（不重不漏）。
+        注：本方法**不**消费 queue 中的事件——SSE 端点关闭事件流即可（前端连接已断）。
+        """
+        keys = list(self._queues.keys())
+        for key in keys:
+            self._queues.pop(key, None)
+        return len(keys)
+
     @property
     def active_count(self) -> int:
         """当前存活队列数（监控用）。"""
