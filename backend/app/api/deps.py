@@ -119,11 +119,15 @@ async def principal_for_idor(
 ) -> Principal:
     """L-H1 IDOR 校验专用：从已验证身份派生 Principal。
 
-    - dev 模式：user="dev"，roles 从 X-User-Role 头归一（小写）
-    - proxy 模式：user 来自 verify_token（签名头），roles 从 X-User-Role 头派生
-      （X 域联调时通过反代注入；与现有 verify_token 行为一致）
+    dev: user="dev", roles = header X-User-Role(env KYLIN_TEST_X_USER_ROLE 兜底).
+    proxy: user/roles 来自 verify_token 签名头.
     """
     roles: frozenset[str] = frozenset()
+    raw: str = ""
     if x_user_role:
-        roles = frozenset({r.strip().lower() for r in x_user_role.split(",") if r.strip()})
+        raw = x_user_role
+    else:
+        raw = os.environ.get("KYLIN_TEST_X_USER_ROLE", "")
+    if raw:
+        roles = frozenset({r.strip().lower() for r in raw.split(",") if r.strip()})
     return Principal(user=user, roles=roles)
