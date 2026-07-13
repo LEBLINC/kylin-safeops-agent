@@ -35,6 +35,10 @@ class AuditSink(Protocol):
 
     def append(self, record: AuditRecord) -> None: ...
     def verify_chain(self, trace_id: str) -> object: ...  # ChainVerifyResult (duck-typed)
+    def ping(self) -> bool:
+        """B4 commit 3: /health/ready 探活;SELECT 1 检测 DB 连通 (返回 True/False, 不 raise)。"""
+        ...
+
     def list_traces(
         self,
         *,

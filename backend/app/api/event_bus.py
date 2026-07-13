@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import AsyncIterator
 
 from backend.app.contracts.stream import StreamEvent
@@ -26,20 +27,38 @@ logger = logging.getLogger(__name__)
 _HEARTBEAT_INTERVAL: float = 15.0
 
 
+class EventBusQueueFull(RuntimeError):
+    """L-H14: SSE 事件队列已满（QueueFull）→ raise EventBusQueueFull。
+
+    调用方（chat.get_events / SSEEventSink）应 try/except 兜底：emit error event
+    或 drain queue 防止事件无限堆积。
+    """
+
+
 class EventBus:
     """按 trace_id 分发的内存事件总线。
 
     线程安全由 asyncio 事件循环保证（单线程协程模型）；
     不跨进程——单实例部署（麒麟靶机单节点，满足当前需求）。
+
+    L-H14: __init__ 接受 maxsize（int），默认 None = 不限（向后兼容）。
+    显式传 maxsize=int 时创建 asyncio.Queue(maxsize=...)；put_nowait 满则 raise EventBusQueueFull。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, maxsize: int | None = None) -> None:
+        """L-H14: maxsize=None 不限；显式传 int 走 QueueFull 路径。
+
+        生产默认由 lifespan 读 env KYLIN_SSE_QUEUE_MAX 注入；单元测试可显式传。
+        """
+        if maxsize is None:
+            maxsize = int(os.environ.get("KYLIN_SSE_QUEUE_MAX", "0") or "0")
+        self._maxsize = maxsize
         self._queues: dict[str, asyncio.Queue[StreamEvent | None]] = {}
 
     def create(self, trace_id: str) -> asyncio.Queue[StreamEvent | None]:
         """为 trace_id 创建事件队列。重复创建则复用已有队列。"""
         if trace_id not in self._queues:
-            self._queues[trace_id] = asyncio.Queue()
+            self._queues[trace_id] = asyncio.Queue(maxsize=self._maxsize or 0)
         return self._queues[trace_id]
 
     def get(self, trace_id: str) -> asyncio.Queue[StreamEvent | None] | None:
@@ -47,10 +66,19 @@ class EventBus:
         return self._queues.get(trace_id)
 
     def put(self, trace_id: str, event: StreamEvent) -> None:
-        """向 trace_id 的队列投递事件。队列不存在则静默丢弃（防竞态）。"""
+        """向 trace_id 的队列投递事件。队列不存在则静默丢弃（防竞态）。
+
+        队列满 → raise EventBusQueueFull（L-H14）由调用方决定兜底（emit error SSE）。
+        """
         queue = self._queues.get(trace_id)
-        if queue is not None:
+        if queue is None:
+            return
+        try:
             queue.put_nowait(event)
+        except asyncio.QueueFull as exc:
+            raise EventBusQueueFull(
+                f"event queue full for trace_id={trace_id} (maxsize={self._maxsize})"
+            ) from exc
 
     def close(self, trace_id: str) -> None:
         """向 trace_id 投递终止哨兵（None），通知 SSE 端正常结束。"""

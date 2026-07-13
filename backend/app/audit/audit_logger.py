@@ -216,6 +216,17 @@ class SqliteAuditSink:
                 total += sidecar.stat().st_size
         return total
 
+    def ping(self) -> bool:
+        """B4 commit 3: /health/ready 探活;SELECT 1 检测 DB 连通 (不 raise)。
+
+        False: DB 异常 / 已关闭。S8 兜底:任何 sqlite3 异常吞掉返 False(不杀状态机)。
+        """
+        try:
+            row = self._conn.execute("SELECT 1 AS ok").fetchone()
+            return row is not None and row["ok"] == 1
+        except Exception:  # noqa: BLE001
+            return False
+
     def close(self) -> None:
         """L-B4-3：lifespan shutdown 时 flush WAL + 关闭连接。
 
