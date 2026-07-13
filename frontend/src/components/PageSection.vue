@@ -16,7 +16,7 @@ defineProps<{
   <section class="page-section ks-card">
     <header v-if="title || subtitle" class="section-header">
       <div>
-        <h3 v-if="title">{{ title }}</h3>
+        <h3 v-if="title || $slots.title"><slot name="title">{{ title }}</slot></h3>
         <p v-if="subtitle">{{ subtitle }}</p>
       </div>
       <slot name="extra" />

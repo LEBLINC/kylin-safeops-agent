@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import PageHeader from '@/layouts/PageHeader.vue'
 import PageSection from '@/components/PageSection.vue'
-import { request } from '@/api/request'
+import { buildApiUrl, request } from '@/api/request'
 
 /**
  * SettingsView.vue
@@ -42,6 +42,59 @@ const llmHealth = ref<LLMHealth | null>(null)
 /** 请求失败时置 true，用于降级展示。 */
 const llmHealthError = ref(false)
 
+/** probe 失败事件记录。来自 /api/llm/health/events SSE 订阅。 */
+interface ProbeFailEvent {
+  ts: number
+  trace_id: string
+  curr_hash: string
+  seq: number
+}
+const probeEvents = ref<ProbeFailEvent[]>([])
+const probeConnected = ref(false)
+let probeSource: EventSource | null = null
+
+function connectProbeSSE() {
+  const url = buildApiUrl('/api/llm/health/events')
+  probeSource = new EventSource(url)
+
+  probeSource.onopen = () => {
+    probeConnected.value = true
+  }
+
+  probeSource.onmessage = (msg) => {
+    if (!msg.data) return
+    try {
+      const evt = JSON.parse(msg.data)
+      // 后端推的是 audit_appended 事件（channel "probe-watch"）
+      if (evt.type === 'audit_appended' && evt.data?.phase === 'probe_failed') {
+        probeEvents.value.unshift({
+          ts: evt.ts || Date.now() / 1000,
+          trace_id: evt.data.trace_id || '',
+          curr_hash: evt.data.curr_hash || '',
+          seq: evt.data.seq ?? 0
+        })
+        // 最多保留最近 50 条
+        if (probeEvents.value.length > 50) {
+          probeEvents.value = probeEvents.value.slice(0, 50)
+        }
+      }
+    } catch {
+      // 非 JSON 消息忽略
+    }
+  }
+
+  probeSource.onerror = () => {
+    probeConnected.value = false
+    probeSource?.close()
+    // 30s 后自动重连
+    setTimeout(() => {
+      if (probeSource && probeSource.readyState === EventSource.CLOSED) {
+        connectProbeSSE()
+      }
+    }, 30000)
+  }
+}
+
 onMounted(async () => {
   try {
     const res = await request.get('/api/llm/health')
@@ -49,6 +102,14 @@ onMounted(async () => {
   } catch {
     llmHealthError.value = true
   }
+
+  // 订阅 probe SSE 流
+  connectProbeSSE()
+})
+
+onBeforeUnmount(() => {
+  probeSource?.close()
+  probeSource = null
 })
 </script>
 
@@ -92,6 +153,30 @@ onMounted(async () => {
 
       <div v-else class="llm-health-loading">加载中…</div>
     </PageSection>
+
+    <PageSection title="LLM 连通性探测">
+      <template #title>
+        <div class="probe-header">
+          <span>LLM 连通性探测</span>
+          <span class="probe-status-dot" :class="{ connected: probeConnected }" />
+          <span class="probe-status-text">{{ probeConnected ? 'SSE 已连接' : 'SSE 断开' }}</span>
+        </div>
+      </template>
+
+      <div v-if="!probeEvents.length" class="probe-empty">
+        <span>暂无探测失败记录</span>
+        <span class="probe-hint">probe 失败时自动推送至此</span>
+      </div>
+
+      <div v-else class="probe-list">
+        <div v-for="(evt, idx) in probeEvents" :key="idx" class="probe-row">
+          <span class="probe-time">{{ new Date(evt.ts * 1000).toLocaleTimeString() }}</span>
+          <el-tag type="danger" size="small">probe_failed</el-tag>
+          <code class="probe-trace">{{ evt.trace_id }}</code>
+          <span class="probe-hash" :title="evt.curr_hash">{{ evt.curr_hash.slice(0, 12) }}…</span>
+        </div>
+      </div>
+    </PageSection>
   </div>
 </template>
 
@@ -123,5 +208,88 @@ onMounted(async () => {
 .llm-health-loading {
   color: var(--ks-text-muted, #6b7280);
   font-size: 14px;
+}
+
+/* probe SSE 面板 */
+.probe-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.probe-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  flex-shrink: 0;
+}
+.probe-status-dot.connected {
+  background: #22c55e;
+}
+
+.probe-status-text {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ks-text-muted);
+  margin-left: 4px;
+}
+
+.probe-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 20px;
+  color: var(--ks-text-muted);
+  font-size: 14px;
+}
+
+.probe-hint {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.probe-list {
+  display: grid;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.probe-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(239, 68, 68, 0.18);
+  border-radius: 8px;
+  background: rgba(254, 242, 242, 0.6);
+  font-size: 13px;
+}
+
+.probe-time {
+  color: var(--ks-text-muted);
+  font-family: monospace;
+  white-space: nowrap;
+}
+
+.probe-trace {
+  font-size: 12px;
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.08);
+  padding: 2px 6px;
+  border-radius: 4px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.probe-hash {
+  font-size: 11px;
+  color: #94a3b8;
+  font-family: monospace;
+  margin-left: auto;
 }
 </style>

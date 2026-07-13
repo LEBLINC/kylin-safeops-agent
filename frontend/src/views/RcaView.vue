@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import PageHeader from '@/layouts/PageHeader.vue'
 import PageSection from '@/components/PageSection.vue'
@@ -30,7 +30,21 @@ import type { RcaProblemType, RcaResult } from '@/types/rca'
  */
 
 const problemType = ref<RcaProblemType>('disk_full')
-const description = ref('根分区使用率超过 90%，请分析原因并给出安全建议')
+
+/** 问题类型 → 默认描述。切换类型时自动填充。 */
+const defaultDescriptions: Record<string, string> = {
+  disk_full: '根分区使用率超过 90%，请分析原因并给出安全建议',
+  zombie_process: '系统中出现大量僵尸进程，请分析根因并给出清理建议',
+  io_high: '磁盘 I/O 持续高负载，请分析 I/O 来源并给出优化建议',
+  config_drift: '检测到 /etc/ssh/sshd_config 配置漂移，请分析变更来源',
+  service_failure: 'nginx 服务频繁重启失败，请分析原因并给出修复方案'
+}
+
+const description = ref(defaultDescriptions['disk_full'])
+
+watch(problemType, (val) => {
+  description.value = defaultDescriptions[val] || ''
+})
 const loading = ref(false)
 const result = ref<RcaResult | null>(null)
 
@@ -75,9 +89,9 @@ async function analyze() {
 
 <template>
   <div class="ks-page">
-    <PageHeader title="根因分析 RCA" subtitle="确定性 playbook 采证 + LLM 归纳，输出证据化根因" />
+    <PageHeader title="根因分析 RCA" subtitle="独立 RCA 分析 · 选择问题类型发起根因分析" />
 
-    <PageSection title="发起分析" subtitle="RCA 页面通过 api/rca.ts 获取数据；Mock 模式下由 api/mock.ts 返回四类场景报告。">
+    <PageSection title="发起分析" subtitle="选择问题类型并输入描述，调用后端 RCA 引擎生成根因分析报告。">
       <div class="form-row">
         <el-select v-model="problemType">
           <el-option label="磁盘满" value="disk_full" />

@@ -5,7 +5,8 @@
  * 全局主布局组件。
  * 当前版本改为浅色后台风格，并增加侧边栏 mouseenter/mouseleave 自动展开/收起交互。
  */
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useChatStore } from '@/stores/chat'
 import {
   ChatDotRound,
   DataAnalysis,
@@ -17,6 +18,13 @@ import {
   VideoPlay,
   Warning
 } from '@element-plus/icons-vue'
+
+const chatStore = useChatStore()
+const identityText = computed(() => {
+  const u = chatStore.currentUser || 'dev'
+  const roles = chatStore.currentUserRoles.length ? chatStore.currentUserRoles.join(', ') : chatStore.currentUserRole || 'viewer'
+  return `${u} (${roles})`
+})
 
 const menus = [
   { title: '仪表盘', icon: Monitor, path: '/dashboard' },
@@ -74,6 +82,7 @@ const sidebarExpanded = ref(false)
           麒麟高级服务器版 V11 / LoongArch 演示环境
         </div>
         <div class="top-actions">
+          <el-tag type="info" effect="light" size="small">{{ identityText }}</el-tag>
           <el-tag type="success" effect="light">Agent Online</el-tag>
           <el-tag type="warning" effect="light">安全护栏已启用</el-tag>
         </div>

@@ -50,9 +50,61 @@ export interface SystemOverview {
   memory_usage: number
   root_disk_usage: number
   zombie_processes: number
- tool_calls_today: number
- denied_today: number
- services?: Array<{ name: string; status: string }>
+  tool_calls_today: number
+  denied_today: number
+  services?: Array<{ name: string; status: string }>
   data_source: 'stub_executor' | 'partial' | 'real'
   probed_tools: string[]
+}
+
+/**
+ * OverviewHistoryPoint
+ *
+ * 单条时序采样点，来自 GET /api/system/overview/history。
+ * 字段名与后端 schemas.py OverviewHistoryPoint 严格对齐。
+ *
+ * 使用位置：
+ * - DashboardView.vue 的 sparkline 趋势图。
+ *
+ * 字段说明：
+ * @field ts epoch 秒，小时桶起点。
+ * @field cpu CPU 使用率 %。
+ * @field mem 内存使用率 %。
+ * @field disk 根分区使用率 %。
+ */
+export interface OverviewHistoryPoint {
+  ts: number
+  cpu: number
+  mem: number
+  disk: number
+}
+
+/**
+ * OverviewHistoryResponse
+ *
+ * GET /api/system/overview/history 的完整响应体。
+ * 与后端 schemas.py OverviewHistoryResponse 严格对齐。
+ */
+export interface OverviewHistoryResponse {
+  hours: number
+  series: OverviewHistoryPoint[]
+}
+
+/**
+ * SystemStats
+ *
+ * 任务态势聚合数据，来自 GET /api/system/stats。
+ * 与后端 schemas.py SystemStats 严格对齐。
+ *
+ * 字段说明：
+ * @field hours 回看窗口小时数。
+ * @field by_tool 工具调用次数按 tool_name 聚合（来自 EXECUTING/EXECUTED records）。
+ * @field by_risk 按 risk_level（R0/R1/R2/R3）分布（来自 INTENT_PARSED records）。
+ * @field by_status 按终态 status（FINISHED/REJECTED/WAIT_APPROVAL）分布。
+ */
+export interface SystemStats {
+  hours: number
+  by_tool: Record<string, number>
+  by_risk: Record<string, number>
+  by_status: Record<string, number>
 }

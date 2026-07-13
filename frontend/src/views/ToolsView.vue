@@ -3,7 +3,7 @@ import { onMounted, ref } from 'vue'
 import PageHeader from '@/layouts/PageHeader.vue'
 import PageSection from '@/components/PageSection.vue'
 import RiskTag from '@/components/RiskTag.vue'
-import { getToolRegistry } from '@/api/tools'
+import { callTool, getToolRegistry } from '@/api/tools'
 import type { ToolDefinition } from '@/types/tool'
 
 /**
@@ -14,15 +14,12 @@ import type { ToolDefinition } from '@/types/tool'
  * 页面作用：
  * - 展示系统当前可用的 MCP Tool；
  * - 展示每个工具的描述和默认风险等级；
- * - 让评委理解“LLM 不能直接执行 Shell，只能选择白名单工具”。
+ * - R0/R1 只读工具支持"手动调用"，直接调 POST /api/tools/call 并展示结果；
+ * - R2+ 变更工具按钮置灰，提示"需走 Chat 审批链路"。
  *
  * 数据来源：
  * - 优先调用 GET /api/tools/registry；
  * - 后端不可用时保留默认工具列表。
- *
- * 与 stream.py 的关系：
- * - stream.py 的 plan_generated/tool_result 会出现工具名和工具结果；
- * - 但工具注册表本身不在 stream.py 中，需要 REST 接口单独提供。
  */
 const tools = ref<ToolDefinition[]>([
   { tool: 'system.info', description: 'OS/内核/CPU/内存信息', risk: 'R0' },
@@ -72,7 +69,6 @@ const riskGradients: Record<string, { card: string; hover: string; icon: string;
   }
 }
 
-/** 未知风险等级兜底：中性灰紫。 */
 const defaultGradient = {
   card: 'linear-gradient(135deg, #f5efff 0%, #fbf8ff 46%, #eee4ff 100%)',
   hover: 'linear-gradient(135deg, #eadcff 0%, #f8f2ff 46%, #dfceff 100%)',
@@ -82,12 +78,92 @@ const defaultGradient = {
 
 function toolCardStyle(risk: string) {
   const current = riskGradients[risk] || defaultGradient
-
   return {
     '--tool-card-gradient': current.card,
     '--tool-card-hover-gradient': current.hover,
     '--tool-icon-gradient': current.icon,
     '--tool-card-shadow': current.shadow
+  }
+}
+
+
+// ---- 工具详情弹窗 ----
+const detailDialogVisible = ref(false)
+const detailTarget = ref<ToolDefinition | null>(null)
+
+function openDetailDialog(tool: ToolDefinition) {
+  detailTarget.value = tool
+  detailDialogVisible.value = true
+}
+
+// ---- 手动调用 ----
+
+/** 调用弹窗是否可见。 */
+const callDialogVisible = ref(false)
+/** 当前正在操作的工具定义。 */
+const callTarget = ref<ToolDefinition | null>(null)
+/** 用户在弹窗中输入的 JSON 参数字符串。 */
+const callArgs = ref('{}')
+/** 最近一次调用结果（ToolCallResponse）。 */
+const callResult = ref<{ executed: boolean; result?: any; verdict?: any; reason?: string } | null>(null)
+/** 调用中。 */
+const calling = ref(false)
+
+/** R0/R1 只读工具允许手动调用，R2+ 须走 Chat→审批链路。 */
+function isReadOnly(risk: string) {
+  return risk === 'R0' || risk === 'R1'
+}
+
+function defaultArgs(schema: Record<string, unknown>): Record<string, unknown> {
+  const props = (schema as any)?.properties
+  if (!props || typeof props !== 'object') return {}
+  const args: Record<string, unknown> = {}
+  for (const key of Object.keys(props)) {
+    const prop = (props as any)[key]
+    if (prop?.default !== undefined) {
+      args[key] = prop.default
+    } else if (prop?.type === 'number' || prop?.type === 'integer') {
+      args[key] = 0
+    } else if (prop?.type === 'boolean') {
+      args[key] = false
+    } else if (prop?.type === 'array') {
+      args[key] = []
+    } else if (prop?.type === 'object') {
+      args[key] = {}
+    } else {
+      args[key] = ''
+    }
+  }
+  return args
+}
+
+/** 打开调用弹窗：预填默认 JSON 参数。 */
+
+function openCallDialog(tool: ToolDefinition) {
+  callTarget.value = tool
+  callArgs.value = JSON.stringify(defaultArgs(tool.input_schema || {}), null, 2)
+  callResult.value = null
+  callDialogVisible.value = true
+}
+
+/** 执行手动工具调用。 */
+async function executeCall() {
+  if (!callTarget.value || calling.value) return
+  let args: Record<string, unknown> = {}
+  try {
+    args = JSON.parse(callArgs.value)
+  } catch {
+    callResult.value = { executed: false, reason: '参数 JSON 格式错误' }
+    return
+  }
+  calling.value = true
+  try {
+    const data: any = await callTool(callTarget.value.tool, args)
+    callResult.value = data
+  } catch (e: any) {
+    callResult.value = { executed: false, reason: e?.message || '调用失败' }
+  } finally {
+    calling.value = false
   }
 }
 
@@ -103,21 +179,18 @@ onMounted(async () => {
 
 <template>
   <div class="ks-page">
-    <PageHeader title="工具调用" subtitle="MCP Tool 注册表，所有工具均为强类型参数化调用" />
+    <PageHeader title="工具调用" subtitle="MCP Tool 注册表 · R0/R1 只读工具支持手动调用" />
 
     <div class="tool-grid">
       <PageSection
         v-for="tool in tools"
         :key="tool.tool"
-        class="tool-card"
-        :style="toolCardStyle(tool.risk)"
+        class="tool-card" @click="openDetailDialog(tool)"
         :title="tool.tool"
+        :style="toolCardStyle(tool.risk)"
         :subtitle="tool.description"
       >
         <div class="tool-card-body">
-          <!-- <div class="tool-mark">
-            <span>{{ tool.tool.slice(0, 1).toUpperCase() }}</span>
-          </div> -->
           <div class="tool-bottom">
             <RiskTag :level="tool.risk" />
             <span class="tool-status">MCP Registry</span>
@@ -127,10 +200,103 @@ onMounted(async () => {
               <span>白名单工具</span>
               <span>强类型参数</span>
             </div>
+            <el-button
+              v-if="isReadOnly(tool.risk)"
+              size="small"
+              type="primary"
+              plain
+              @click.stop="openCallDialog(tool)"
+            >
+              调用
+            </el-button>
+            <el-tooltip
+              v-else
+              content="R2+ 变更工具需走 Chat 审批链路，不支持手动调用"
+              placement="top"
+            >
+              <span><el-button size="small" disabled>调用</el-button></span>
+            </el-tooltip>
           </div>
         </div>
       </PageSection>
     </div>
+
+
+    <!-- 工具详情弹窗 -->
+    <el-dialog
+      v-model="detailDialogVisible"
+      :title="detailTarget?.tool ?? '工具详情'"
+      width="640px"
+      destroy-on-close
+    >
+      <template v-if="detailTarget">
+        <p class="call-desc">{{ detailTarget.description }}</p>
+        <div class="call-section">
+          <RiskTag :level="detailTarget.risk" />
+        </div>
+        <div class="call-section">
+          <label class="call-label">input_schema</label>
+          <pre class="detail-pre">{{ JSON.stringify(detailTarget.input_schema ?? {}, null, 2) }}</pre>
+        </div>
+        <div class="call-section">
+          <label class="call-label">调用示例（参数）</label>
+          <pre class="detail-pre">{{ JSON.stringify(defaultArgs(detailTarget.input_schema ?? {}), null, 2) }}</pre>
+        </div>
+        <div class="call-section">
+          <label class="call-label">历史调用记录</label>
+          <el-alert type="info" show-icon :closable="false"
+            title="暂无调用记录"
+            description="通过 Chat 对话触发的工具调用会在此展示。点单条记录可跳转 /tools/call/{call_id} 查看详情。" />
+        </div>
+      </template>
+      <template #footer>
+        <el-button @click="detailDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+    <!-- 调用弹窗 -->
+    <el-dialog
+      v-model="callDialogVisible"
+      :title="callTarget ? `手动调用：${callTarget.tool}` : '手动调用'"
+      width="560px"
+      destroy-on-close
+    >
+      <template v-if="callTarget">
+        <p class="call-desc">{{ callTarget.description }}</p>
+
+        <div class="call-section">
+          <label class="call-label">参数（JSON）</label>
+          <el-input
+            v-model="callArgs"
+            type="textarea"
+            :rows="6"
+            placeholder='{"key": "value"}'
+          />
+        </div>
+
+        <!-- 调用结果 -->
+        <div v-if="callResult" class="call-result">
+          <div class="result-header">
+            <el-tag :type="callResult.executed ? 'success' : 'danger'" size="small">
+              {{ callResult.executed ? '已执行' : '未执行' }}
+            </el-tag>
+            <span v-if="callResult.reason" class="result-reason">{{ callResult.reason }}</span>
+          </div>
+          <div v-if="callResult.verdict" class="result-block">
+            <label class="call-label">策略裁决</label>
+            <pre>{{ JSON.stringify(callResult.verdict, null, 2) }}</pre>
+          </div>
+          <div v-if="callResult.result" class="result-block">
+            <label class="call-label">执行结果</label>
+            <pre>{{ JSON.stringify(callResult.result, null, 2) }}</pre>
+          </div>
+        </div>
+      </template>
+
+      <template #footer>
+        <el-button @click="callDialogVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="calling" @click="executeCall">执行调用</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -144,6 +310,7 @@ onMounted(async () => {
 .tool-card {
   position: relative;
   min-height: 172px;
+  cursor: pointer;
   overflow: hidden;
   border: 1px solid rgba(148, 163, 184, 0.28);
   background: var(--tool-card-gradient);
@@ -225,28 +392,6 @@ onMounted(async () => {
   gap: 14px;
 }
 
-.tool-mark {
-  display: grid;
-  place-items: center;
-  width: 52px;
-  height: 52px;
-  flex: 0 0 auto;
-  border-radius: 18px;
-  background: var(--tool-icon-gradient);
-  color: #fff;
-  font-size: 22px;
-  font-weight: 800;
-  box-shadow: 0 12px 26px var(--tool-card-shadow);
-  transition:
-    transform 0.24s ease,
-    box-shadow 0.24s ease;
-}
-
-.tool-card:hover .tool-mark {
-  transform: translateY(-3px) rotate(-3deg);
-  box-shadow: 0 16px 34px var(--tool-card-shadow);
-}
-
 .tool-info {
   display: flex;
   min-width: 0;
@@ -287,6 +432,63 @@ onMounted(async () => {
   font-weight: 600;
 }
 
+/* 调用弹窗 */
+.call-desc {
+  color: #64748b;
+  font-size: 13px;
+  margin: 0 0 16px;
+}
+
+.call-section {
+  margin-bottom: 16px;
+}
+
+.call-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 6px;
+}
+
+.call-result {
+  margin-top: 8px;
+  padding: 14px;
+  background: #f8fafc;
+  border: 1px solid var(--ks-border);
+  border-radius: 10px;
+}
+
+.result-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.result-reason {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.result-block {
+  margin-top: 12px;
+}
+
+.result-block pre {
+  margin: 4px 0 0;
+  padding: 10px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow: auto;
+}
+
 @media (max-width: 1180px) {
   .tool-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -312,4 +514,16 @@ onMounted(async () => {
     justify-content: flex-start;
   }
 }
-</style>
+
+.detail-pre {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 240px;
+  overflow: auto;
+}</style>
