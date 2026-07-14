@@ -23,6 +23,7 @@ import hashlib
 import hmac
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 #: 防重放时间窗（秒）：|now - timestamp| 超过即拒。
@@ -100,7 +101,9 @@ def sign_identity(
 
     返回 hex(HMAC_SHA256(secret, canonical)).
     """
-    canonical = _canonical(user, roles_csv, str(timestamp), method=method, path=path, body_sha=body_sha, nonce=nonce)
+    canonical = _canonical(
+        user, roles_csv, str(timestamp), method=method, path=path, body_sha=body_sha, nonce=nonce
+    )
     return hmac.new(secret.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
@@ -140,8 +143,14 @@ def verify_proxy_identity(
     if abs(current - ts) > _MAX_CLOCK_SKEW_SECONDS:
         return None
     expected = sign_identity(
-        user, roles, timestamp, secret,
-        method=method, path=path, body_sha=body_sha, nonce=nonce,
+        user,
+        roles,
+        timestamp,
+        secret,
+        method=method,
+        path=path,
+        body_sha=body_sha,
+        nonce=nonce,
     )
     if not hmac.compare_digest(expected, signature):
         return None

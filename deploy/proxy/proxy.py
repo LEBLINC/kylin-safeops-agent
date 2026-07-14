@@ -20,13 +20,26 @@ from deploy.sso.ldap_client import LdapClient
 
 app = FastAPI()
 ldap_client = LdapClient()
-SECRET = os.environ["KYLIN_PROXY_AUTH_SECRET"]
 UPSTREAM = os.environ.get("KYLIN_UPSTREAM", "http://127.0.0.1:8000")
 
 
-def sign(user: str, roles: str, ts: str) -> str:
-    canonical = f"{user}\n{roles}\n{ts}"
-    return hmac.new(SECRET.encode(), canonical.encode(), hashlib.sha256).hexdigest()
+def _secret() -> str:
+    """每次读 env，避免模块级 SECRET capture 后 monkeypatch 失效。"""
+    return os.environ["KYLIN_PROXY_AUTH_SECRET"]
+
+
+def sign(
+    user: str,
+    roles: str,
+    ts: str,
+    method: str = "",
+    path: str = "",
+    body_sha: str = "",
+    nonce: str = "",
+) -> str:
+    """A1.3 v2 签名: method/path/body_sha/nonce 全部入串 (防中途篡改+防重放)."""
+    canonical = f"{user}\n{roles}\n{ts}\n{method}\n{path}\n{body_sha}\n{nonce}"
+    return hmac.new(_secret().encode(), canonical.encode(), hashlib.sha256).hexdigest()
 
 
 async def _sse_heartbeat(source, interval: int = 30):
@@ -48,6 +61,10 @@ STRIP_HEADERS = {
     "x-auth-roles",
     "x-auth-timestamp",
     "x-auth-signature",
+    "x-auth-method",
+    "x-auth-path",
+    "x-auth-body-sha",
+    "x-auth-nonce",
     "x-user-role",
 }
 
@@ -99,16 +116,29 @@ async def proxy_route(request: Request, path: str):
         if k.lower() not in STRIP_HEADERS and k.lower() != "host"
     }
     ts = str(int(time.time()))
+    # A1.3 v2 签名: method/path/body_sha/nonce 防中途篡改+防重放
+    body = await request.body()
+    import hashlib as _hb
+    import uuid as _u
+
+    body_sha = _hb.sha256(body or b"").hexdigest()
+    nonce = _u.uuid4().hex
+    full_path = f"/{path}"
+    if request.url.query:
+        full_path = f"{full_path}?{request.url.query}"
     headers.update(
         {
             "X-Auth-User": user,
             "X-Auth-Roles": roles,
             "X-Auth-Timestamp": ts,
-            "X-Auth-Signature": sign(user, roles, ts),
+            "X-Auth-Signature": sign(user, roles, ts, request.method, full_path, body_sha, nonce),
+            "X-Auth-Method": request.method,
+            "X-Auth-Path": full_path,
+            "X-Auth-Body-Sha": body_sha,
+            "X-Auth-Nonce": nonce,
         }
     )
     is_sse = "text/event-stream" in request.headers.get("accept", "")
-    body = await request.body()
     async with httpx.AsyncClient(timeout=None) as client:
         req = client.build_request(
             request.method,
