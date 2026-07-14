@@ -181,3 +181,21 @@
 ---
 
 - 之五十一 = A1 SSO 反代替换 ⏳
+
+---
+
+## ★最新权威状态（dev=`d4ec90d`，2026-07-14 路线图 留底 之五十三）
+
+### 阶段6 部署硬阻塞 待 D 域 VM 实证
+
+- A1 SSO 反代替换（L 域 ⏳ 执行中）
+- A2 .bat/wsproxy 真接 LDAP（D 域待办）
+- D1 Dockerfile + docker-compose（D 域待办）
+- D2 systemd unit file（D 域待办）
+
+### 阶段5 P4 工单(留底之五十三)
+
+- 5.3 P4：rate-limit/token-cap audit phase 区分
+- 5.4 P4：间接注入 decision⑫ end-to-end mock
+
+---
