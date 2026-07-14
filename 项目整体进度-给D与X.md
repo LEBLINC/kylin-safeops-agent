@@ -197,3 +197,11 @@ A1 收口，5.3/5.4 P4 + L 增量守门 commit 1.5 + 阶段6 启动顺序：
 ...
 
 ---
+
+## ★最新权威状态（分支 feat/l-a1-p4-redis-nonce，2026-07-14 之五十六 完成实录）
+
+- **之五十六 ✅** A1 P4 Redis nonce store：NonceStore Protocol + InMemoryNonceStore（`4abc627`，T1-T2）+ RedisNonceStore SETEX/EXISTS fail-soft（`c2fa97d`，T3-T5）
+
+pytest 亲跑复核：661 passed, 17 skipped（分支独立基线 658 + 3 增量）。
+
+---

@@ -219,3 +219,11 @@ A1 收口；production 部署前必做清单同步进展。
 | 发布 | J2 CD 灰度 + 回滚 | ⏳ |
 
 ---
+
+## ★最新权威状态（分支 feat/l-a1-p4-redis-nonce，2026-07-14 之五十六 完成实录）
+
+| 编号 | 内容 | commit | pytest |
+|---|---|---|---|
+| 之五十六 | A1 P4 Redis nonce store（NonceStore Protocol + InMemoryNonceStore + RedisNonceStore fail-soft） | `4abc627`+`c2fa97d` | 661/17 |
+
+---
