@@ -160,3 +160,24 @@
 
 **基线 dev=`974505c`（2026-07-13 之四十一 L 域 B2 偏差 5 项补完）**：5 commit（`f4cdeb3` SoD check / `6ac4208` test_b2 10 守门 / `a22f7d6` env fallback / `03e1af9` proxy 严测 fixture / `3d341d4` review-window takeover cherry-pick）。pytest **578/17** 实跑（基线 566 + 12 增量 = 568+10+2=578 数学吻合 ✅），四道闸全绿。**SoD 防自批自**：approvals.resume_approval 加 actor==approver → 403 + audit sod_violation（决策⑬ 核心防线）。**proxy 严测**：proxy_signed_headers 走 HMAC 4 头校验，admin→200 / viewer→403 守门生效。
 
+
+---
+
+## ★最新权威状态（dev=`1daf3d4`，2026-07-14 补留底 之四十二-之五十一）
+
+> 修正 §5 红线缺口：B2 之四十一之后 7 个空号 + 后续工单 4 文档留底补完。
+
+- 之四十二 = B3 LLM Adapter safety 收口
+- 之四十三 = ADR-0005 demo-record-mode（dev ac00aa7）
+- 之四十四 = X 4 Router 真接口 + probe SSE（dev 54d2e7b）
+- 之四十五 = B4 EventBus + logging + /health（dev 1c457c3）
+- 之四十六 = D bug probe-watch SSE fix（dev ec8079a）
+- 之四十七 = B4 P2 SSE QueueFull 兜底（dev 53ace24）
+- 之四十八 = B6 + B5 P3 收口（dev 124993a）
+- 之四十九 = 阶段5 step 2 真接 LLM + ADR-0006（dev 5091a90）
+- 之五十 = X byte-verify REJECTED（dev 1daf3d4）
+- 之五十一 = A1 SSO 反代替换 ⏳
+
+---
+
+- 之五十一 = A1 SSO 反代替换 ⏳

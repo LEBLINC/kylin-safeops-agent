@@ -149,3 +149,24 @@
 
 - ✅ **★ L 域 B2 偏差 5 项补完工单完成**（feat/l-b2-deviations @ `03e1af9`，未合 dev 待审）：5 commit（`f4cdeb3` SoD check / `6ac4208` test_b2 10 守门 / `a22f7d6` ...er 5 项偏差 4 项落 + 偏差 5 commit 顺序正确）。pytest **578/17**（基线 566 + 12 = 578 数学吻合 ✅）。四道闸全绿。C3 严守（仅 backend/app + backend/tests + 4 文档），决策①-⑬ / ADR-0001-0004 / S3 / S8 / S9 全守。
 
+
+---
+
+## ★最新权威状态（dev=`1daf3d4`，2026-07-14 补留底 之四十二-之五十一）
+
+> 修正 §5 红线缺口：B2 之四十一之后 7 个空号 + 后续工单 4 文档留底补完。
+
+- 之四十二 = B3 LLM Adapter safety 收口（919ca42 L-H9 summarize guard / 97482d8 completion_fn / 6bdf9bf schema retry + decision12）
+- 之四十三 = ADR-0005 demo-record-mode（56791c0 / 67d1122 / b2eedde / dev ac00aa7）
+- 之四十四 = X 4 Router 真接口 + probe SSE（3a11339 / fdaf54f / dev 54d2e7b）
+- 之四十五 = B4 EventBus + logging + /health（26fb5c3 / 1a54173 / 8193923 / dev 1c457c3）
+- 之四十六 = D bug probe-watch SSE fix（da8072a 合于 B4 P2 期，dev ec8079a）
+- 之四十七 = B4 P2 SSE QueueFull 兜底（4cbfa82 / dev 53ace24）
+- 之四十八 = B6 + B5 P3 收口（0f20b37 L-C5 / 117de7a L-C6 / a636974 L-M1 / 2d61c8e ASGI chunked / 1ba4cf9 handler 单元守门 / dev 124993a）
+- 之四十九 = 阶段5 step 2 真接 LLM + ADR-0006（66f75dd 5.1 fake planner / 46e163e 5.2 S3 schema / 694156a 5.3 rate / 6411a47 5.4 decision12 / c199882 5.5 ADR-0006 / dev 5091a90）
+- 之五十 = X byte-verify REJECTED（T1+T2 PASSED 后端 CLEAN / 真根因前端 fallback / dev 1daf3d4）
+- 之五十一 = A1 SSO 反代替换 ⏳（HMAC 加 method/path/body/nonce + nonce LRU + 真接 LDAP 部署文档）
+
+---
+
+- 之五十一 = A1 SSO 反代替换 ⏳
