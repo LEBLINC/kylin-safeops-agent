@@ -6,8 +6,6 @@ Signature reverse proxy sidecar: client -> sidecar(public) -> app(127.0.0.1:8000
 - SSE passthrough (no buffering)
 """
 
-import hashlib
-import hmac
 import os
 import time
 
@@ -16,30 +14,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 
+from deploy.proxy._sign import STRIP_HEADERS, sign
 from deploy.sso.ldap_client import LdapClient
 
 app = FastAPI()
 ldap_client = LdapClient()
 UPSTREAM = os.environ.get("KYLIN_UPSTREAM", "http://127.0.0.1:8000")
-
-
-def _secret() -> str:
-    """每次读 env，避免模块级 SECRET capture 后 monkeypatch 失效。"""
-    return os.environ["KYLIN_PROXY_AUTH_SECRET"]
-
-
-def sign(
-    user: str,
-    roles: str,
-    ts: str,
-    method: str = "",
-    path: str = "",
-    body_sha: str = "",
-    nonce: str = "",
-) -> str:
-    """A1.3 v2 签名: method/path/body_sha/nonce 全部入串 (防中途篡改+防重放)."""
-    canonical = f"{user}\n{roles}\n{ts}\n{method}\n{path}\n{body_sha}\n{nonce}"
-    return hmac.new(_secret().encode(), canonical.encode(), hashlib.sha256).hexdigest()
 
 
 async def _sse_heartbeat(source, interval: int = 30):
@@ -54,19 +34,6 @@ async def _sse_heartbeat(source, interval: int = 30):
             yield b": keepalive\n\n"
         except StopAsyncIteration:
             break
-
-
-STRIP_HEADERS = {
-    "x-auth-user",
-    "x-auth-roles",
-    "x-auth-timestamp",
-    "x-auth-signature",
-    "x-auth-method",
-    "x-auth-path",
-    "x-auth-body-sha",
-    "x-auth-nonce",
-    "x-user-role",
-}
 
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
