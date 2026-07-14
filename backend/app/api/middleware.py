@@ -95,3 +95,87 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
         # chunked / 无 Content-Length: 不在此 consume body (会破下游);
         # chunked 守门留待后续 ASGI middleware 重写或 request._receive wrap 增量。
         return await call_next(request)
+
+
+# ============================================================
+# B5 P3 (B6 follow-up): ASGI-level chunked body 守门 (L-M5 chunked path)
+# ============================================================
+
+
+class ASGIMaxBodySizeMiddleware:
+    """ASGI-level 守门:Content-Length + chunked 累计 body 字节。
+
+    B5 commit 2 L-M5 (RequestSizeLimitMiddleware) 仅 Content-Length 路径;
+    chunked transfer 可绕过 (生产风险)。本 P3 增量补 ASGI 路径,wrap receive
+    callable 累计累计字节超限即短响应 413 终止流。
+
+    B5 report 留底: 不走 request._receive (Starlette 私有, 升级脆弱);
+    走 ASGI 原生 receive callable (官方稳定接口)。
+    """
+
+    def __init__(self, app, max_bytes: int | None = None) -> None:
+        self.app = app
+        self.max_bytes = max_bytes if max_bytes is not None else _max_request_bytes()
+
+    async def __call__(self, scope, receive, send):
+        """ASGI 入口:Content-Length 路径直接判定;chunked path wrap receive 累计.
+
+        chunked 路径**流式** 转发 (不 buffer 整个 body),保持 SSE streaming 不阻塞.
+        """
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # Content-Length header path (deterministic)
+        for name, value in scope.get("headers", []):
+            if name == b"content-length":
+                try:
+                    cl = int(value.decode("latin-1"))
+                except (ValueError, UnicodeDecodeError):
+                    cl = -1
+                if cl > self.max_bytes:
+                    await _send_413(send)
+                    return
+                break
+
+        # chunked path: 流式 wrap receive (增量累计, 超限立即 413 + 终止流)
+        received_bytes = 0
+
+        async def _gated_receive():
+            nonlocal received_bytes
+            message = await receive()
+            msg_type = message.get("type")
+            if msg_type == "http.request":
+                body = message.get("body", b"") or b""
+                received_bytes += len(body)
+                if received_bytes > self.max_bytes:
+                    raise _ChunkedTooLarge()
+            return message
+
+        try:
+            await self.app(scope, _gated_receive, send)
+        except _ChunkedTooLarge:
+            await _send_413(send)
+            return
+
+
+class _ChunkedTooLarge(Exception):
+    """chunked 超限 sentinel — 不污染 ASGI 错误流。"""
+
+
+async def _send_413(send) -> None:
+    """ASGI 直发 413 JSONResponse (不调 Starlette 响应对象,避免循环依赖)."""
+    import json as _json
+
+    payload = _json.dumps({"detail": "request_too_large"}).encode("utf-8")
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 413,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(payload)).encode("ascii")),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": payload})

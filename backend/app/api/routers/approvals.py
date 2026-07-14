@@ -262,30 +262,36 @@ async def escalate_approval(
     new_trace_id = f"{trace_id}-esc-{int.from_bytes(os.urandom(4), 'big'):08x}"
     # 最小实现：emit 一条 escalation audit（orchestrator 自身用 _append_audit 写；
     # 本端点写 audit sink 时按已落库链的 last_hash 续接，符合 S7 字节级 hash 不破）。
-    try:
-        last_hash = audit.last_hash(trace_id) if hasattr(audit, "last_hash") else ""
-        from backend.app.contracts.audit import AuditRecord  # noqa: PLC0415
+    # B6 L-M1 修真：移除 except:pass → 让 audit.append IntegrityError 真 raise (S8 fail-closed 不吞)
+    last_hash = audit.last_hash(trace_id) if hasattr(audit, "last_hash") else ""
+    from backend.app.contracts.audit import (
+        GENESIS_HASH,
+        AuditRecord,
+        compute_curr_hash,
+    )
 
-        audit.append(
-            AuditRecord(
-                trace_id=trace_id,
-                seq=0,  # orchestrator 续写时由 orchestrator 内部重排（决策⑭）；本端点只补一条记录
-                phase="approval_escalated",
-                payload={
-                    "event": "approval_escalated",
-                    "by": principal.user,
-                    "from_trace": trace_id,
-                    "new_trace": new_trace_id,
-                    "to_user": body.to_user,
-                    "to_role": body.to_role,
-                },
-                prev_hash=last_hash,
-                curr_hash="",  # 不重算：审计 sink append 内部接管（hash 续接由 sink 实现）
-            )
+    payload_dict = {
+        "event": "approval_escalated",
+        "by": principal.user,
+        "from_trace": trace_id,
+        "new_trace": new_trace_id,
+        "to_user": body.to_user,
+        "to_role": body.to_role,
+    }
+    seq = 0  # audit sink 内部接管 seq 续写 (本端点不重排)
+    # compute_curr_hash: prev_hash ∥ canonical_json(payload) → 字节级守门
+    # (不动 compute_curr_hash 实现, 仅用)
+    curr_hash = compute_curr_hash(prev_hash=last_hash or GENESIS_HASH, payload=payload_dict)
+    audit.append(
+        AuditRecord(
+            trace_id=trace_id,
+            seq=seq,
+            phase="approval_escalated",
+            payload=payload_dict,
+            prev_hash=last_hash or GENESIS_HASH,
+            curr_hash=curr_hash,
         )
-    except Exception:  # noqa: BLE001
-        # escalate 路径不阻塞主链——审计落库失败仅记录，不影响响应
-        pass
+    )
     return schemas.ApprovalResolveResponse(
         trace_id=trace_id,
         decision="escalated",
