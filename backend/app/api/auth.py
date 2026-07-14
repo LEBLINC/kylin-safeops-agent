@@ -46,17 +46,43 @@ def _get_secret() -> str | None:
     return secret or None
 
 
-def _canonical(user: str, roles: str, timestamp: str) -> str:
-    """签名规范串：user\\nroles\\ntimestamp（roles 用头原值，不归一）。"""
-    return f"{user}\n{roles}\n{timestamp}"
+def _canonical(
+    user: str,
+    roles: str,
+    timestamp: str,
+    *,
+    method: str = "",
+    path: str = "",
+    body_sha: str = "",
+    nonce: str = "",
+) -> str:
+    """L-H5 + A1.1 v2 签名规范串.
 
-
-def sign_identity(user: str, roles_csv: str, timestamp: str | int, secret: str) -> str:
-    """生成 X-Auth-Signature（参考实现 + 测试用 + 反代签名口径）。
-
-    返回 hex(HMAC_SHA256(secret, canonical))。
+    Backward compat (L-H5 既有 3 字段签名): 当 method/path/body_sha/nonce 全部为空
+    → 返回 v1 (3 字段) 串, 不尾随 4 换行 (避免与既有 conftest fixture + 既有签名客户端不兼容).
+    Any v2 field 非空 → v2 7 字段 (含 method/path/body_sha/nonce 防中途篡改+防重放).
     """
-    canonical = _canonical(user, roles_csv, str(timestamp))
+    if not (method or path or body_sha or nonce):
+        return f"{user}\n{roles}\n{timestamp}"
+    return f"{user}\n{roles}\n{timestamp}\n{method}\n{path}\n{body_sha}\n{nonce}"
+
+
+def sign_identity(
+    user: str,
+    roles_csv: str,
+    timestamp: str | int,
+    secret: str,
+    *,
+    method: str = "",
+    path: str = "",
+    body_sha: str = "",
+    nonce: str = "",
+) -> str:
+    """生成 X-Auth-Signature (参考实现 + 测试用 + 反代签名口径).
+
+    返回 hex(HMAC_SHA256(secret, canonical)).
+    """
+    canonical = _canonical(user, roles_csv, str(timestamp), method=method, path=path, body_sha=body_sha, nonce=nonce)
     return hmac.new(secret.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
@@ -66,12 +92,22 @@ def verify_proxy_identity(
     roles: str | None,
     timestamp: str | None,
     signature: str | None,
+    method: str = "",
+    path: str = "",
+    body_sha: str = "",
+    nonce: str = "",
     now: float | None = None,
+    record_nonce: Callable[[str], None] | None = None,
 ) -> Principal | None:
-    """验证反代签名身份；**fail-closed**——任一不满足即返回 None。
+    """验证反代签名身份;fail-closed——任一不满足即返回 None。
 
-    拒绝条件：密钥未配置 / 任一头缺失或空 / 时间戳非法或超窗（防重放）/ HMAC 不匹配。
+    拒绝条件:密钥未配置 / 任一头缺失或空 / 时间戳非法或超窗 (防重放) /
+    HMAC 不匹配。
     通过 → Principal(user, frozenset(小写 roles))。HMAC 用 hmac.compare_digest 常量时间比较。
+
+    A1.1 v2: method/path/body_sha/nonce 全部入串 (防中途篡改 + nonce 防重放).
+    A1.2: nonce 一次性 — record_nonce(已使用 nonce 列表) 在 verify 通过后调,
+        同 nonce 第二次 verify 时 verify_proxy_identity 返 None (replay block).
     """
     secret = _get_secret()
     if not secret:
@@ -85,8 +121,13 @@ def verify_proxy_identity(
     current = time.time() if now is None else now
     if abs(current - ts) > _MAX_CLOCK_SKEW_SECONDS:
         return None
-    expected = sign_identity(user, roles, timestamp, secret)
+    expected = sign_identity(
+        user, roles, timestamp, secret,
+        method=method, path=path, body_sha=body_sha, nonce=nonce,
+    )
     if not hmac.compare_digest(expected, signature):
         return None
     role_set = frozenset(r.strip().lower() for r in roles.split(",") if r.strip())
+    if record_nonce is not None:
+        record_nonce(nonce)
     return Principal(user=user, roles=role_set)
