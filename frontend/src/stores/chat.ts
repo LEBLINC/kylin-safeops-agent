@@ -586,7 +586,7 @@ export const useChatStore = defineStore('chat', {
         this.rcaReportByTrace[traceId] = (event.data.report as RcaReport) || null
       }
 
-      if (event.type === 'natural_language') {
+      if (event.type === 'natural_language' && (event.data as any)?.state === 'FINISHED') {
         const nlData = event.data as { text: string; sensitive_filtered: boolean }
         const fullText = nlData.sensitive_filtered
           ? nlData.text + '\n(已过滤敏感字段)'
@@ -594,7 +594,7 @@ export const useChatStore = defineStore('chat', {
         this.startAssistantTyping(traceId, fullText)
       }
 
-      if (event.type === 'verified') {
+      if (event.type === 'verified' && (event.data as any)?.state !== 'REJECTED') {
         this.loading = false
         this.startAssistantTyping(traceId, String(event.data.summary || '任务执行完成。'))
       }
@@ -616,12 +616,13 @@ export const useChatStore = defineStore('chat', {
         this.loading = false
         this.stopAssistantTyping(traceId)
         const data = event.data as { reason: string; cause: string; denied_tools: string[] }
+        const toolsSuffix = data.denied_tools?.length ? `，被拒工具：${data.denied_tools.join(', ')}` : ''
         if (data.cause === 'policy_deny') {
           this.addMessage(sessionId, {
             id: uid('msg_denied'),
             role: 'system',
             status: 'done',
-            content: `⛔ 操作被安全策略拒绝：${data.reason || '不允许执行'}`,
+            content: `⛔ 操作被安全策略拒绝：${data.reason || '不允许执行'}${toolsSuffix}`,
             created_at: nowIso(),
             trace_id: traceId
           })
@@ -630,7 +631,7 @@ export const useChatStore = defineStore('chat', {
             id: uid('msg_inject'),
             role: 'system',
             status: 'done',
-            content: `⛔ 输入被安全策略拦截：${data.reason || '不允许执行'}`,
+            content: `⛔ 输入被安全策略拦截：${data.reason || '不允许执行'}${toolsSuffix}`,
             created_at: nowIso(),
             trace_id: traceId
           })
@@ -639,7 +640,7 @@ export const useChatStore = defineStore('chat', {
             id: uid('msg_rejected'),
             role: 'system',
             status: 'done',
-            content: `⛔ 审批被拒绝：${data.reason || '未说明原因'}`,
+            content: `⛔ 审批被拒绝：${data.reason || '未说明原因'}${toolsSuffix}`,
             created_at: nowIso(),
             trace_id: traceId
           })
