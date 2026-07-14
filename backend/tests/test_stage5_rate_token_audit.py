@@ -90,10 +90,15 @@ def test_t10_token_cap_phase_distinct() -> None:
     assert "token_cap_exceeded" in phases, f"T10 期望 phase=token_cap_exceeded, got {phases}"
 
 
-# ---- T11: token_cap emit natural_language synthetic=true ----
+# ---- T11: token_cap 不 emit natural_language (B6 L-C6 修真) ----
 
 
-def test_t11_token_cap_emits_natural_language_synthetic() -> None:
+def test_t11_token_cap_no_natural_language_event() -> None:
+    """T11 (修真): B6 L-C6 决策 — 不 emit synthetic 自然语言事件 (防污染前端数据语义).
+
+    token_cap_exceeded 仅 audit phase=token_cap_exceeded 落库 + log warning,
+    不 emit natural_language 事件 (B6 L-C6 修真, 5.3 P4 留底).
+    """
     from backend.app.audit import SqliteAuditSink
 
     audit = SqliteAuditSink(":memory:")
@@ -101,11 +106,6 @@ def test_t11_token_cap_emits_natural_language_synthetic() -> None:
     orch, sink = _orch(audit, token_cap)
     asyncio.run(_drive_natural_language(orch, ["x"]))
     nl_events = [(t, d) for t, d in sink.events if t == "natural_language"]
-    assert (
-        len(nl_events) == 1
-    ), f"T11: token_cap 应 emit 1 个 natural_language (synthetic), got {len(nl_events)}"
-    _, payload = nl_events[0]
-    assert payload.get("synthetic") is True, f"T11 期望 synthetic=true, got {payload}"
-    assert (
-        payload.get("fallback") == "token_cap_exceeded"
-    ), f"T11 期望 fallback=token_cap_exceeded, got {payload}"
+    assert len(nl_events) == 0, (
+        f"T11 (修真): token_cap 不应 emit natural_language (B6 L-C6), " f"got {len(nl_events)}"
+    )

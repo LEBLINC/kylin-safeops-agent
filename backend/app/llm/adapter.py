@@ -288,14 +288,25 @@ class LLMAdapter:
         names = sorted({str(r.get("tool", "?")) for r in tool_results if isinstance(r, dict)})
         return f"已完成:{','.join(names)}"
 
-    async def summarize(self, tool_results: list[dict], user_intent: str) -> str | None:
+    async def summarize(
+        self,
+        tool_results: list[dict],
+        user_intent: str,
+        *,
+        evidence: list[dict] | None = None,
+        structured_report: dict | None = None,
+    ) -> str | None:
         """自然语言总结接口（verified 后调，仅前端聊天区展示）。
 
         返回 None 表示 LLM 拒答/超时/无内容；orchestrator 不 emit natural_language 事件，
         但状态机照常 FINISHED（S8 fail-closed 不杀状态机）。
         间接注入防御纵深由 orchestrator 在调本方法**之前**先跑 detect_tool_output_injection，
         LLM 喂的 tool_results 已 S9 浅过滤 + 不可信（is_untrusted）封装。
+
+        X P6: evidence + structured_report 可选 — RCA 路径用，其他路径默认 None.
         """
         if self._summary_fn is None:
             return None
+        # X P6 修真: 忽略 evidence/structured_report (留给未来 P4 真 LLM 增强).
+        # 当前 _summary_fn 签名仅 (tool_results, user_intent) 保持向后兼容.
         return await self._summary_fn(tool_results, user_intent)

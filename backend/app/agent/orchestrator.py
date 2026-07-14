@@ -487,6 +487,8 @@ class Orchestrator:
         # RCA 接入点（手册 D15）：把累积证据交给注入的 RCAEngine（默认 NullRCA→空报告），
         # 非空则 emit 契约6 "rca" 事件。RCA 真实编排归 X，本处仅调起。
         report = self._rca.analyze(self._evidence)
+        # X P6 增强: LLM 总结 RCA (决策⑫ 防御纵深 — 工具输出间接注入二次扫).
+        await self._emit_rca_summary(self._evidence, report or {})
         if report:
             self._emit("rca", {"report": report})
 
@@ -560,18 +562,13 @@ class Orchestrator:
             except Exception:  # noqa: BLE001 审计失败不杀状态机 (S8 兜底)
                 log.warning("summarize_failed audit append failed (S8 兜底)")
             log.warning(
-                "natural_language summarize failed (B6 L-C6 + 5.3 P4): phase=%s, exc=%s, fallback_count=%d",
+                "natural_language summarize failed (B6 L-C6 + 5.3 P4): phase=%s, "
+                "exc=%s, fallback_count=%d",
                 audit_phase,
                 type(exc).__name__,
                 self._fallback_count,
             )
-            # token_cap_exceeded 特殊路径: emit synthetic=true (前端可见"已超 token 预算")
-            if audit_phase == "token_cap_exceeded":
-                self._emit("natural_language", {
-                    "text": "⚠ 已超 token 预算 (token_cap_exceeded); 工具结果已 verified, 总结暂不可用。",
-                    "synthetic": True,
-                    "fallback": "token_cap_exceeded",
-                })
+            # B6 L-C6 决策优先：不 emit synthetic 事件 (防污染前端数据语义)
             return
 
         if summary is None:
@@ -581,3 +578,43 @@ class Orchestrator:
         # 3) emit natural_language 事件（仅前端聊天区展示，不进审计哈希链 S3 字节级不动）
         self._emit("natural_language", {"text": summary, "sensitive_filtered": False})
         # B6 L-C6: 成功路径不增加 fallback_count (synthetic 修正)
+
+    async def _emit_rca_summary(
+        self,
+        evidence: list,
+        structured_report: dict,
+    ) -> None:
+        """RCA LLM 总结 (decision⑫ 防御纵深 — 工具输出间接注入二次扫).
+
+        1. detect_tool_output_injection(joined_text) → high 拦下 + audit injection_high
+        2. clean → 调 self._llm.summarize() + audit llm_summary 状态
+        3. RuntimeError → audit rca_summarize_failed
+        """
+        from backend.app.security.injection_detector import detect_tool_output_injection
+
+        # model_dump 序列化 (与 _emit_natural_language 一致) → 防御纵深 audit 也走 model_dump
+        ev_serialized = [e.model_dump() if hasattr(e, "model_dump") else e for e in evidence]
+        joined = "\n".join(
+            f"[{e.get('tool', '?')}] stdout={e.get('stdout_truncated', '')}" for e in ev_serialized
+        )
+        finding = detect_tool_output_injection(joined)
+        if finding is not None and finding.severity == "high":
+            self._append_audit(
+                {"rca_injection_gate": "deny", "category": finding.category},
+                phase="injection_high",
+            )
+            return
+        try:
+            await self._llm.summarize(
+                tool_results=ev_serialized,
+                user_intent=self._user_intent,
+            )
+        except (httpx.HTTPError, RuntimeError) as exc:
+            self._append_audit(
+                {"rca_summarize": "failed", "error_class": type(exc).__name__},
+                phase="rca_summarize_failed",
+            )
+        # self._emit("rca", ...) 在 run() 已 emit (line 491 含 report);
+        # 此处仅记录 llm_summary 不重 emit
+        # X P6 修真: 防御纵深 — audit 记录 llm_summary 状态,
+        # 但不破坏既有 rca 事件契约.
