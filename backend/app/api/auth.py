@@ -46,6 +46,24 @@ def _get_secret() -> str | None:
     return secret or None
 
 
+#: A1.2 nonce LRU 缓存（in-process dict; maxsize + 过期清理）.
+#: nonce → 入池时间戳. 同 nonce 第二次 verify 时返 None 防重放.
+_SEEN_NONCES: dict[str, float] = {}
+_NONCE_MAX = 4096
+
+
+def _gc_nonces(now: float) -> None:
+    """清理超出 _MAX_CLOCK_SKEW_SECONDS 窗口的 nonce (防内存泄漏)."""
+    expired = [n for n, ts in _SEEN_NONCES.items() if abs(now - ts) > _MAX_CLOCK_SKEW_SECONDS]
+    for n in expired:
+        _SEEN_NONCES.pop(n, None)
+    # 上限保护
+    while len(_SEEN_NONCES) > _NONCE_MAX:
+        # 删最旧 (FIFO; dict 保留插入顺序)
+        oldest = next(iter(_SEEN_NONCES))
+        _SEEN_NONCES.pop(oldest, None)
+
+
 def _canonical(
     user: str,
     roles: str,
@@ -127,7 +145,13 @@ def verify_proxy_identity(
     )
     if not hmac.compare_digest(expected, signature):
         return None
+    # A1.2: nonce 防重放 — 已用过的 nonce 第二次 verify 直接 None
+    if nonce and nonce in _SEEN_NONCES:
+        return None
     role_set = frozenset(r.strip().lower() for r in roles.split(",") if r.strip())
+    # 验签通过 → 记录 nonce (仅当 nonce 非空; v1 fixture 测空 nonce 仍 PASS)
+    if nonce:
+        _SEEN_NONCES[nonce] = current
     if record_nonce is not None:
         record_nonce(nonce)
     return Principal(user=user, roles=role_set)
