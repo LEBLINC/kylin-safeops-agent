@@ -46,6 +46,10 @@ async def verify_token(
     x_auth_roles: str | None = Header(default=None),
     x_auth_timestamp: str | None = Header(default=None),
     x_auth_signature: str | None = Header(default=None),
+    x_auth_method: str | None = Header(default=None, alias="X-Auth-Method"),
+    x_auth_path: str | None = Header(default=None, alias="X-Auth-Path"),
+    x_auth_body_sha: str | None = Header(default=None, alias="X-Auth-Body-Sha"),
+    x_auth_nonce: str | None = Header(default=None, alias="X-Auth-Nonce"),
 ) -> str:
     """全量端点认证依赖（mode-aware）：所有端点必经此依赖。
 
@@ -65,11 +69,16 @@ async def verify_token(
         return "dev"
 
     # proxy 模式（默认，fail-closed）：复用 auth.py 验签，不取角色。
+    # D 阻断修复: 反代真接 v2 走通 (method/path/body_sha/nonce 入签).
     principal = verify_proxy_identity(
         user=x_auth_user,
         roles=x_auth_roles,
         timestamp=x_auth_timestamp,
         signature=x_auth_signature,
+        method=x_auth_method or "",
+        path=x_auth_path or "",
+        body_sha=x_auth_body_sha or "",
+        nonce=x_auth_nonce or "",
     )
     if principal is None:
         raise HTTPException(status_code=401, detail="missing or invalid proxy-signed identity")
@@ -82,6 +91,10 @@ async def require_proxy_identity(
     x_auth_timestamp: str | None = Header(default=None),
     x_auth_signature: str | None = Header(default=None),
     x_user_role: str | None = Header(default=None),
+    x_auth_method: str | None = Header(default=None, alias="X-Auth-Method"),
+    x_auth_path: str | None = Header(default=None, alias="X-Auth-Path"),
+    x_auth_body_sha: str | None = Header(default=None, alias="X-Auth-Body-Sha"),
+    x_auth_nonce: str | None = Header(default=None, alias="X-Auth-Nonce"),
 ) -> Principal:
     """审批端点专用认证依赖：返回经验证的 Principal；非法 → 401（fail-closed）。
 
@@ -102,11 +115,16 @@ async def require_proxy_identity(
         return Principal(user="dev", roles=frozenset({x_user_role.strip().lower()}))
 
     # proxy 模式（默认，fail-closed）
+    # D 阻断修复: 反代真接 v2 走通 (method/path/body_sha/nonce 入签).
     principal = verify_proxy_identity(
         user=x_auth_user,
         roles=x_auth_roles,
         timestamp=x_auth_timestamp,
         signature=x_auth_signature,
+        method=x_auth_method or "",
+        path=x_auth_path or "",
+        body_sha=x_auth_body_sha or "",
+        nonce=x_auth_nonce or "",
     )
     if principal is None:
         raise HTTPException(status_code=401, detail="missing or invalid proxy-signed identity")
