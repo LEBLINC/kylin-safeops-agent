@@ -48,7 +48,8 @@ export function prepareDemoScenario(scenario: string) {
  * - { trace_id, status }，后续可跳转到 ChatView 查看事件流。
  */
 export function runDemoScenario(scenario: string) {
-  return request.post(`/api/demo/${scenario}/run`)
+  // 双泛型：response 拦截器已解包 response.data，返回的是后端裸 payload（结构由 DemoView 归一化）
+  return request.post<Record<string, any>, Record<string, any>>(`/api/demo/${scenario}/run`)
 }
 
 /**
