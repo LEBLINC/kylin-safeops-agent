@@ -221,3 +221,12 @@ pytest 亲跑复核：661 passed, 17 skipped（分支独立基线 658 + 3 增量
 - pytest 亲跑：659/17（本分支基线 658 + 1 增量 T8）
 
 ---
+
+## ★最新权威状态（分支 `feat/l-v2-sign-fix-whoami-idor`，2026-07-15 之五十八 v2 签名收尾）
+
+- **之五十八 ✅** v2 签名收尾 2 bug 修复（D 反馈 P1 实证抓到）：
+  - Bug1 whoami 恒 401（v1/v2 签名不匹配）+ 顺带修复 nonce 二次消费自锁风险
+  - Bug2 principal_for_idor.roles 恒空（IDOR is_admin 恒 False，审计 actor.roles 全空）
+- pytest 亲跑：666/17（dev 基线 664 + 2 增量 T1/T2）
+
+---
