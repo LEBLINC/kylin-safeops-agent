@@ -9,14 +9,19 @@ from __future__ import annotations
 
 import pytest
 
-from backend.app.api.auth import sign_identity, verify_proxy_identity
+from backend.app.api.auth import (
+    InMemoryNonceStore,
+    _reset_nonce_store_for_tests,
+    sign_identity,
+    verify_proxy_identity,
+)
 
 
 def test_t4_nonce_replay_in_window_returns_401(monkeypatch: pytest.MonkeyPatch) -> None:
     """T4: 同 nonce 二次 verify (在 300s 窗口内) → 第二次 None."""
     secret = "test-secret-t4"
     monkeypatch.setenv("KYLIN_PROXY_AUTH_SECRET", secret)
-    monkeypatch.setattr("backend.app.api.auth._SEEN_NONCES", {}, raising=True)
+    _reset_nonce_store_for_tests(InMemoryNonceStore())
     user = "alice"
     roles = "admin"
     ts = "1700000000"
