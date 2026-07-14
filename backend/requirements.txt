@@ -23,3 +23,7 @@ httpx==0.28.1          # OpenAI 兼容网关客户端（纯 Python）
 # --- 反代 SSO 真 LDAP（deploy/sso/ldap_client.py）---
 ldap3==2.9.1            # 纯 Python；<3.0 锁版本防传递依赖漂移（LoongArch 移植风险低）
                         # pyasn1==0.6.3 由 ldap3 拉入，进 constraints.txt 锁死
+
+# --- A1 P4 Redis nonce store（multi-replica 部署跨进程防重放，backend/app/api/_redis_nonce_store.py）---
+redis==5.2.1            # 纯 Python client（不装 hiredis 可选加速件）；KYLIN_NONCE_STORE=redis 时才导入，
+                        # dev 默认 memory 不依赖此包；未装时 _build_redis_nonce_store 捕获 ImportError fail-soft 回退
