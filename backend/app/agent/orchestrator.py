@@ -130,12 +130,14 @@ class Orchestrator:
         payload: dict,
         *,
         actor: dict | None = None,
+        phase: str | None = None,
     ) -> AuditRecord:
         """在当前状态产一条哈希链审计记录并落库，同时 emit audit_appended。
 
-        phase = 当前状态名；payload 为结构化推理摘要（手册固定字段子集）。
-        actor = {user, roles} 三段由调用方注入（L-M3 决策⑨ traceability），
-            让审计链能溯源"谁触发了这条记录"。缺失场景留 None（兼容旧调用方）。
+        phase = 当前状态名（默认；向后兼容）；override phase 允许调用方
+        显式标注 (e.g. rate_limited / token_cap_exceeded / injection_high).
+        payload = 结构化推理摘要 (手册固定字段子集).
+        actor = {user, roles} 三段由调用方注入 (L-M3 决策⑨ traceability).
         """
         if actor is None and self._actor is not None:
             actor = self._actor
@@ -145,7 +147,7 @@ class Orchestrator:
         record = AuditRecord(
             trace_id=self.trace_id,
             seq=self._seq,
-            phase=self.state.value,
+            phase=phase if phase is not None else self.state.value,
             payload=payload,
             prev_hash=self._prev_hash,
             curr_hash=curr_hash,
@@ -531,26 +533,45 @@ class Orchestrator:
                 user_intent=self._user_intent,
             )
         except (httpx.HTTPError, RuntimeError, TimeoutError) as exc:
-            # B6 L-C6: 架构修订 — fallback 不 emit synthetic 自然语言事件;
-            # 仅 audit phase="summarize_failed" 留底 + metrics fallback_count++.
-            # 前端从 SSE 收不到 natural_language,自动用 verified.tool_result 兜底渲染.
+            # B6 L-C6 + 5.3 P4: 架构修订 — fallback 不 emit synthetic 自然语言事件;
+            # audit phase 区分 rate_limited / token_cap_exceeded / summarize_failed (默认);
+            # 仅 token_cap_exceeded 路径仍 emit synthetic=true (前端可见 token 预算提示).
             self._fallback_count += 1
+            err_msg = str(exc)
+            if "rate_limited" in err_msg:
+                audit_phase = "rate_limited"
+            elif "token_cap_exceeded" in err_msg:
+                audit_phase = "token_cap_exceeded"
+            else:
+                audit_phase = "summarize_failed"
+            # 记录 last_summarize_failed_phase 供 emit synthetic 分支用 (token_cap 仅)
+            self._last_summarize_failed_phase = audit_phase
             try:
                 self._append_audit(
                     {
                         "summarize_failed": True,
+                        "audit_phase": audit_phase,
                         "error_class": type(exc).__name__,
-                        "error_msg": str(exc)[:200],  # S9 截断防泄漏
+                        "error_msg": err_msg[:200],  # S9 截断防泄漏
                         "fallback_count": self._fallback_count,
-                    }
+                    },
+                    phase=audit_phase,
                 )
             except Exception:  # noqa: BLE001 审计失败不杀状态机 (S8 兜底)
                 log.warning("summarize_failed audit append failed (S8 兜底)")
             log.warning(
-                "natural_language summarize failed (L-C6 fallback): %s, fallback_count=%d",
+                "natural_language summarize failed (B6 L-C6 + 5.3 P4): phase=%s, exc=%s, fallback_count=%d",
+                audit_phase,
                 type(exc).__name__,
                 self._fallback_count,
             )
+            # token_cap_exceeded 特殊路径: emit synthetic=true (前端可见"已超 token 预算")
+            if audit_phase == "token_cap_exceeded":
+                self._emit("natural_language", {
+                    "text": "⚠ 已超 token 预算 (token_cap_exceeded); 工具结果已 verified, 总结暂不可用。",
+                    "synthetic": True,
+                    "fallback": "token_cap_exceeded",
+                })
             return
 
         if summary is None:
