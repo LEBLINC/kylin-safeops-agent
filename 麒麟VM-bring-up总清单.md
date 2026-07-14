@@ -219,3 +219,11 @@ A1 收口；production 部署前必做清单同步进展。
 | 发布 | J2 CD 灰度 + 回滚 | ⏳ |
 
 ---
+
+## ★最新权威状态（分支 `feat/l-a2-wsproxy-startbat`，2026-07-14 之五十七 A2 wsproxy+start.bat 收口）
+
+| 编号 | 内容 | commit | pytest |
+|---|---|---|---|
+| 之五十七 | A2 wsproxy.py 真接 LDAP + start.bat + 部署文档补完（含 REPLY_DEPLOYMENT.md 字段名纠正） | `8a71d16`+`b2db94a` | 659/17 |
+
+---

@@ -17,13 +17,17 @@ KYLIN_PROXY_AUTH_SECRET=<生成的 hex>
 
 ## 2. KYLIN_LDAP_* 6 env 全表
 
+> 字段名与 `deploy/sso/ldap_client.py::_REQUIRED_REAL_ENV` 字节级一致（本次随 A2 start.bat
+> 校对：原表 `KYLIN_LDAP_BIND_PW`/`KYLIN_LDAP_USER_BASE` 是代码不存在的字段名，已改正）。
+
 | env | 说明 | 示例 |
 |---|---|---|
 | `KYLIN_LDAP_URL` | LDAP server URL | `ldap://ldap.kylin.local:389` |
 | `KYLIN_LDAP_BIND_DN` | 绑定 DN | `cn=svc,ou=system,dc=kylin,dc=local` |
-| `KYLIN_LDAP_BIND_PW` | 绑定密码 | `<secret>` |
-| `KYLIN_LDAP_USER_BASE` | 用户搜索 base | `ou=users,dc=kylin,dc=local` |
+| `KYLIN_LDAP_BIND_PASSWORD` | 绑定密码 | `<secret>` |
+| `KYLIN_LDAP_BASE_DN` | 用户搜索 base | `ou=users,dc=kylin,dc=local` |
 | `KYLIN_LDAP_USER_FILTER` | 用户搜索 filter | `(uid={username})` |
+| `KYLIN_LDAP_GROUP_ATTR` | 用户 entry 的群组属性名 | `memberOf` |
 | `KYLIN_LDAP_GROUP_ROLE_MAP` | group→role 映射 JSON | `{"kylin-admins":"admin","kylin-ops":"operator"}` |
 
 ## 3. systemd Environment= 硬编码
@@ -68,8 +72,7 @@ deploy\proxy\start.bat
 - `KYLIN_LDAP_MOCK=false`（生产强制真接 LDAP，决策⑨ 硬阻断，见上）
 - `KYLIN_LDAP_URL` / `KYLIN_LDAP_BIND_DN` / `KYLIN_LDAP_BIND_PASSWORD` / `KYLIN_LDAP_BASE_DN` /
   `KYLIN_LDAP_USER_FILTER` / `KYLIN_LDAP_GROUP_ATTR`（对齐 `deploy/sso/ldap_client.py::_REQUIRED_REAL_ENV`
-  字节级字段名——注意与本文档 §2 表格的示例字段名 `KYLIN_LDAP_BIND_PW`/`USER_BASE` 不同，
-  §2 表格是给运维口径的说明，脚本/代码以 `_REQUIRED_REAL_ENV` 为准）
+  字节级字段名，与本文档 §2 表格一致）
 
 ## 6. wsproxy.py vs proxy.py 区分
 

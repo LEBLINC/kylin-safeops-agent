@@ -197,3 +197,11 @@ A1 收口，5.3/5.4 P4 + L 增量守门 commit 1.5 + 阶段6 启动顺序：
 ...
 
 ---
+
+## ★最新权威状态（分支 `feat/l-a2-wsproxy-startbat`，2026-07-14 之五十七 A2 wsproxy+start.bat 收口）
+
+- **之五十七 ✅** A2 wsproxy.py 真接 LDAP（`8a71d16`）+ start.bat Windows 启动脚本 + 部署文档补完（`b2db94a`）
+- 返修：`deploy/sso/REPLY_DEPLOYMENT.md` §2 字段名纠正（对齐 `ldap_client.py::_REQUIRED_REAL_ENV`）
+- pytest 亲跑：659/17（本分支基线 658 + 1 增量 T8）
+
+---
