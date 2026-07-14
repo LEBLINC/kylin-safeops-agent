@@ -199,3 +199,23 @@
 - 5.4 P4：间接注入 decision⑫ end-to-end mock
 
 ---
+
+---
+
+## ★最新权威状态（dev=`8944a62`，2026-07-14 A1 SSO 反代替换 之五十二）
+
+A1 收口；production 部署前必做清单同步进展。
+
+| 类别 | 任务 | dev |
+|---|---|---|
+| 部署硬阻塞 | A1 SSO 反代替换 | ✅ dev 8944a62 |
+| 部署硬阻塞 | A2 .bat / wsproxy 真接 LDAP | ⏳ |
+| 合规 | B1 audit retention 90d | ⏳ |
+| 合规 | B2 归档可恢复 + 路径可配 | ⏳ |
+| 监控 | C2 /metrics Prometheus | ⏳ |
+| 监控 | C3 审计异常告警 | ⏳ |
+| 部署 | D1 Dockerfile + docker-compose | ⏳ |
+| 部署 | D2 systemd unit + runbook | ⏳ |
+| 发布 | J2 CD 灰度 + 回滚 | ⏳ |
+
+---
