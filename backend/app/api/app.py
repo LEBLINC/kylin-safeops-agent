@@ -104,8 +104,9 @@ def get_llm() -> LLMAdapter:
         return build_fake_llm()
 
     # 默认走真接 (含 KYLIN_LLM_RECORD=true 录制场景兼容)
+    # X P5 fix: summary_fn 注入 real.summarize (否则走 _default_summary_fn 兜底)
     real = RealLLMClient(load_real_llm_config_from_env())
-    return _LLMAdapter(completion_fn=real.completion_fn)
+    return _LLMAdapter(completion_fn=real.completion_fn, summary_fn=real.summarize)
 
 
 def get_audit() -> AuditSink:
