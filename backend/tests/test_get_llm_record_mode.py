@@ -74,11 +74,47 @@ def test_get_llm_default_returns_real(monkeypatch) -> None:
 
 
 def test_get_llm_fake_opt_in_returns_fake(monkeypatch) -> None:
-    """get_llm() KYLIN_LLM_FAKE=true 显式 opt-in → fake 桩 (兼容 ADR-0003 demo 场景)."""
+    """get_llm() KYLIN_LLM_FAKE=true 显式 opt-in → fake 桩 (兼容 ADR-0003 demo 场景).
+
+    X P5 fix 增强: 同时 verify summary_fn 是 fake closure (非 real.summarize).
+    """
     monkeypatch.setenv("KYLIN_LLM_FAKE", "true")
 
+    async def _drive():
+        async with lifespan(create_app()):
+            llm = get_llm()
+            assert _completion_fn_origin(llm) == "fake_closure"
+            # 增强: verify summary_fn != RealLLMClient.summarize
+            from backend.app.llm.real_client import RealLLMClient
+            assert llm._summary_fn != RealLLMClient.summarize, (
+                "X P5 fix violation: KYLIN_LLM_FAKE=true 应走 fake summary_fn (非 real.summarize)"
+            )
+            return llm
+
+    _drive()
     origin = _resolved_via_lifespan()
     assert origin == "fake_closure", f"KYLIN_LLM_FAKE=true 应返 fake_closure, got {origin!r}"
+
+
+# ---- T3: 默认 real 模式 → summary_fn == real.summarize ------------------
+
+
+def test_t3_default_real_mode_summary_fn_is_real(monkeypatch) -> None:
+    """X P5 fix: 默认 real 模式下, llm._summary_fn == RealLLMClient.summarize (修真真接)."""
+    monkeypatch.delenv("KYLIN_LLM_RECORD", raising=False)
+    monkeypatch.delenv("KYLIN_LLM_FAKE", raising=False)
+    monkeypatch.setenv("KYLIN_LLM_BASE_URL", "http://mock-llm/v1")
+    monkeypatch.setenv("KYLIN_LLM_API_KEY", "test-key-for-real-mode")
+
+    async def _drive():
+        async with lifespan(create_app()):
+            llm = get_llm()
+            from backend.app.llm.real_client import RealLLMClient
+            assert llm._summary_fn.__func__ is RealLLMClient.summarize, (
+                f"X P5 fix: default summary_fn = RealLLMClient.summarize; got {llm._summary_fn!r}"
+            )
+
+    asyncio.run(_drive())
 
 
 # ---- T2: KYLIN_LLM_RECORD=true → RealLLMClient ----------------------------
