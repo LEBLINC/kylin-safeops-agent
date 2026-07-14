@@ -214,5 +214,10 @@ pytest 亲跑复核：656 passed, 17 skipped（dev `2207366`）。下一批新�
 - **之五十六 ✅** A1 P4 Redis nonce store：NonceStore Protocol + InMemoryNonceStore（`4abc627`，T1-T2）+ RedisNonceStore SETEX/EXISTS fail-soft（`c2fa97d`，T3-T5）
 
 pytest 亲跑复核：661 passed, 17 skipped（分支独立基线 658 + 3 增量）。
+## ★最新权威状态（分支 `feat/l-a2-wsproxy-startbat`，2026-07-14 之五十七 A2 wsproxy+start.bat 收口）
+
+- **之五十七 ✅** A2 wsproxy.py 真接 LDAP（`8a71d16`）+ start.bat Windows 启动脚本 + 部署文档补完（`b2db94a`）
+- 返修：`deploy/sso/REPLY_DEPLOYMENT.md` §2 字段名纠正（对齐 `ldap_client.py::_REQUIRED_REAL_ENV`）
+- pytest 亲跑：659/17（本分支基线 658 + 1 增量 T8）
 
 ---

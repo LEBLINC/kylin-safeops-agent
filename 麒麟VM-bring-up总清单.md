@@ -237,5 +237,10 @@ pytest 亲跑复核：656 passed, 17 skipped。新工作留痕号顺延 之五�
 | 编号 | 内容 | commit | pytest |
 |---|---|---|---|
 | 之五十六 | A1 P4 Redis nonce store（NonceStore Protocol + InMemoryNonceStore + RedisNonceStore fail-soft） | `4abc627`+`c2fa97d` | 661/17 |
+## ★最新权威状态（分支 `feat/l-a2-wsproxy-startbat`，2026-07-14 之五十七 A2 wsproxy+start.bat 收口）
+
+| 编号 | 内容 | commit | pytest |
+|---|---|---|---|
+| 之五十七 | A2 wsproxy.py 真接 LDAP + start.bat + 部署文档补完（含 REPLY_DEPLOYMENT.md 字段名纠正） | `8a71d16`+`b2db94a` | 659/17 |
 
 ---
