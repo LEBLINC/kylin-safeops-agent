@@ -25,6 +25,7 @@ import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Protocol
 
 #: 防重放时间窗（秒）：|now - timestamp| 超过即拒。
 _MAX_CLOCK_SKEW_SECONDS = 300
@@ -47,22 +48,87 @@ def _get_secret() -> str | None:
     return secret or None
 
 
-#: A1.2 nonce LRU 缓存（in-process dict; maxsize + 过期清理）.
-#: nonce → 入池时间戳. 同 nonce 第二次 verify 时返 None 防重放.
-_SEEN_NONCES: dict[str, float] = {}
-_NONCE_MAX = 4096
+class NonceStore(Protocol):
+    """nonce 防重放存储抽象（A1 P4）：解耦单进程 dict 与 multi-replica 共享后端.
+
+    ``seen``：nonce 是否已见过（不改变状态）；``record``：验签通过后记录 nonce
+    （幂等，可重复调）；``gc``：清理过期项（防内存/存储无界增长）。
+    """
+
+    def seen(self, nonce: str, now: float) -> bool: ...  # noqa: D102
+
+    def record(self, nonce: str, now: float) -> None: ...  # noqa: D102
+
+    def gc(self, now: float) -> None: ...  # noqa: D102
 
 
-def _gc_nonces(now: float) -> None:
-    """清理超出 _MAX_CLOCK_SKEW_SECONDS 窗口的 nonce (防内存泄漏)."""
-    expired = [n for n, ts in _SEEN_NONCES.items() if abs(now - ts) > _MAX_CLOCK_SKEW_SECONDS]
-    for n in expired:
-        _SEEN_NONCES.pop(n, None)
-    # 上限保护
-    while len(_SEEN_NONCES) > _NONCE_MAX:
-        # 删最旧 (FIFO; dict 保留插入顺序)
-        oldest = next(iter(_SEEN_NONCES))
-        _SEEN_NONCES.pop(oldest, None)
+class InMemoryNonceStore:
+    """单进程 in-process dict 实现（A1.2 原实现迁移；dev 默认，KYLIN_NONCE_STORE=memory）.
+
+    nonce → 入池时间戳；超出 _NONCE_MAX 按插入顺序 FIFO 淘汰最旧项防无界增长。
+    """
+
+    def __init__(self) -> None:
+        self._seen: dict[str, float] = {}
+        self._max = 4096
+
+    def seen(self, nonce: str, now: float) -> bool:
+        return nonce in self._seen
+
+    def record(self, nonce: str, now: float) -> None:
+        self._seen[nonce] = now
+        while len(self._seen) > self._max:
+            oldest = next(iter(self._seen))
+            self._seen.pop(oldest, None)
+
+    def gc(self, now: float) -> None:
+        """清理超出 _MAX_CLOCK_SKEW_SECONDS 窗口的 nonce (防内存泄漏)."""
+        expired = [n for n, ts in self._seen.items() if abs(now - ts) > _MAX_CLOCK_SKEW_SECONDS]
+        for n in expired:
+            self._seen.pop(n, None)
+
+
+#: nonce store 后端选择环境变量；默认 memory（dev 单进程）。
+_NONCE_STORE_ENV = "KYLIN_NONCE_STORE"
+
+#: 进程内单例（延迟构造；测试可通过 _reset_nonce_store_for_tests 重置）。
+_nonce_store_singleton: NonceStore | None = None
+
+
+def _build_nonce_store() -> NonceStore:
+    """按 KYLIN_NONCE_STORE 构造对应后端；未知值 / 未配置一律回退 memory."""
+    backend_name = os.environ.get(_NONCE_STORE_ENV, "memory").strip().lower()
+    if backend_name == "redis":
+        return _build_redis_nonce_store()
+    return InMemoryNonceStore()
+
+
+def _build_redis_nonce_store() -> NonceStore:
+    """构造 RedisNonceStore；导入或连接失败时 fail-soft 回退 InMemoryNonceStore.
+
+    生产 multi-replica 部署应显式设 KYLIN_REDIS_URL；dev 缺省已由 KYLIN_NONCE_STORE
+    默认值 memory 兜底，本函数只在显式 opt-in redis 时才被调。
+    """
+    try:
+        from backend.app.api._redis_nonce_store import RedisNonceStore
+
+        return RedisNonceStore()
+    except Exception:  # noqa: BLE001  # 连接/依赖不可用不炸进程，退回内存实现
+        return InMemoryNonceStore()
+
+
+def _get_nonce_store() -> NonceStore:
+    """取进程内 nonce store 单例（延迟构造，读一次 env）."""
+    global _nonce_store_singleton
+    if _nonce_store_singleton is None:
+        _nonce_store_singleton = _build_nonce_store()
+    return _nonce_store_singleton
+
+
+def _reset_nonce_store_for_tests(store: NonceStore | None = None) -> None:
+    """测试专用：重置/替换单例（跨用例隔离状态，避免 nonce 残留互相影响）."""
+    global _nonce_store_singleton
+    _nonce_store_singleton = store
 
 
 def _canonical(
@@ -154,13 +220,15 @@ def verify_proxy_identity(
     )
     if not hmac.compare_digest(expected, signature):
         return None
-    # A1.2: nonce 防重放 — 已用过的 nonce 第二次 verify 直接 None
-    if nonce and nonce in _SEEN_NONCES:
+    # A1 P4: nonce 防重放改用可插拔 NonceStore（原 in-process dict 迁至 InMemoryNonceStore，
+    # multi-replica 部署可切 KYLIN_NONCE_STORE=redis 跨进程共享）。
+    store = _get_nonce_store()
+    if nonce and store.seen(nonce, current):
         return None
     role_set = frozenset(r.strip().lower() for r in roles.split(",") if r.strip())
     # 验签通过 → 记录 nonce (仅当 nonce 非空; v1 fixture 测空 nonce 仍 PASS)
     if nonce:
-        _SEEN_NONCES[nonce] = current
+        store.record(nonce, current)
     if record_nonce is not None:
         record_nonce(nonce)
     return Principal(user=user, roles=role_set)
