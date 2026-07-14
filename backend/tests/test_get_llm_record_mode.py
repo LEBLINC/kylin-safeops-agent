@@ -54,18 +54,31 @@ def _resolved_via_lifespan() -> str:
 # ---- T1: 默认（env unset）→ fake fixture ---------------------------------
 
 
-def test_get_llm_default_returns_fake(monkeypatch) -> None:
-    """get_llm() 默认行为（KYLIN_LLM_RECORD 未设）→ 必须走 fake 桩。
+def test_get_llm_default_returns_real(monkeypatch) -> None:
+    """get_llm() 默认行为 (ADR-0006 real-mode-by-default) → 真接 LLM.
 
-    守门 ADR-0003 demo-only：默认 web UI / live API / 测试夹具均走 fake。
+    KYLIN_LLM_FAKE=true 显式 opt-in 可回 fake 桩 (演示 / 单测场景).
     """
     monkeypatch.delenv("KYLIN_LLM_RECORD", raising=False)
+    monkeypatch.delenv("KYLIN_LLM_FAKE", raising=False)
+
+    # ADR-0006: 默认走真接; KYLIN_LLM_BASE_URL 必须设 (否则 base_url 是 placeholder)
+    monkeypatch.setenv("KYLIN_LLM_BASE_URL", "http://mock-llm/v1")
+    monkeypatch.setenv("KYLIN_LLM_API_KEY", "test-key-for-real-mode")
 
     origin = _resolved_via_lifespan()
-    assert origin == "fake_closure", (
-        f"ADR-0005 violation: default get_llm() completion_fn origin = {origin!r}, "
-        "expected 'fake_closure' (fake fixture per ADR-0003)"
+    assert origin == "RealLLMClient", (
+        f"ADR-0006 violation: default get_llm() completion_fn origin = {origin!r}, "
+        "expected 'RealLLMClient' (real-mode-by-default)"
     )
+
+
+def test_get_llm_fake_opt_in_returns_fake(monkeypatch) -> None:
+    """get_llm() KYLIN_LLM_FAKE=true 显式 opt-in → fake 桩 (兼容 ADR-0003 demo 场景)."""
+    monkeypatch.setenv("KYLIN_LLM_FAKE", "true")
+
+    origin = _resolved_via_lifespan()
+    assert origin == "fake_closure", f"KYLIN_LLM_FAKE=true 应返 fake_closure, got {origin!r}"
 
 
 # ---- T2: KYLIN_LLM_RECORD=true → RealLLMClient ----------------------------
@@ -90,15 +103,12 @@ def test_get_llm_record_mode_returns_real(monkeypatch) -> None:
 
 
 def test_get_llm_record_off_returns_fake(monkeypatch) -> None:
-    """get_llm() 在 KYLIN_LLM_RECORD=false → 仍走 fake 桩。
+    """get_llm() 在 KYLIN_LLM_RECORD=false → KYLIN_LLM_FAKE=true 显式 opt-in → 走 fake 桩.
 
-    守门 ADR-0005 demo-record-mode：明确"未启用"语义，与 unset 行为等价。
-    生产环境必须设 KYLIN_LLM_RECORD=false（防御性 false 显式表达）。
+    ADR-0006: 显式 fake 模式需 KYLIN_LLM_FAKE=true.
     """
     monkeypatch.setenv("KYLIN_LLM_RECORD", "false")
+    monkeypatch.setenv("KYLIN_LLM_FAKE", "true")
 
     origin = _resolved_via_lifespan()
-    assert origin == "fake_closure", (
-        f"ADR-0005 violation: KYLIN_LLM_RECORD=false get_llm() completion_fn "
-        f"origin = {origin!r}, expected 'fake_closure' (fake fixture)"
-    )
+    assert origin == "fake_closure", f"KYLIN_LLM_FAKE=true 应返 fake_closure, got {origin!r}"

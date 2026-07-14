@@ -64,6 +64,7 @@ def test_d2_chat_always_uses_fixture_even_when_provider_real(
         original_init(self, *args, **kwargs)
 
     monkeypatch.setattr(rc.RealLLMClient, "__init__", spy_init)
+    monkeypatch.setenv("KYLIN_LLM_FAKE", "true")  # 阶段5 step 2 收口:显式 opt-in 回 fake (ADR-0006)
     monkeypatch.setenv("KYLIN_LLM_PROVIDER", "real")  # 即便 env=real，Chat 仍走 fixture
 
     app = create_app()
@@ -127,6 +128,7 @@ def test_d2_get_llm_completion_fn_not_real(monkeypatch) -> None:
     monkeypatch.setattr(RealLLMClient, "completion_fn", _spy_completion)
 
     async def _inspect() -> None:
+        monkeypatch.setenv("KYLIN_LLM_FAKE", "true")  # ADR-0006: 显式 opt-in fake
         async with lifespan(create_app()):
             llm = get_llm()
             assert isinstance(llm, LLMAdapter)

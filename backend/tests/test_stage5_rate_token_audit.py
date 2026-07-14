@@ -19,9 +19,7 @@ def test_t8_rate_limit_raises_orchestrator_audit() -> None:
     from backend.app.llm.adapter import LLMAdapter, LLMConfig
 
     audit = SqliteAuditSink(":memory:")
-    rate_limited = mock.AsyncMock(
-        side_effect=RuntimeError("rate limit exceeded: 10/min")
-    )
+    rate_limited = mock.AsyncMock(side_effect=RuntimeError("rate limit exceeded: 10/min"))
 
     cfg = LLMConfig(provider="real")
     adapter = LLMAdapter(cfg, completion_fn=rate_limited)

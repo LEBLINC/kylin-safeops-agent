@@ -35,6 +35,15 @@ def _client(app: object) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=transport, base_url="http://test")
 
 
+@pytest.fixture(autouse=True)
+def _llm_fake_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """阶段5 step 2 收口 (ADR-0006): 默认真接 LLM; rbac 测试夹具显式 opt-in fake.
+
+    rbac 走 fake 工具桩 (FakeExecutor) + 真接 LLM 不兼容 (无 API key).
+    """
+    monkeypatch.setenv("KYLIN_LLM_FAKE", "true")
+
+
 async def _wait_state(registry, trace_id: str, target: str, timeout: float = 5.0) -> None:  # noqa: ANN001
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
