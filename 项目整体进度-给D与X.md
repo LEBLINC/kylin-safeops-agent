@@ -170,3 +170,16 @@
 ---
 
 - 之五十一 = A1 SSO 反代替换 ⏳
+
+---
+
+## ★最新权威状态（dev=`d4ec90d`，2026-07-14 路线图 留底 之五十三）
+
+### 阶段5 P4 收口工单(执行中)
+
+- 5.3 P4：rate-limit/token-cap audit phase 区分
+- 5.4 P4：间接注入 decision⑫ end-to-end mock
+- 分支：feat/l-stage5-p4-rate-indirect
+- pytest 预期：639/17
+
+---
