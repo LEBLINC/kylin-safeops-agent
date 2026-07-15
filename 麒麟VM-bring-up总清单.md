@@ -389,3 +389,25 @@ X 域前端视觉调整批次（MainLayout 顶栏 + 8 页页头清理 + 仪表�
 **不含新增 VM 部署组件、端口、证书、systemd 单元或环境变量**，VM bring-up 清单本条目无实质变化。
 
 ---
+
+## ★之六十四 D 域 B3 沙箱⊥NNP + B4 session.py durability（2026-07-15，merge b671e5d，含 VM 实证项）
+
+D 域第一梯队收口，**涉 systemd 单元 + DB durability，VM bring-up 有实质变化**，dev 基线 `16f67cc`：
+
+**B3 — 两个 app systemd 单元删 `NoNewPrivileges=yes`**（`301eb34`）：
+- `deploy/app/kylin-safeops-agent.service` + `deploy/kylin-safeops.service` 删 NNP，补防误加回注释
+- **根因**：app 单元 NNP → 内核吞掉 `sudo` setuid 提权（sudo 自报 "no new privileges 阻止以 root 运行" EXIT=1）→ 开沙箱后所有需提权工具全失败
+- **真正 NNP 隔离在** wrapper 内层 `systemd-run -p NoNewPrivileges=yes`（`kylin-safeops-run.sh:83`），施加到被执行工具，与 app 进程独立
+- ⚠ **VM 实证必做**：① `systemctl show kylin-safeops-agent -p NoNewPrivileges` 应为 no；② 开沙箱跑一个需提权工具（如读 /etc/shadow 类）验证 sudo→wrapper→systemd-run 链路通；③ `systemctl show` wrapper 内层进程确认 NNP=yes 施加到工具而非 app
+
+**B4 — `session.py::connect()` 补 durability PRAGMA**（`c297c28`）：
+- `PRAGMA synchronous=FULL` + `PRAGMA busy_timeout=5000`（WAL 之后、schema 初始化之前）
+- **掉电场景**：synchronous=FULL 保证已 commit 的审计记录真 fsync 落盘；busy_timeout 让并发写等锁而非立即 SQLITE_BUSY
+- 下沉到连接工厂本身（防御纵深），消除对 SqliteAuditSink 包装的隐式依赖
+- ⚠ **VM 实证可选**：真机掉电/kill -9 后 verify_chain 仍完整（已 commit 记录不丢）
+
+C3：`backend/app/db/session.py`（D 域）+ `backend/tests/test_audit.py`（D 域）+ 两 service 文件（deploy/app 名义 L 域，B3 工单 pre-authorize 派 D，L 审阅当面接受）。
+CI：ruff/ruff-format/mypy ✅；pytest 701 passed + 3 预存失败（T17/T18/T19 Windows bash）+ 17 skipped。
+AI 署名违规已 amend 清除（filter 前 93da5d1/e052c43 → 重写后 c297c28/301eb34，代码 tree 字节级不变，L 亲核 range-diff 坐实）。merge commit `b671e5d`，LEBLINC 署名。
+
+---

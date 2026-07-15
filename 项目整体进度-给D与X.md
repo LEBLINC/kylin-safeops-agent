@@ -335,3 +335,17 @@ X 域前端视觉改进，dev 基线 `2e140ab`（之六十二合入后），本�
 
 vue-tsc 0 / eslint 0 / vitest 28/28 / build 通过。C3 严守：全 frontend/src/，未碰 backend/deploy/D域。
 **留痕号**：之六十三（H11 取之六十四）。no-ff 合入 dev，merge commit `1b591d4`，LEBLINC 署名。
+
+---
+
+## ★之六十四 D 域 B3 沙箱⊥NNP + B4 session.py durability（feat/D-b3-b4-nnp-durability，2026-07-15，merge b671e5d）
+
+D 域第一梯队收口批，dev 基线 `16f67cc`，2 commit（`301eb34` B3 / `c297c28` B4）：
+
+- **B3 沙箱⊥NoNewPrivileges**：`deploy/app/kylin-safeops-agent.service` + `deploy/kylin-safeops.service` 删 `NoNewPrivileges=yes`，改注释说明。app 进程需保留 setuid 能力经 sudo 调 wrapper 拉沙箱；NNP 在 app 单元会让内核吞掉 sudo 提权→开沙箱全工具失败（麒麟 VM 实证坐实）。真正的 NNP 隔离在 wrapper 内层 `systemd-run -p NoNewPrivileges`（`kylin-safeops-run.sh:83`），施加到被执行工具，与 app 单元独立，删此处不削弱沙箱。proxy 单元 NNP 保留不动（proxy 不 sudo）。
+- **B4 session.py durability**：`backend/app/db/session.py::connect()` 补 `PRAGMA synchronous=FULL` + `busy_timeout=5000`（WAL 之后、schema 之前）。掉电场景已 commit 记录真落盘、并发写等锁不立即 SQLITE_BUSY。下沉到连接工厂本身（防御纵深，消除对 SqliteAuditSink 包装的隐式依赖）。新增 `test_connect_sets_durability_pragmas` 直查三 PRAGMA 断言。
+
+**审阅要点**：本批含 2 次署名违规修复历史——首推两 commit 含 `Co-Authored-By: Claude Opus 4.8` AI 署名，L 硬阻断打回；D `git rebase -i` reword 删署名行 force-with-lease 重推（`git range-diff` 核实代码 tree 字节级不变）；L 重核签名无残留后合入。
+
+ruff/ruff-format/mypy ✅；pytest 701 passed + 3 pre-existing 失败（T17/T18/T19 Windows bash，非本批引入，dev 基线上已有）+ 17 skipped。C3：`deploy/app/kylin-safeops-agent.service` 属 L 域，B3 派 D 时已 pre-authorize，L 当面接受留注。merge commit `b671e5d`，LEBLINC 署名。
+**留痕号**：之六十四（第一梯队 B1+B2+B3+B4 全闭合；H11 顺延之六十五）。
