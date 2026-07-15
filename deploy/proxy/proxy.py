@@ -4,9 +4,16 @@ Signature reverse proxy sidecar: client -> sidecar(public) -> app(127.0.0.1:8000
 - Strips client-forged X-Auth-* headers
 - Injects HMAC-SHA256 signed 4 identity headers
 - SSE passthrough (no buffering)
+
+B2 (架构审计 154f767)：ADR-0004 第三道保险原只落在 backend/app/api/app.py 的
+lifespan fail-fast——但那是 app 进程，从不实例化 LdapClient，真正读
+KYLIN_LDAP_MOCK 并可能静默切 mock 的是本 proxy 进程。app.py 那道保留做冗余
+（防运维只查 app 日志误判"已拦"），本模块加第四道：proxy 进程启动（模块 import
+期）即检查，mock=true 时 SystemExit 拒绝启动（fail-fast，systemd 立即 failed）。
 """
 
 import os
+import sys
 import time
 
 import httpx
@@ -16,6 +23,29 @@ from starlette.background import BackgroundTask
 
 from deploy.proxy._sign import STRIP_HEADERS, sign
 from deploy.sso.ldap_client import LdapClient
+
+
+def _fail_fast_if_mock_in_production() -> None:
+    """ADR-0004 第四道保险：proxy 进程 mock=true 时拒绝启动（fail-fast）。
+
+    与 backend/app/api/app.py 的 lifespan fail-fast 同一决策（ADR-0004），
+    但落在真跑 LdapClient 的进程——app.py 那道守不到这里（app 进程不含
+    LdapClient 实例化）。KYLIN_PROXY_ALLOW_MOCK=true 仅供本地联调/CI 单测
+    显式 opt-out（模块 import 时机太早，无法用 pytest monkeypatch 覆盖，
+    需要真实环境变量放行才能测试模块本身不炸）。
+    """
+    if os.environ.get("KYLIN_PROXY_ALLOW_MOCK", "").strip().lower() == "true":
+        return
+    if os.environ.get("KYLIN_LDAP_MOCK", "").strip().lower() == "true":
+        sys.stderr.write(
+            "ADR-0004: proxy 拒绝启动——KYLIN_LDAP_MOCK=true 仅允许 demo/单测。"
+            "生产必须 KYLIN_LDAP_MOCK=false + 真 LDAP；"
+            "联调需要 mock 时显式设 KYLIN_PROXY_ALLOW_MOCK=true。\n"
+        )
+        raise SystemExit(1)
+
+
+_fail_fast_if_mock_in_production()
 
 app = FastAPI()
 ldap_client = LdapClient()
