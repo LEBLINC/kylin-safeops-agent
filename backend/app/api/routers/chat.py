@@ -110,6 +110,11 @@ async def get_events(
     C2（阶段6 第二梯队）：新连接前查 bus.active_count，达 KYLIN_SSE_MAX_CONN
     上限（默认100）→ 拒绝 503（防连接耗尽 DoS）。复用 event_bus.py 现有
     active_count（与 readiness 端点 T5/T6 同一口径），不新增独立计数器。
+
+    原子化说明（C2 可选工单结论）：check-then-act 非原子——极端并发下短暂超阈
+    1-2 连接，但连接数上限是 DoS **软上限**而非安全不变量（不涉及鉴权/授权/哈希链），
+    asyncio 单线程事件循环下实际竞态窗口微乎其微。不引入 asyncio.Lock 增加复杂度，
+    维持现状+注释说明即可。
     """
     max_conn = int(os.environ.get("KYLIN_SSE_MAX_CONN", "100") or "100")
     if bus.active_count >= max_conn:

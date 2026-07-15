@@ -499,10 +499,15 @@ class Orchestrator:
         # RCA 接入点（手册 D15）：把累积证据交给注入的 RCAEngine（默认 NullRCA→空报告），
         # 非空则 emit 契约6 "rca" 事件。RCA 真实编排归 X，本处仅调起。
         report = self._rca.analyze(self._evidence)
-        # X P6 增强: LLM 总结 RCA (决策⑫ 防御纵深 — 工具输出间接注入二次扫).
-        await self._emit_rca_summary(self._evidence, report or {})
+        # X P6 增强 + RCA P4 真接: LLM 总结 RCA (决策⑫ 防御纵深 — 工具输出间接注入二次扫)。
+        # 仅当 RCA 引擎产出非空报告时才调 LLM 摘要 + emit（NullRCA 返 {} 为 falsy → 跳过）。
+        # llm_summary 字段是新增可选字段，不破坏既有 {"report": report} 契约。
         if report:
-            self._emit("rca", {"report": report})
+            llm_summary = await self._emit_rca_summary(self._evidence, report)
+            rca_payload: dict = {"report": report}
+            if llm_summary:
+                rca_payload["llm_summary"] = llm_summary
+            self._emit("rca", rca_payload)
 
         self._goto(State.FINISHED)
         self._append_audit({"verify_result": "ok" if all_ok else "non_zero"})
@@ -540,13 +545,16 @@ class Orchestrator:
             return  # 不 emit natural_language，前端从 SSE 收不到未审自然语言
 
         # 2) LLM.summarize 调用
+        # C1（阶段6 backlog）：summarize 调用点补 llm.calls/llm.failures 埋点（与 plan() 同口径）。
         tool_results_dict = [r.model_dump() for r in results]
+        get_metrics().inc("llm.calls")
         try:
             summary = await self._llm.summarize(
                 tool_results=tool_results_dict,
                 user_intent=self._user_intent,
             )
         except (httpx.HTTPError, RuntimeError, TimeoutError) as exc:
+            get_metrics().inc("llm.failures")
             # B6 L-C6 + 5.3 P4: 架构修订 — fallback 不 emit synthetic 自然语言事件;
             # audit phase 区分 rate_limited / token_cap_exceeded / summarize_failed (默认);
             # 仅 token_cap_exceeded 路径仍 emit synthetic=true (前端可见 token 预算提示).
@@ -600,12 +608,22 @@ class Orchestrator:
         self,
         evidence: list,
         structured_report: dict,
-    ) -> None:
+    ) -> str | None:
         """RCA LLM 总结 (decision⑫ 防御纵深 — 工具输出间接注入二次扫).
 
         1. detect_tool_output_injection(joined_text) → high 拦下 + audit injection_high
         2. clean → 调 self._llm.summarize() + audit llm_summary 状态
         3. RuntimeError → audit rca_summarize_failed
+
+        RCA P4（X 联调发现的缺口收尾）：原实现裸 await 丢弃返回值——成功路径不接收、
+        不 emit、不 audit。现接收 summary，非空则：① C4 同款 scan_and_redact 兜底
+        （复用 S9 口径）；② audit 记 rca_llm_summary 成功状态（此前只有失败路径
+        rca_summarize_failed 有 audit，成功路径静默）。
+
+        返回 redact 后的摘要文本（或 None：拦截/失败/拒答均不返回）；**不在本方法内
+        emit "rca" 事件**——调用方（_execute_batch）统一合并 report + llm_summary 后
+        一次性 emit，避免与既有 `if report: self._emit("rca", {"report": report})`
+        产生重复/矛盾的两次 emit。
         """
         from backend.app.security.injection_detector import detect_tool_output_injection
 
@@ -620,18 +638,31 @@ class Orchestrator:
                 {"rca_injection_gate": "deny", "category": finding.category},
                 phase="injection_high",
             )
-            return
+            return None
+        # C1：summarize 调用点埋点（与 _emit_natural_language / plan() 同口径）。
+        get_metrics().inc("llm.calls")
         try:
-            await self._llm.summarize(
+            summary = await self._llm.summarize(
                 tool_results=ev_serialized,
                 user_intent=self._user_intent,
+                evidence=ev_serialized,
+                structured_report=structured_report,
             )
         except (httpx.HTTPError, RuntimeError) as exc:
+            get_metrics().inc("llm.failures")
             self._append_audit(
                 {"rca_summarize": "failed", "error_class": type(exc).__name__},
                 phase="rca_summarize_failed",
             )
-        # self._emit("rca", ...) 在 run() 已 emit (line 491 含 report);
-        # 此处仅记录 llm_summary 不重 emit
-        # X P6 修真: 防御纵深 — audit 记录 llm_summary 状态,
-        # 但不破坏既有 rca 事件契约.
+            return None
+
+        if summary is None:
+            # LLM 拒答/超时/无内容 → 不 emit、不额外 audit（S8 fail-closed 不杀状态机）
+            return None
+
+        redacted_summary, hit = scan_and_redact(summary)
+        self._append_audit(
+            {"rca_llm_summary": "ok", "sensitive_filtered": hit},
+            phase="rca_llm_summary",
+        )
+        return redacted_summary

@@ -55,7 +55,7 @@ def _llm_with_summary(completion_output: str, summary_fn) -> LLMAdapter:
     async def _completion(messages):  # noqa: ANN001
         return completion_output
 
-    async def _summary(tool_results, user_intent):  # noqa: ANN001
+    async def _summary(tool_results, user_intent, **_kwargs):  # noqa: ANN001
         return await summary_fn(tool_results, user_intent)
 
     return LLMAdapter(completion_fn=_completion, summary_fn=_summary)
@@ -78,7 +78,7 @@ def _llm_timeout_summary(completion_output: str) -> LLMAdapter:
     async def _completion(messages):  # noqa: ANN001
         return completion_output
 
-    async def _timeout_summary(tool_results, user_intent):  # noqa: ANN001
+    async def _timeout_summary(tool_results, user_intent, **_kwargs):  # noqa: ANN001
         raise _httpx.TimeoutException("simulated summarize timeout")
 
     return LLMAdapter(completion_fn=_completion, summary_fn=_timeout_summary)
@@ -143,7 +143,7 @@ def _build_orch(llm: LLMAdapter, executor: _FakeExecutor | None = None):
 def test_fake_summarize_returns_fixed_text() -> None:
     """fake LLM summarize 固定返 "已完成:<tool_names>"；SSE emit natural_language.text 校验。"""
 
-    async def _fixed_summary(tool_results, user_intent):  # noqa: ANN001
+    async def _fixed_summary(tool_results, user_intent, **_kwargs):  # noqa: ANN001
         names = sorted({r.get("tool", "?") for r in tool_results})
         return f"已完成:{','.join(names)}"
 
