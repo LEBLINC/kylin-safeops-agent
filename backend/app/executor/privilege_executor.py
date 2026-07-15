@@ -55,6 +55,10 @@ from mcp_servers.os_ops.fallback import candidate_commands
 MAX_OUTPUT_BYTES = 8 * 1024
 #: 默认命令超时（秒）。
 DEFAULT_TIMEOUT = 30
+#: 流式读取块大小（字节）；峰值内存 ≈ MAX_OUTPUT_BYTES + READ_CHUNK per stream（H7 内存 DoS）。
+READ_CHUNK = 64 * 1024
+#: 超时 kill 后回收子进程的二级等待上限（秒），防 D 态进程令回收协程挂死（H7 孤儿泄漏）。
+KILL_REAP_TIMEOUT = 5
 #: 安全 CWD（Linux）。
 SAFE_CWD = "/" if platform.system() != "Windows" else os.environ.get("SYSTEMROOT", "C:\\")
 #: 安全环境变量（最小集）。
@@ -214,11 +218,6 @@ class PrivilegeExecutor:
                 cwd=SAFE_CWD,
                 env=SAFE_ENV,
             )
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                proc.communicate(), timeout=self._timeout
-            )
-        except asyncio.TimeoutError:
-            return self._fail(tool, 124, f"<timeout after {self._timeout}s>")
         except FileNotFoundError:
             cmd_name = argv[0] if argv else "?"
             return self._fail(tool, 127, f"<command-not-found: {cmd_name}>")
@@ -226,8 +225,17 @@ class PrivilegeExecutor:
             # 系统级故障（权限/沙箱等）→ raise，由 orchestrator 转 error 事件
             raise RuntimeError(f"executor OS error for {tool.name}: {exc}") from exc
 
-        stdout_text = self._truncate(stdout_bytes)
-        stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()
+        try:
+            (stdout_head, stdout_over), (stderr_head, stderr_over) = await asyncio.wait_for(
+                self._consume(proc), timeout=self._timeout
+            )
+        except asyncio.TimeoutError:
+            # H7 孤儿泄漏：wait_for 只取消 _consume 协程，底层子进程仍在跑 → 必须 kill + 回收
+            await self._kill_and_reap(proc)
+            return self._fail(tool, 124, f"<timeout after {self._timeout}s>")
+
+        stdout_text = self._truncate(stdout_head, stdout_over)
+        stderr_text = stderr_head.decode("utf-8", errors="replace").strip()
         if stderr_text:
             stdout_text += f"\n--- stderr ---\n{stderr_text}"
 
@@ -238,6 +246,68 @@ class PrivilegeExecutor:
             stdout_truncated=stdout_text,
             is_untrusted=True,
         )
+
+    @staticmethod
+    async def _read_capped(stream: asyncio.StreamReader | None) -> tuple[bytes, int]:
+        """流式读取一个管道，只在内存保留前 MAX_OUTPUT_BYTES，其余边读边丢并计数。
+
+        H7 内存 DoS：communicate() 会把 GB 级输出全量读进内存后才截断 → OOM。
+        改为分块读取，头部满 MAX_OUTPUT_BYTES 后仍继续 drain（否则子进程写满管道缓冲区
+        阻塞、communicate 语义丢失），但只累加溢出字节数不再留存。峰值内存有界。
+        返回 (头部字节, 溢出字节数)。
+        """
+        if stream is None:
+            return b"", 0
+        head = bytearray()
+        overflow = 0
+        while True:
+            chunk = await stream.read(READ_CHUNK)
+            if not chunk:
+                break
+            remaining = MAX_OUTPUT_BYTES - len(head)
+            if remaining > 0:
+                take = chunk[:remaining]
+                head.extend(take)
+                overflow += len(chunk) - len(take)
+            else:
+                overflow += len(chunk)
+        return bytes(head), overflow
+
+    async def _consume(
+        self, proc: asyncio.subprocess.Process
+    ) -> tuple[tuple[bytes, int], tuple[bytes, int]]:
+        """并发 drain stdout+stderr 后等待子进程退出（取代 communicate，capped 内存）。
+
+        两管道必须并发读（gather）：串行先读满 stdout 再读 stderr 时，子进程若在 stderr
+        写满 64KB 管道缓冲区会阻塞、永不关闭 stdout → 死锁。drain 完再 wait 收集 returncode。
+        """
+        stdout_res, stderr_res = await asyncio.gather(
+            self._read_capped(proc.stdout),
+            self._read_capped(proc.stderr),
+        )
+        await proc.wait()
+        return stdout_res, stderr_res
+
+    @staticmethod
+    async def _kill_and_reap(proc: asyncio.subprocess.Process | None) -> None:
+        """超时后杀掉子进程并回收僵尸（H7 孤儿泄漏）。
+
+        proc 为 None（create_subprocess_exec 自身抛出，子进程从未起）→ 无事可做。
+        kill() 本身可能抛（进程已退出 ProcessLookupError / 平台差异 OSError）→ 兜住。
+        随后 await wait() 回收僵尸；再包一层 wait_for 上限，防子进程处于不可中断 D 态
+        （如卡在 NFS IO）令回收协程永久挂起——超上限即放弃等待，孤儿由 init 最终接管，
+        但本协程不被拖死。
+        """
+        if proc is None:
+            return
+        try:
+            proc.kill()
+        except (ProcessLookupError, OSError):
+            pass
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=KILL_REAP_TIMEOUT)
+        except asyncio.TimeoutError:
+            pass
 
     async def _execute_system_info(self, tool: CandidateTool) -> ToolResult:
         """system.info: 多命令聚合，stdout 用 JSON 字符串。"""
@@ -251,6 +321,7 @@ class PrivilegeExecutor:
         }
         results: dict[str, str] = {}
         for key, argv in cmds.items():
+            proc = None
             try:
                 proc = await asyncio.create_subprocess_exec(
                     *argv,
@@ -261,6 +332,10 @@ class PrivilegeExecutor:
                 )
                 out, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
                 results[key] = out.decode("utf-8", errors="replace").strip()
+            except asyncio.TimeoutError:
+                # H7 孤儿泄漏：固定命令超时（如 who/uptime 卡 stale utmp）也须 kill + 回收
+                await self._kill_and_reap(proc)
+                results[key] = ""
             except Exception:  # noqa: BLE001
                 results[key] = ""
         return ToolResult(
@@ -271,14 +346,15 @@ class PrivilegeExecutor:
             is_untrusted=True,
         )
 
-    def _truncate(self, raw: bytes) -> str:
-        """截断 stdout 至 MAX_OUTPUT_BYTES 并标注。"""
-        text = raw.decode("utf-8", errors="replace")
-        if len(raw) <= MAX_OUTPUT_BYTES:
+    def _truncate(self, head: bytes, overflow: int) -> str:
+        """把已 capped 的头部字节转文本；若有溢出则标注截断字节数（H7 流式截断）。
+
+        head 至多 MAX_OUTPUT_BYTES（由 _read_capped 保证），overflow 是被边读边丢的字节数。
+        """
+        text = head.decode("utf-8", errors="replace")
+        if overflow <= 0:
             return text.strip()
-        truncated = raw[:MAX_OUTPUT_BYTES].decode("utf-8", errors="replace")
-        overflow = len(raw) - MAX_OUTPUT_BYTES
-        return f"{truncated.strip()}\n... [truncated {overflow} bytes]"
+        return f"{text.strip()}\n... [truncated {overflow} bytes]"
 
     @staticmethod
     def _fail(tool: CandidateTool, code: int, msg: str) -> ToolResult:

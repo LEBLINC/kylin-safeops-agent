@@ -4,25 +4,101 @@ Windows 上无法真跑 Linux 命令，用 mock 验证：
 - 模板白名单拦截
 - 无 shell
 - '..' 路径拦截
-- 截断
+- 截断（H7：流式 capped 读取，非全量进内存）
 - 方案 B 失败语义
 - fallback 探测
+- 超时 kill + 回收子进程（H7 孤儿泄漏）
+- 大输出内存有界（H7 内存 DoS）
+
+H7 起 _run_subprocess 不再走 proc.communicate()，改为并发 drain 两管道
+（proc.stdout.read / proc.stderr.read）+ proc.wait()。故 mock 子进程用 _make_proc
+提供真实 StreamReader 语义的 .stdout/.stderr（_FakeStream），而非 communicate 罐头。
+system.info（_execute_system_info）仍用 communicate，其用例保留 communicate mock。
 """
 
 from __future__ import annotations
 
 import asyncio
+import shutil
 import sys
-from unittest.mock import AsyncMock, patch
+import tracemalloc
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from backend.app.contracts.intent import CandidateTool
 from backend.app.executor import PrivilegeExecutor, has_tool
+from backend.app.executor.privilege_executor import MAX_OUTPUT_BYTES
 
 
 def _tool(name: str, args: dict | None = None) -> CandidateTool:
     return CandidateTool(name=name, args=args or {})
+
+
+# ---- H7 流式子进程替身 ------------------------------------------------------
+
+
+class _FakeStream:
+    """模拟 asyncio.StreamReader：分块吐出预置字节，读尽返回 b""（EOF）。"""
+
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+        self._pos = 0
+
+    async def read(self, n: int) -> bytes:
+        if self._pos >= len(self._data):
+            return b""
+        chunk = self._data[self._pos : self._pos + n]
+        self._pos += len(chunk)
+        return chunk
+
+
+class _ChunkStream:
+    """按需产出固定 chunk count 次，不在内存持有全量（用于大输出内存断言）。
+
+    每次 read 返回同一个 chunk 对象（零新分配），count 次后 EOF——喂 N*len(chunk)
+    字节给 executor，但产生侧内存恒为 len(chunk)，从而 tracemalloc 峰值只反映
+    executor 侧是否 capped。
+    """
+
+    def __init__(self, chunk: bytes, count: int) -> None:
+        self._chunk = chunk
+        self._remaining = count
+
+    async def read(self, n: int) -> bytes:
+        if self._remaining <= 0:
+            return b""
+        self._remaining -= 1
+        return self._chunk
+
+
+def _make_proc(*, stdout: bytes = b"", stderr: bytes = b"", returncode: int = 0) -> MagicMock:
+    """构造 H7 流式消费路径的子进程替身（.stdout/.stderr 为 _FakeStream，.wait 异步）。"""
+    proc = MagicMock()
+    proc.stdout = _FakeStream(stdout)
+    proc.stderr = _FakeStream(stderr)
+    proc.returncode = returncode
+    proc.wait = AsyncMock(return_value=returncode)
+    proc.kill = MagicMock()
+    return proc
+
+
+def _make_hanging_proc(*, returncode: int = 0) -> MagicMock:
+    """构造一个 drain 永不结束的子进程替身（read 挂起），驱动 wait_for 超时路径。"""
+    proc = MagicMock()
+
+    async def _hang(_n: int) -> bytes:
+        await asyncio.sleep(10)
+        return b""
+
+    proc.stdout = MagicMock()
+    proc.stdout.read = _hang
+    proc.stderr = MagicMock()
+    proc.stderr.read = _hang
+    proc.returncode = returncode
+    proc.wait = AsyncMock(return_value=returncode)
+    proc.kill = MagicMock()
+    return proc
 
 
 # ---- 模板白名单 -----------------------------------------------------------
@@ -80,13 +156,7 @@ def test_command_not_found_returns_127_not_raise() -> None:
 def test_command_nonzero_exit_returns_normally() -> None:
     """命令非 0 退出 → 正常 return（方案 B），exit_code 反映真实值。"""
     ex = PrivilegeExecutor()
-
-    async def mock_exec() -> None:
-        pass
-
-    mock_proc = AsyncMock()
-    mock_proc.communicate = AsyncMock(return_value=(b"error output", b"some stderr"))
-    mock_proc.returncode = 2
+    mock_proc = _make_proc(stdout=b"error output", stderr=b"some stderr", returncode=2)
 
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
         result = asyncio.run(ex.execute(_tool("disk.usage")))
@@ -103,15 +173,13 @@ def test_command_nonzero_exit_returns_normally() -> None:
 def test_stdout_truncated_at_8kb() -> None:
     ex = PrivilegeExecutor()
     big_output = b"x" * (8 * 1024 + 500)
-
-    mock_proc = AsyncMock()
-    mock_proc.communicate = AsyncMock(return_value=(big_output, b""))
-    mock_proc.returncode = 0
+    mock_proc = _make_proc(stdout=big_output, returncode=0)
 
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
         result = asyncio.run(ex.execute(_tool("disk.usage")))
 
     assert "truncated" in result.stdout_truncated
+    assert "500 bytes" in result.stdout_truncated
     assert result.exit_code == 0
 
 
@@ -120,9 +188,7 @@ def test_stdout_truncated_at_8kb() -> None:
 
 def test_stderr_appended() -> None:
     ex = PrivilegeExecutor()
-    mock_proc = AsyncMock()
-    mock_proc.communicate = AsyncMock(return_value=(b"normal output", b"warning msg"))
-    mock_proc.returncode = 0
+    mock_proc = _make_proc(stdout=b"normal output", stderr=b"warning msg", returncode=0)
 
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
         result = asyncio.run(ex.execute(_tool("process.list")))
@@ -137,9 +203,7 @@ def test_stderr_appended() -> None:
 def test_no_shell_in_subprocess() -> None:
     """确认 create_subprocess_exec 被调用（不是 create_subprocess_shell）。"""
     ex = PrivilegeExecutor()
-    mock_proc = AsyncMock()
-    mock_proc.communicate = AsyncMock(return_value=(b"ok", b""))
-    mock_proc.returncode = 0
+    mock_proc = _make_proc(stdout=b"ok", returncode=0)
 
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
         asyncio.run(ex.execute(_tool("disk.usage")))
@@ -152,9 +216,7 @@ def test_no_shell_in_subprocess() -> None:
 def test_log_compress_rotate_appends_path() -> None:
     """log.compress_rotate 必须把 path 拼进 argv，否则 gzip 无文件参数会读 stdin 卡死。"""
     ex = PrivilegeExecutor()
-    mock_proc = AsyncMock()
-    mock_proc.communicate = AsyncMock(return_value=(b"", b""))
-    mock_proc.returncode = 0
+    mock_proc = _make_proc(stdout=b"", returncode=0)
 
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
         asyncio.run(ex.execute(_tool("log.compress_rotate", {"path": "/var/log/app.log"})))
@@ -174,9 +236,7 @@ def test_fallback_uses_netstat_when_ss_missing() -> None:
     def which_side_effect(cmd: str) -> str | None:
         return "/usr/bin/netstat" if cmd == "netstat" else None
 
-    mock_proc = AsyncMock()
-    mock_proc.communicate = AsyncMock(return_value=(b"netstat output", b""))
-    mock_proc.returncode = 0
+    mock_proc = _make_proc(stdout=b"netstat output", returncode=0)
 
     with (
         patch("shutil.which", side_effect=which_side_effect),
@@ -194,14 +254,154 @@ def test_fallback_uses_netstat_when_ss_missing() -> None:
 
 def test_result_always_untrusted() -> None:
     ex = PrivilegeExecutor()
-    mock_proc = AsyncMock()
-    mock_proc.communicate = AsyncMock(return_value=(b"safe?", b""))
-    mock_proc.returncode = 0
+    mock_proc = _make_proc(stdout=b"safe?", returncode=0)
 
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
         result = asyncio.run(ex.execute(_tool("disk.usage")))
 
     assert result.is_untrusted is True
+
+
+# ---- H7 流式 capped 读取（内存 DoS 防护）---------------------------------
+
+
+def test_read_capped_retains_head_counts_overflow() -> None:
+    """_read_capped：内存只留前 MAX_OUTPUT_BYTES，其余边读边丢并精确计数。"""
+    stream = _FakeStream(b"a" * (MAX_OUTPUT_BYTES + 1234))
+    head, overflow = asyncio.run(PrivilegeExecutor._read_capped(stream))
+    assert len(head) == MAX_OUTPUT_BYTES
+    assert overflow == 1234
+
+
+def test_read_capped_none_stream() -> None:
+    """_read_capped(None)（管道缺失）→ 空头部 + 零溢出，不抛。"""
+    head, overflow = asyncio.run(PrivilegeExecutor._read_capped(None))
+    assert head == b""
+    assert overflow == 0
+
+
+def test_large_output_not_loaded_into_memory() -> None:
+    """喂 64MB stdout，executor 只保留 8KB 头部——tracemalloc 峰值必须远小于 64MB。
+
+    坐实 H7 内存 DoS 修复：若仍是 communicate 全量读进内存，峰值 ≥ 64MB；capped 后
+    峰值应 < 8MB（8 倍安全余量，覆盖 asyncio/解释器开销）。
+    """
+    chunk = b"y" * (64 * 1024)  # 64KB/次
+    total_chunks = 1024  # 64MB 总量
+    ex = PrivilegeExecutor()
+
+    proc = MagicMock()
+    proc.stdout = _ChunkStream(chunk, total_chunks)
+    proc.stderr = _FakeStream(b"")
+    proc.returncode = 0
+    proc.wait = AsyncMock(return_value=0)
+    proc.kill = MagicMock()
+
+    tracemalloc.start()
+    with patch("asyncio.create_subprocess_exec", return_value=proc):
+        result = asyncio.run(ex.execute(_tool("disk.usage")))
+    _current, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    assert "truncated" in result.stdout_truncated
+    assert peak < 8 * 1024 * 1024, f"峰值 {peak} 字节——疑似全量进内存（未 capped）"
+
+
+def test_large_stderr_capped() -> None:
+    """大 stderr 同样 capped 到 8KB 头部（原 communicate 版 stderr 无上限，H7 收紧）。"""
+    ex = PrivilegeExecutor()
+    big_stderr = b"e" * (MAX_OUTPUT_BYTES + 50_000)
+    mock_proc = _make_proc(stdout=b"out", stderr=big_stderr, returncode=0)
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        result = asyncio.run(ex.execute(_tool("disk.usage")))
+
+    # stderr 段 = "--- stderr ---\n" + 至多 8KB 头部；整体远小于 50KB+
+    assert "--- stderr ---" in result.stdout_truncated
+    stderr_seg = result.stdout_truncated.split("--- stderr ---\n", 1)[1]
+    assert len(stderr_seg.encode("utf-8")) <= MAX_OUTPUT_BYTES
+
+
+# ---- H7 超时 kill + 回收子进程（孤儿泄漏防护）---------------------------
+
+
+def test_timeout_kills_and_reaps_child() -> None:
+    """drain 超时 → 返回 124 + proc.kill() 被调 + proc.wait() 被 await（回收僵尸）。"""
+    ex = PrivilegeExecutor()
+    ex._timeout = 0.05  # 快速触发 wait_for 超时，不真等 30s
+    proc = _make_hanging_proc(returncode=-9)
+
+    with patch("asyncio.create_subprocess_exec", return_value=proc):
+        result = asyncio.run(ex.execute(_tool("disk.usage")))
+
+    assert result.exit_code == 124
+    assert "timeout" in result.stdout_truncated
+    proc.kill.assert_called_once()
+    proc.wait.assert_awaited()  # 必须回收，否则孤儿泄漏
+
+
+def test_timeout_kill_exception_swallowed() -> None:
+    """kill() 抛异常（进程已退出等）时兜住，仍返回 124 且继续回收。"""
+    ex = PrivilegeExecutor()
+    ex._timeout = 0.05
+    proc = _make_hanging_proc(returncode=-9)
+    proc.kill = MagicMock(side_effect=ProcessLookupError())
+
+    with patch("asyncio.create_subprocess_exec", return_value=proc):
+        result = asyncio.run(ex.execute(_tool("disk.usage")))
+
+    assert result.exit_code == 124  # kill 抛异常不影响方案 B 语义
+    proc.wait.assert_awaited()  # kill 抛了仍尝试回收
+
+
+def test_kill_reap_survives_unreapable_child() -> None:
+    """回收 wait() 也挂死（D 态进程）时，_kill_and_reap 由二级 wait_for 兜底不永久挂起。"""
+    proc = MagicMock()
+    proc.kill = MagicMock()
+
+    async def _never() -> None:
+        await asyncio.sleep(10)
+
+    proc.wait = _never
+
+    with patch("backend.app.executor.privilege_executor.KILL_REAP_TIMEOUT", 0.05):
+        # 不抛、不挂：二级 wait_for 超时后放弃等待
+        asyncio.run(PrivilegeExecutor._kill_and_reap(proc))
+    proc.kill.assert_called_once()
+
+
+def test_kill_reap_none_proc_noop() -> None:
+    """_kill_and_reap(None)（子进程从未起）→ 无操作不抛。"""
+    asyncio.run(PrivilegeExecutor._kill_and_reap(None))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="真子进程超时回收需 POSIX 环境（CI ubuntu 跑）")
+def test_real_subprocess_timeout_reaps_process() -> None:
+    """真进程：sleep 60 在 1s 超时后被 kill + 回收——proc.returncode 由 None 变为已退出值。
+
+    孤儿泄漏的直接证据：若 except 只 return 不 kill+wait，运行中的 sleep 的 returncode
+    保持 None（未回收）；修复后 kill+wait 令内核回收、returncode 被置（-9 SIGKILL）。
+    """
+    sleep_bin = shutil.which("sleep")
+    if sleep_bin is None:
+        pytest.skip("无 sleep 命令")
+
+    captured: dict[str, object] = {}
+    real_exec = asyncio.create_subprocess_exec
+
+    async def _capture(*args: object, **kwargs: object) -> object:
+        proc = await real_exec(*args, **kwargs)  # type: ignore[arg-type]
+        captured["proc"] = proc
+        return proc
+
+    ex = PrivilegeExecutor()
+    ex._timeout = 1
+    with patch("asyncio.create_subprocess_exec", _capture):
+        result = asyncio.run(ex._run_subprocess(_tool("disk.usage"), [sleep_bin, "60"]))
+
+    assert result.exit_code == 124
+    proc = captured["proc"]
+    assert proc.returncode is not None, "子进程未被回收——孤儿泄漏（returncode 仍为 None）"
 
 
 # ---- symlink / TOCTOU 兜底（D-1e）----------------------------------------
@@ -353,9 +553,7 @@ def test_sandbox_disabled_by_default() -> None:
     from backend.app.executor.sandbox import WRAPPER_PATH
 
     ex = PrivilegeExecutor()
-    mock_proc = AsyncMock()
-    mock_proc.communicate = AsyncMock(return_value=(b"ok", b""))
-    mock_proc.returncode = 0
+    mock_proc = _make_proc(stdout=b"ok", returncode=0)
 
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
         asyncio.run(ex.execute(_tool("disk.usage")))
@@ -370,9 +568,7 @@ def test_sandbox_enabled_calls_wrapper() -> None:
     from backend.app.executor.sandbox import SUDO_PATH, WRAPPER_PATH
 
     ex = PrivilegeExecutor(sandbox_enabled=True)
-    mock_proc = AsyncMock()
-    mock_proc.communicate = AsyncMock(return_value=(b"ok", b""))
-    mock_proc.returncode = 0
+    mock_proc = _make_proc(stdout=b"ok", returncode=0)
 
     with (
         patch("platform.system", return_value="Linux"),
@@ -395,9 +591,7 @@ def test_sandbox_enabled_root_no_sudo() -> None:
     from backend.app.executor.sandbox import SUDO_PATH, WRAPPER_PATH
 
     ex = PrivilegeExecutor(sandbox_enabled=True)
-    mock_proc = AsyncMock()
-    mock_proc.communicate = AsyncMock(return_value=(b"ok", b""))
-    mock_proc.returncode = 0
+    mock_proc = _make_proc(stdout=b"ok", returncode=0)
 
     with (
         patch("platform.system", return_value="Linux"),
@@ -416,9 +610,7 @@ def test_sandbox_enabled_windows_noop() -> None:
     from backend.app.executor.sandbox import WRAPPER_PATH
 
     ex = PrivilegeExecutor(sandbox_enabled=True)
-    mock_proc = AsyncMock()
-    mock_proc.communicate = AsyncMock(return_value=(b"ok", b""))
-    mock_proc.returncode = 0
+    mock_proc = _make_proc(stdout=b"ok", returncode=0)
 
     with (
         patch("platform.system", return_value="Windows"),
@@ -432,7 +624,11 @@ def test_sandbox_enabled_windows_noop() -> None:
 
 
 def test_system_info_not_sandboxed() -> None:
-    """system.info（profile=none）不走 _run_subprocess，不被沙箱包裹。"""
+    """system.info（profile=none）不走 _run_subprocess，不被沙箱包裹。
+
+    system.info 走 _execute_system_info（仍用 communicate 聚合多命令），故此用例
+    保留 communicate mock（与 _run_subprocess 的流式路径不同）。
+    """
     from backend.app.executor.sandbox import SUDO_PATH, WRAPPER_PATH
 
     ex = PrivilegeExecutor(sandbox_enabled=True)
