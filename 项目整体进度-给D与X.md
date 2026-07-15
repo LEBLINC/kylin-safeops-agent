@@ -373,8 +373,19 @@ CI：ruff/ruff-format/mypy ✅；pytest 712 passed（+8）/18 skipped（+1 POSIX
 C3：仅 executor + test 2 文件。feature 署名 youzWSN640，merge `da225be` LEBLINC。
 **留痕号**：之六十五。H11 顺延**之六十七**（X 之六十七待起：mock-flag.ts 抽离 + 10 处静态 import 改指向；DemoView.vue 已在 router 注册必须一并改）。
 
-## 阶段6 收口全景（截至 dev=da225be）
+## 阶段6 收口全景（截至 dev=449cce4，2026-07-15）
 
-- 第一梯队 B1+B2+B3+B4 ✅ 全闭合；B1+B2 VM 实证归 D 出报告（与 H7 并行可独立交付）
-- 二梯队：C1-C4 / H3 / H4 / H10 / f62d20f 守卫 / RCA P4 / **H7 / llm_summary** ✅ 全闭合
-- 仍在跑：H15（to_thread 调研 D 完成、L 落地 = 之六十七）、H11（X = 之六十七）、RCA 真 LLM VM 联调（X，独立工单）
+**第一梯队 B1+B2+B3+B4 全闭合（含 B1+B2 VM 实证）**：
+
+- ✅ B1+B2 前门接线代码（之五十九，de0d5b6）+ **VM 端到端实证（D 第四轮，2026-07-15）**：麒麟 V11 + nginx 1.24.0 + 真自签证书 + 真 slapd，三验证点全 PASS（curl whoami 真身份 / 4 伪造头双重 strip / proxy fail-fast ADR-0004 模块导入期 SystemExit）。附 nginx 部署兼容 2 缺口单列 backlog（http2 on 1.24 不识 / server_names_hash_bucket_size 32→64）
+- ✅ B3 沙箱⊥NNP（之六十四，b671e5d）+ **VM 决策坐实（D 第四轮）**：Q1a sudo 自报 NNP 阻止以 root 运行 EXIT=1 / Q2a sudo→wrapper→systemd-run→df 全链通 / Q2b systemctl show 坐实瞬态单元 NNP 隔离独立
+- ✅ B4 session.py durability（之六十四，b671e5d，connect() 补 synchronous=FULL + busy_timeout=5000）+ **D 第四轮独家定性纠正**：本改动非"数据丢失修复"而是"防御纵深"（SqliteAuditSink.__init__ 早已在同一连接设过这两 PRAGMA，真实审计库三 PRAGMA 一直全齐；本改动消除对调用方包 SqliteAuditSink 的隐式依赖）
+
+**二梯队 全闭合**：C1 metrics / C2 SSE 封顶（之六十）/ C3 mypy 守门 / C4 H9 输出收尾 / H3 空口令 bind / H4 LDAP TLS / f62d20f chat.ts 守卫回归（之六十一）/ H10 审批假成功 / RCA LLM P4 真接 / C1 summarize 埋点（之六十二）/ X UI 视觉优化批（之六十三）/ H7 执行器孤儿+内存 DoS（之六十五）/ X 前端消费 rca llm_summary（之六十六）
+
+**仍在跑（之六十七并行工单）**：
+- H15 to_thread L 落地：`_append_audit` 改 async + `asyncio.to_thread(self._audit.append, record)`（24 处调用点 + test_b2_auth_layer.py:179/216 全部加 await + 顶部 import asyncio；D 调研 md 待收）
+- H11 mock 出 bundle X 起工单：抽 isMockEnabled 到 mock-flag.ts + 10 处静态 import 改指向（DemoView.vue 已在 router 注册必须一并改；build 实测 grep dist/ 必须空）
+- RCA 真 LLM 端到端验证：X WSL 真接不稳，X 提议 L 在 dev 用 ToolResult 假证据（disk.usage 80% + disk.large_files 命中）走 _emit_rca_summary 全链路单测 mock 复现，不需 VM
+
+**非阻断 backlog 单列**：O-H7-1 FD 卫生（kill 后显式关 transport）/ T17/T18/T19 Windows bash skipif（deploy/proxy/tests）/ nginx 部署兼容 2 缺口（http2 / server_names_hash_bucket_size）/ X P1 SSE 阻塞读 body（client.stream + aiter_bytes）/ O-B3 真装 app 单元 Q3 systemctl start+show

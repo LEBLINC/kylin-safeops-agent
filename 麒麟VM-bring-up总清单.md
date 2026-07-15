@@ -449,3 +449,77 @@ CI：ruff/ruff-format/mypy ✅。
 merge commit `da225be` LEBLINC 署名，feature commit `19519d1` 署名 youzWSN640（按修正后的政策：各自用各自 author）。
 
 ---
+
+## ★D 第四轮补留痕（B1+B2 VM 实证 + B3 决策 VM 坐实 + B4 定性纠正 + nginx 部署兼容 2 缺口，2026-07-15，**不占留痕号**）
+
+> L 上一轮仅写代码审阅视角的之六十四块，B1+B2 VM 实证 + B3 决策 VM 坐实 + B4 定性纠正 + nginx 部署兼容 2 缺口**此前完全未写入 4 文档**。§5 红线第三度中招。本块为历史补救。
+
+### B1+B2 VM 端到端实证（麒麟 V11 + nginx 1.24.0 + 真自签证书 + 真 slapd）
+
+**三验证点全 PASS**：
+
+**(a) 端到端连通 + whoami 真身份**：
+```
+curl → nginx:443(TLS) → sidecar:8080 → app:8000
+→ whoami 返回 {"user":"alice","roles":["admin"],"mode":"proxy"}
+```
+- `ss -tln` 证 `8000/8080` 均仅 `127.0.0.1`（内网隔离生效）
+- whoami（之五十八修过）首次全链路实证通过
+
+**(b) 双重 strip 端到端坐实**：
+- 同请求注 4 伪造头（X-Auth-User: attacker / X-Auth-Roles: admin,operator / X-User-Role: admin / X-Auth-Signature: forged）
+- → 仍返 alice 不 401 不 attacker（双重 strip：nginx 剥 + proxy verify_proxy_identity fail-closed）
+
+**(c) proxy fail-fast ADR-0004 真施**：
+- `KYLIN_LDAP_MOCK=true` 裸 import 即模块导入期 SystemExit；systemd 下 = 立即 failed
+- `KYLIN_PROXY_ALLOW_MOCK=true` 对照 OK（逃生门显式 opt-in 坐实）
+
+### B3 VM 组合验证（决策：删 app 单元 NNP）
+
+- **Q1a**（模拟 app 单元带 NNP）：sudo 自报「no new privileges 阻止以 root 运行」EXIT=1 — **内核自证 Blocker 属实**
+- **Q2a**（去 NNP）：sudo→wrapper→systemd-run→df **全链通 EXIT=0**
+- **Q2b**：`systemctl show` 坐实瞬态单元 `ProtectSystem=strict + ReadOnlyPaths=/` 真施加 — **内层沙箱隔离与 app 单元 NNP 独立，删之不削弱**
+- 落码（已合入之六十四）：删 `deploy/kylin-safeops.service` + `deploy/app/kylin-safeops-agent.service` NNP；proxy 单元 NNP 保留（proxy 不 sudo）
+- **边界知会**：两文件 L 建，依据 L 定 B3 owner=D 授权改动，L 当面接受留注
+- **遗留非阻塞**：真装完整 app 单元的 Q3（systemctl start + show 三属性）未跑；VM 无 kylin-safeops 用户（install.sh 部署层职责），实证用 vmuser 等价（NNP 挡 setuid 对任何非 root 用户一致）
+
+### B4 防御纵深定性纠正（D 第四轮独家发现）
+
+> **工单说**："缺 synchronous=FULL/busy_timeout → 掉电静默丢 trace 尾" — **实为错判**
+
+**真实链路**：`app.py → connect() → SqliteAuditSink(conn)`，`SqliteAuditSink.__init__`（`audit_logger.py:53-54`）**已在同一连接上设过这两个 PRAGMA**。**真实审计库三 PRAGMA 一直全齐，不存在丢 trace 窗口**。
+
+**B4 改动的正确定性 = 防御纵深**：durability 成为连接工厂自身属性，消除对调用方必须包 `SqliteAuditSink` 的隐式依赖。**不是数据丢失修复**。busy_timeout 对 H8（VACUUM 锁库）的价值不变。
+
+### nginx 部署兼容 2 缺口（D 未改仓库，仅 VM 副本改）
+
+| # | 问题 | 现状 | 建议 |
+|---|---|---|---|
+| ① | `http2 on;` 语法需 nginx ≥1.25.1 | 麒麟 V11 自带 nginx 1.24.0 → `unknown directive` | 改回 `listen 443 ssl http2;` 旧语法（1.24 可用，1.25+ 仅弃用警告）或 nginx.conf 注释最低版本 |
+| ② | LoongArch nginx `server_names_hash_bucket_size` 默认 32 | kylin-safeops.test 域名长度即触发 `could not build server_names_hash` | deploy 部署说明补 `server_names_hash_bucket_size 64;`（生产域名普遍更长大概率同样命中） |
+
+**limit_req_zone 验证**：D 实测放 `conf.d/` 文件首行即可生效（conf.d 在 http{} 上下文内），deploy/nginx.conf 头部"须手工进主配"注释可简化。
+
+### RCA 真 LLM 端到端验证（X 之六十六补记）
+
+- 前端 mock 链路 ✅
+- WSL 真 LLM 环境不稳（工具超时/证据不够）— 非代码问题
+- **X 提议 L 在 dev 直接 mock 工具执行数据来验证全链路**：在 `_execute_batch` 或测试中构造 `ToolResult` 假证据（disk.usage 80% + disk.large_files 命中）→ `_emit_rca_summary` → `self._llm.summarize(evidence=..., structured_report=...)` → SSE rca 事件带 `llm_summary` → 前端展示。**不需 VM，单测 mock 即可**
+- **L 落地**：纳入 之六十七 L H15 落地工单并发执行（同一执行窗口一次跑完）
+
+---
+
+## 阶段6 第一梯队收口验证清单（麒麟 VM 必备项，2026-07-15 截至 dev=449cce4）
+
+| 项 | 状态 | 验证点 |
+|---|---|---|
+| B1 前门认证接线（代码） | ✅ | 之五十九 de0d5b6 合入 |
+| B1 前门认证接线（VM 实证） | ✅ | D 第四轮报告 (a)(b)(c) 三验证点 |
+| B2 mock 装错进程 | ✅ | 之五十九 fail-fast ADR-0004 + VM 实证 (c) |
+| B3 沙箱⊥NoNewPrivileges（代码） | ✅ | 之六十四 b671e5d 合入 |
+| B3 沙箱⊥NoNewPrivileges（VM 实证） | ✅ | D 第四轮 Q1a/Q2a/Q2b |
+| B4 session.py durability | ✅ | 之六十四 c297c28 合入（定性=防御纵深，非数据丢失修复）|
+| **nginx 部署兼容 2 缺口** | 🟠 部署层 backlog | ① http2 on 1.24 不识 ② server_names_hash_bucket_size 32→64 |
+| **deploy/sandbox 部署 wrapper+sudoers** | ⏳ 阶段3 部署时做 | `cp → chown root → chmod 0755/0440 → visudo -c` |
+
+---
