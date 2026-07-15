@@ -525,6 +525,19 @@ class Orchestrator:
         # 仅当 RCA 引擎产出非空报告时才调 LLM 摘要 + emit（NullRCA 返 {} 为 falsy → 跳过）。
         # llm_summary 字段是新增可选字段，不破坏既有 {"report": report} 契约。
         if report:
+            # 之六十八 Task 2a: summary 字段由 LLM 生成（playbooks 模板作为兜底）。
+            # report 是 dict，in-place 改 report["summary"]，让 rca 事件携带 LLM 化版本。
+            from backend.app.agent.rca_summary_llm import llm_rewrite_summary
+
+            rewritten = await llm_rewrite_summary(
+                self._llm, [e.model_dump() for e in self._evidence], report
+            )
+            if rewritten:
+                report["summary"] = rewritten
+                report["summary_source"] = "llm"
+            else:
+                report["summary_source"] = "playbook"
+
             llm_summary = await self._emit_rca_summary(self._evidence, report)
             rca_payload: dict = {"report": report}
             if llm_summary:

@@ -511,6 +511,12 @@ class RCAReportResponse(BaseModel):
 
     trace_id: str = Field(..., description="RCA 分析 trace_id")
     report: dict = Field(default_factory=dict, description="RCA 报告（结构待 X 定）")
+    # 之六十八 Task 3: LLM 化自然语言摘要（独立 RCA 端点）。LLM 不可用/失败 → None,
+    # 前端零感知兼容（旧 client 不读此字段；新 client 可选订阅）
+    llm_summary: str | None = Field(
+        default=None,
+        description="LLM 化的自然语言根因摘要（≤200 字）；None 表示 LLM 不可用/超时/拒答",
+    )
 
 
 class LLMHealth(BaseModel):
