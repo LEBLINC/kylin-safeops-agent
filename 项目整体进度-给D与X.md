@@ -312,5 +312,11 @@ L 域 backlog 清理批，dev 基线 `c6cc2eb`（`1cf4655`，703/17）：
 - **C2 原子化说明**：`chat.py` docstring 注明 check-then-act 可接受理由（DoS 软上限非安全不变量）。
 
 4 新用例全 PASS，5处既有测试签名修复。四道闸全绿，分支未推未合 dev，等架构者审阅。
+## ★之六十二 X 域 H10 审批假成功修复（分支 feat/x-sso-ldap，2026-07-15 待审）
+
+- **H10**（approval.ts）：`approve()`/`reject()` 状态更新移进 try（await 后端成功后），
+  catch 改 `ElMessage.error`+`return` 保持 pending，不再假成功。chat.ts 未碰。
+- vitest +4（approval-h10.test.ts），vue-tsc 0 / eslint 0 / vitest 24→28。C3：仅 approval.ts + 测试。
+- **H11 不含**：mock 出 bundle 需抽 isMockEnabled（9 处静态 import），用户自行处理，已回退 chat.ts。
 
 ---
