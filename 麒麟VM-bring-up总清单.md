@@ -249,7 +249,7 @@ pytest 亲跑复核：656 passed, 17 skipped。新工作留痕号顺延 之五�
 
 | 编号 | 内容 | commit | pytest |
 |---|---|---|---|
-| 之五十八 | v2 签名收尾 2 bug（whoami 恒401 + principal_for_idor roles恒空）修复 + 2 守门测试 | （待提交） | 666/17 |
+| 之五十八 | v2 签名收尾 2 bug（whoami 恒401 + principal_for_idor roles恒空）修复 + 2 守门测试 | `ee5ff7d`（merge dev `09c1afe`） | 666/17 |
 
 ---
 
