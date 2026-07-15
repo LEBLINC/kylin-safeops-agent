@@ -274,3 +274,16 @@ pytest 亲跑：**685/17 → 685/17（config-only）→ 689/17**（分支基线 
 （curl /api/system/metrics 走 v2 签名 / 并发 SSE 触发 503 / 真 LLM 输出凭据触发 redact）一并做。
 
 ---
+
+## ★之六十 C1-C4 已审过合入 dev（审阅窗口 2026-07-15）
+
+审阅窗口亲核（diff/字节级实现/CI 四闸/署名/留痕/合并态 pytest 全绿）→ **no-ff 合入 dev=`de90626` + push origin**。
+合并 commit `de90626`（署名 LEBLINC）。dev 合并态 pytest **689 passed, 17 skipped**，CI 四闸（ruff/ruff-format/mypy/pytest）全 Passed。
+
+**本窗口 2026-07-15 新派发工单（给 D / X）**：
+- **X 域 H3+H4**（`deploy/sso/ldap_client.py`）：H3 空口令 LDAP bind 绕过（`_bind_user`/`authenticate` 补 `if not password: return False`）+ H4 LDAP 明文无 TLS（`ldap3.Server` 补 `use_ssl`/`Tls`，`KYLIN_LDAP_USE_TLS` 开关）。审阅窗口已亲核 ldap_client.py 坐实真缺口。
+- **D 域 H7**（`backend/app/executor/privilege_executor.py`）：`except asyncio.TimeoutError` 补 `proc.kill()` + `await proc.wait()` 杀孤儿 + 流式读输出防大输出内存 DoS。**H8（busy_timeout）不单独派 —— 已在 D 的 B4 durability 工单范围内**（避免重复派单 + 同改 session.py 冲突）。
+
+> 完整状态全景以 `集成对齐备忘.md` §「★完成状态校准快照（dev=de90626，二次刷新）」为当前权威。
+
+---

@@ -326,3 +326,21 @@ pytest 亲跑复核：**689 passed, 17 skipped**（分支独立基线 685 + 4 �
    S9 浅过滤 + 绝不把真实凭据喂给 LLM）。
 
 ---
+
+## ★之六十 C1-C4 已审过合入 dev=`de90626`（审阅窗口 2026-07-15）
+
+审阅窗口亲核合入（no-ff merge `de90626`，push origin，dev 合并态 pytest **689/17**，CI 四闸全绿）。
+
+**C1-C4 无新增 VM 部署项**（纯代码/CI 层），功能项随常规回归验证：
+1. `curl /api/system/metrics` 走真 v2 签名头 → 200 + counters/gauges。
+2. 并发起 >`KYLIN_SSE_MAX_CONN` 个 SSE 连接 → 第 N+1 个收 503。
+3. 真 LLM 驱动含疑似凭据文本工具输出 → `natural_language` 事件 `sensitive_filtered=true` 且 text 已 redact。
+
+**本窗口 2026-07-15 新派发（VM 相关性）**：
+- **D 域 H7**（`privilege_executor.py` 超时杀孤儿 + 防内存 DoS）：VM 实证点 = 沙箱内起长命令触发 timeout，`ps` 确认无孤儿残留。
+- **X 域 H3/H4**（`ldap_client.py` 空口令 bind + LDAP TLS）：VM 实证点 = 真 LDAP server 空口令 bind 拒绝 + `KYLIN_LDAP_USE_TLS=true` 抓包确认加密。
+- **H8（busy_timeout）已并入 D 的 B4 durability 工单**，不单独派。
+
+> 完整状态全景以 `集成对齐备忘.md` §「★完成状态校准快照（dev=de90626）」为当前权威。
+
+---
