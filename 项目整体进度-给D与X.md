@@ -230,3 +230,24 @@ pytest 亲跑复核：661 passed, 17 skipped（分支独立基线 658 + 3 增量
 - pytest 亲跑：666/17（dev 基线 664 + 2 增量 T1/T2）
 
 ---
+
+## ★最新权威状态（分支 `feat/l-b1-b2-frontdoor-wiring`，2026-07-15 之五十九 B1+B2 前门接线）
+
+> 阶段6 唯一卡启动 Blocker：A1(HMAC v2)+A2(wsproxy 真接 LDAP) 已备齐密码学/LDAP 件，
+> 本工单把它们接成生产拓扑（nginx→proxy sidecar→app，非直连绕过）。
+
+- **之五十九**（4 commit）：
+  - `11fa54f` B2：`deploy/proxy/proxy.py` 模块 import 期 fail-fast（ADR-0004 第四道保险，落在真跑
+    LdapClient 的进程）；`KYLIN_PROXY_ALLOW_MOCK=true` 显式 opt-out 供联调/CI；3 用例 T1-T3
+  - `7bea8bf` B1a：新建 `deploy/proxy/kylin-proxy.service`（端口 8080、非 root、EnvironmentFile
+    带外注入密钥）；3 用例 T9-T11
+  - `78e9589` B1b：`deploy/nginx.conf` 加固——443/TLS + upstream 改指向 sidecar:8080（非直连 app
+    的 8000）+ 剥离客户端伪造 X-Auth-*（纵深防御）+ 安全头（HSTS/X-Frame-Options/CSP 等）+
+    `limit_req` 限流；5 用例 T12-T16
+  - `de64c10` B1c：`deploy/install.sh` 装双单元（app+proxy sidecar）+ 建非 root 系统用户（幂等）+
+    生成 `/etc/kylin/proxy.env` 0600 骨架（占位值，不写真密钥）；3 用例 T17-T19
+- pytest 亲跑：680/17（分支独立基线 669 + 11 增量数学吻合）
+- C3 严守：仅 `deploy/proxy/` + `deploy/nginx.conf` + `deploy/install.sh` + `deploy/proxy/tests/`；
+  未碰 `backend/app`（除 proxy.py 一处 fail-fast，非 backend 域）/前端/D 域 sandbox
+
+---

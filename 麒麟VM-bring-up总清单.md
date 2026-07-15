@@ -252,3 +252,25 @@ pytest 亲跑复核：656 passed, 17 skipped。新工作留痕号顺延 之五�
 | 之五十八 | v2 签名收尾 2 bug（whoami 恒401 + principal_for_idor roles恒空）修复 + 2 守门测试 | （待提交） | 666/17 |
 
 ---
+
+## ★最新权威状态（分支 `feat/l-b1-b2-frontdoor-wiring`，2026-07-15 之五十九 B1+B2 前门接线）
+
+> 架构审计报告-154f767 §2 B1+B2 + §6 第一梯队#1：阶段6 唯一卡启动 Blocker。
+> A1(HMAC v2)+A2(wsproxy 真接 LDAP) 已备齐密码学/LDAP 件，本工单接成生产拓扑：
+> nginx(443,TLS) → proxy sidecar(127.0.0.1:8080，真 LDAP+HMAC v2) → app(127.0.0.1:8000)。
+
+| 编号 | 内容 | commit | pytest |
+|---|---|---|---|
+| 之五十九 | B2 proxy.py mock fail-fast（第四道保险）+ B1a proxy sidecar systemd unit + B1b nginx TLS/剥头/安全头/限流 + B1c install.sh 双单元/非root用户/proxy.env骨架 | `11fa54f`+`7bea8bf`+`78e9589`+`de64c10` | 680/17 |
+
+**VM 实证计划**（本机只测模板/dry-run/mock fail-fast，真拓扑闭环需 VM）：
+1. VM 装双 systemd unit（`kylin-safeops.service` + `deploy/proxy/kylin-proxy.service`）
+2. 填 `/etc/kylin/proxy.env` 真密钥/LDAP 配置（`KYLIN_LDAP_MOCK=false`）+ chmod 0600
+3. nginx 配置 443 证书 + `limit_req_zone` 加进 http{} 主配置
+4. 全链路请求 `nginx:443 → proxy:8080 → app:8000`，验证：
+   - 无 Basic Auth → 401 + WWW-Authenticate
+   - 合法 Basic Auth（真 LDAP）→ 200 + 出 trace_id（非 401，证明 HMAC v2 端到端签验通过）
+   - 客户端伪造 `X-Auth-Roles: admin` header → 被 nginx 剥离，仍按真实 LDAP 角色鉴权
+   - `KYLIN_LDAP_MOCK=true` 误启 proxy → systemd 显示 failed（fail-fast 生效）
+
+---
