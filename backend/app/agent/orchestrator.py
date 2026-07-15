@@ -23,6 +23,7 @@ import httpx
 from backend.app.agent.metrics import get_metrics
 from backend.app.agent.ports import AuditSink, EventSink
 from backend.app.agent.rca import NullRCA, RCAEngine
+from backend.app.agent.secret_scan import scan_and_redact
 from backend.app.agent.state_machine import (
     INITIAL_STATE,
     State,
@@ -586,8 +587,13 @@ class Orchestrator:
             # LLM 拒答/超时/无内容 → 不 emit 自然语言（仍 FINISHED，状态机照常）
             return
 
+        # C4（阶段6 第二梯队 H9 输出侧收尾）：summary 是 LLM 生成的自由文本，发前端前
+        # 再做一次确定性凭据扫描（复用 S9 同口径 6 类字段名模式）；命中 → redact +
+        # sensitive_filtered=True（原恒 False 死标志变活）。
+        redacted_summary, hit = scan_and_redact(summary)
+
         # 3) emit natural_language 事件（仅前端聊天区展示，不进审计哈希链 S3 字节级不动）
-        self._emit("natural_language", {"text": summary, "sensitive_filtered": False})
+        self._emit("natural_language", {"text": redacted_summary, "sensitive_filtered": hit})
         # B6 L-C6: 成功路径不增加 fallback_count (synthetic 修正)
 
     async def _emit_rca_summary(
