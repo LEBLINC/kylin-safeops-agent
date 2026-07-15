@@ -424,3 +424,28 @@ AI 署名违规已 amend 清除（filter 前 93da5d1/e052c43 → 重写后 c297c
 截图 + SSE trace 记录进本文档即可。
 
 ---
+
+## ★之六十五 D 域 H7 执行器超时孤儿 + 内存 DoS（2026-07-15，merge da225be，VM 实证已做）
+
+D 域后端执行层硬缺口，**VM 实证完整**（与前序仅含代码缺 VM 项不同），dev 基线 `6d197fd`：
+
+**H7 修复**（`backend/app/executor/privilege_executor.py`）：
+- 孤儿泄漏：原 `except asyncio.TimeoutError` 只 `return _fail(124)`，wait_for 超时仅取消 communicate 协程、底层子进程仍在跑。修法 `_kill_and_reap`：proc.kill() 兜 ProcessLookupError/OSError + `wait_for(proc.wait(), KILL_REAP_TIMEOUT=5s)` 二级超时防 D 态挂死 + proc=None 兜 create 抛。
+- 内存 DoS：原 communicate() 全量读进内存后 _truncate → GB 级 OOM。修法 _read_capped 流式分块（头 8KB，超出边读边丢计 overflow）+ _consume gather 并发 drain stdout+stderr 防管道死锁。
+- `_execute_system_info` 同类隐患附带修：who/uptime 卡 stale utmp 同样泄漏，同样补 _kill_and_reap + proc=None 兜。
+- `_truncate` 签名改 (head, overflow)。
+
+**VM 真机实证（D 在麒麟 V11）** ✅：
+- **Gate A**（孤儿反证）：32 passed；真 `sleep 60` 超时 → kill+wait → returncode 非 None。
+- **Gate B**（内存 cap）：真 `yes` 无限输出 + `_timeout=2` → exit_code=124 / stdout_len=18 / peak_RSS_MB=35.4（解释器基线 = cap 真机坐实）。
+- **Gate B2**（孤儿真杀）：残留 yes 行数=0。
+- **Gate C**（预存 Windows bash 3 失败在 Linux）：3 passed。
+- **麒麟 720 passed / 9 skip 全绿**（D 自跑数据）；本机 pytest 712/18/2。
+
+**O-H7-1 backlog 单列**：Gate B 压测尾 `RuntimeError: Event loop is closed`（transport __del__ 后 FD 到 GC 才释放）是裸 `asyncio.run()` 脚手架产物，非代码 bug。生产长 loop 不触发，必要时再起 FD 卫生工单。
+
+C3：仅 executor + test 2 文件（未碰 session.py / service / frontend / D 其他）。
+CI：ruff/ruff-format/mypy ✅。
+merge commit `da225be` LEBLINC 署名，feature commit `19519d1` 署名 youzWSN640（按修正后的政策：各自用各自 author）。
+
+---

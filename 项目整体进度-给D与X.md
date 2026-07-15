@@ -357,3 +357,24 @@ ruff/ruff-format/mypy ✅；pytest 701 passed + 3 pre-existing 失败（T17/T18/
 - vue-tsc 0 / eslint 0 / vitest 28/28。C3：仅 frontend/src 3 文件。H11 之六十五独立待起。
 
 ---
+
+## ★之六十五 D 域 H7 执行器超时孤儿 + 内存 DoS（feat/D-h7-executor-timeout-kill @19519d1，2026-07-15，merge da225be LEBLINC）
+
+D 域二梯队收口，dev 基线 `6d197fd`（之六十四 D B3/B4 + 之六十三 X UI + 之六十六 X rca summary 已合后），2 文件：
+
+- **H7 孤儿泄漏**（`backend/app/executor/privilege_executor.py::_run_subprocess`）：原 `except asyncio.TimeoutError` 只 `return _fail(124)`，wait_for 超时仅取消 `communicate` 协程、底层子进程仍在跑。修法 `_kill_and_reap`：proc.kill() 兜 ProcessLookupError/OSError + `wait_for(proc.wait(), 5s)` 二级超时防 D 态挂死；proc=None 兜 create 抛。
+- **H7 内存 DoS**（同方法）：原 `communicate()` 全量读进内存后 `_truncate` → GB 级 OOM。改 `_read_capped` 流式分块（头 8KB，超出边读边丢计 overflow）+ `_consume` gather 并发 drain stdout+stderr 防管道死锁。
+- **`_execute_system_info` 同类隐患附带修**：D 主动发现非 L 工单误称 `_run_multi`（仓库无），who/uptime 卡 stale utmp 同样泄漏，同样补 `_kill_and_reap` + `proc=None` 兜。
+
+CI：ruff/ruff-format/mypy ✅；pytest 712 passed（+8）/18 skipped（+1 POSIX-only）/ 3 预存失败（T17/T18/T19 Windows bash 非 D 引入）。
+**VM 实证**：Gate A 真 `sleep 60` 超时 kill+wait returncode 非 None；Gate B 真 `yes` 无限输出 RSS 恒 35MB（内存 cap 真机坐实）；Gate B2 残留 yes=0（孤儿真杀）；Gate C 3 预存在 Linux 3 passed。
+**O-H7-1 观察 → 单列 backlog 不阻断**：Gate B 压测尾 `RuntimeError: Event loop is closed` 是裸 asyncio.run 脚手架产物，生产长 loop 不触发；FD 卫生必要时再起。
+
+C3：仅 executor + test 2 文件。feature 署名 youzWSN640，merge `da225be` LEBLINC。
+**留痕号**：之六十五。H11 顺延**之六十七**（X 之六十七待起：mock-flag.ts 抽离 + 10 处静态 import 改指向；DemoView.vue 已在 router 注册必须一并改）。
+
+## 阶段6 收口全景（截至 dev=da225be）
+
+- 第一梯队 B1+B2+B3+B4 ✅ 全闭合；B1+B2 VM 实证归 D 出报告（与 H7 并行可独立交付）
+- 二梯队：C1-C4 / H3 / H4 / H10 / f62d20f 守卫 / RCA P4 / **H7 / llm_summary** ✅ 全闭合
+- 仍在跑：H15（to_thread 调研 D 完成、L 落地 = 之六十七）、H11（X = 之六十七）、RCA 真 LLM VM 联调（X，独立工单）
