@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import PageHeader from '@/layouts/PageHeader.vue'
 import PageSection from '@/components/PageSection.vue'
 import RiskTag from '@/components/RiskTag.vue'
 import { callTool, getToolRegistry, listToolCalls } from '@/api/tools'
@@ -257,7 +256,6 @@ onMounted(async () => {
 
 <template>
   <div class="ks-page">
-    <PageHeader title="工具调用" subtitle="MCP Tool 注册表 · R0/R1 只读工具支持手动调用" />
 
     <div class="tool-grid">
       <PageSection
@@ -271,16 +269,14 @@ onMounted(async () => {
         <div class="tool-card-body">
           <div class="tool-bottom">
             <RiskTag :level="tool.risk" />
-            <span class="tool-status">MCP Registry</span>
-          </div>
-          <div class="tool-info">
             <div class="tool-pills">
               <span>白名单工具</span>
               <span>强类型参数</span>
             </div>
+          </div>
+          <div class="tool-info">
             <el-button
               v-if="isReadOnly(tool.risk)"
-              size="small"
               type="primary"
               plain
               @click.stop="openCallDialog(tool)"
@@ -292,7 +288,7 @@ onMounted(async () => {
               content="R2+ 变更工具需走 Chat 审批链路，不支持手动调用"
               placement="top"
             >
-              <span><el-button size="small" disabled>调用</el-button></span>
+              <span><el-button disabled>调用</el-button></span>
             </el-tooltip>
           </div>
         </div>
@@ -592,17 +588,20 @@ onMounted(async () => {
 
 .tool-info {
   display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
+  flex: 0 0 auto;
   align-items: flex-end;
-  gap: 14px;
+}
+
+/* 调用按钮放大更醒目 */
+.tool-info :deep(.el-button) {
+  padding: 10px 22px;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .tool-pills {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
   gap: 8px;
 }
 
@@ -619,15 +618,11 @@ onMounted(async () => {
 
 .tool-bottom {
   display: flex;
+  flex: 1;
+  min-width: 0;
   align-items: center;
-  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 10px;
-}
-
-.tool-status {
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 600;
 }
 
 /* 调用弹窗 */

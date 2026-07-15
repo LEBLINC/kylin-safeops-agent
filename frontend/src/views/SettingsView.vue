@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import PageHeader from '@/layouts/PageHeader.vue'
 import PageSection from '@/components/PageSection.vue'
 import { buildApiUrl, request } from '@/api/request'
 
@@ -115,7 +114,6 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="ks-page">
-    <PageHeader title="系统设置" subtitle="当前页面先做只读配置展示，避免误改生产策略" />
 
     <PageSection title="前端运行配置">
       <el-descriptions :column="1" border>

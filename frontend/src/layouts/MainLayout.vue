@@ -5,8 +5,7 @@
  * 全局主布局组件。
  * 当前版本改为浅色后台风格，并增加侧边栏 mouseenter/mouseleave 自动展开/收起交互。
  */
-import { computed, ref } from 'vue'
-import { useChatStore } from '@/stores/chat'
+import { ref } from 'vue'
 import {
   ChatDotRound,
   DataAnalysis,
@@ -18,13 +17,6 @@ import {
   VideoPlay,
   Warning
 } from '@element-plus/icons-vue'
-
-const chatStore = useChatStore()
-const identityText = computed(() => {
-  const u = chatStore.currentUser || 'dev'
-  const roles = chatStore.currentUserRoles.length ? chatStore.currentUserRoles.join(', ') : chatStore.currentUserRole || 'viewer'
-  return `${u} (${roles})`
-})
 
 const menus = [
   { title: '仪表盘', icon: Monitor, path: '/dashboard' },
@@ -76,18 +68,6 @@ const sidebarExpanded = ref(false)
     </aside>
 
     <section class="main">
-      <header class="topbar">
-        <div class="environment">
-          <span class="env-dot" />
-          麒麟高级服务器版 V11 / LoongArch 演示环境
-        </div>
-        <div class="top-actions">
-          <el-tag type="info" effect="light" size="small">{{ identityText }}</el-tag>
-          <el-tag type="success" effect="light">Agent Online</el-tag>
-          <el-tag type="warning" effect="light">安全护栏已启用</el-tag>
-        </div>
-      </header>
-
       <main class="content">
         <router-view :key="$route.fullPath" />
       </main>
@@ -218,41 +198,6 @@ const sidebarExpanded = ref(false)
 .main {
   min-width: 0;
 }
-.topbar {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  height: 64px;
-  border-bottom: 1px solid rgba(219, 227, 239, 0.82);
-  padding: 0 28px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  color: var(--ks-text-muted);
-  background: rgba(255, 255, 255, 0.78);
-  backdrop-filter: blur(14px);
-}
-.environment {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  font-weight: 600;
-}
-.env-dot {
-  width: 9px;
-  height: 9px;
-  display: inline-block;
-  margin-right: 10px;
-  border-radius: 999px;
-  background: var(--ks-success);
-  box-shadow: 0 0 0 6px rgba(22, 163, 74, 0.12);
-}
-.top-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
 .content {
   padding: 26px;
 }
@@ -264,9 +209,6 @@ const sidebarExpanded = ref(false)
   }
   .sidebar {
     display: none;
-  }
-  .topbar {
-    padding: 0 16px;
   }
   .content {
     padding: 18px;

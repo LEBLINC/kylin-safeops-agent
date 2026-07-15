@@ -80,12 +80,7 @@ function curlExample(tool: ToolDefinition): string {
 <template>
   <div class="ks-page">
     <PageHeader
-      v-if="isCallId"
-      title="工具调用详情"
-      subtitle="查看单次 MCP Tool 的参数、结果、耗时与风险等级"
-    />
-    <PageHeader
-      v-else
+      v-if="!isCallId"
       :title="toolDef?.tool ?? param"
       subtitle="工具注册信息 · 参数 Schema · 调用示例"
     />

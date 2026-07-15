@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import PageHeader from '@/layouts/PageHeader.vue'
 import PageSection from '@/components/PageSection.vue'
 import EvidenceTree from '@/components/EvidenceTree.vue'
 import RiskTag from '@/components/RiskTag.vue'
@@ -89,7 +88,6 @@ async function analyze() {
 
 <template>
   <div class="ks-page">
-    <PageHeader title="根因分析 RCA" subtitle="独立 RCA 分析 · 选择问题类型发起根因分析" />
 
     <PageSection title="发起分析" subtitle="选择问题类型并输入描述，调用后端 RCA 引擎生成根因分析报告。">
       <div class="form-row">
