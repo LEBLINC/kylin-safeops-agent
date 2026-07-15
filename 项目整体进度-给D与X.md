@@ -287,3 +287,15 @@ pytest 亲跑：**685/17 → 685/17（config-only）→ 689/17**（分支基线 
 > 完整状态全景以 `集成对齐备忘.md` §「★完成状态校准快照（dev=de90626，二次刷新）」为当前权威。
 
 ---
+
+## ★之六十一 X 域 H3+H4 LDAP 安全修复（分支 feat/x-sso-ldap @ `9434572`，2026-07-15 待审）
+
+- **H3 空口令 bind 绕过**（`9434572`）：`deploy/sso/ldap_client.py` `authenticate`/`_bind_user` 入口补
+  `if not password: return False`，mock+真模式一致。
+- **H4 LDAP 明文无 TLS**（`9434572`）：`_tls_enabled()`+`_build_server()` helper，`ldaps://` 或
+  `KYLIN_LDAP_USE_TLS=true` → `use_ssl=True`+`Tls(CERT_REQUIRED)`+可选 `KYLIN_LDAP_CA_CERT`。
+
+pytest deploy/sso 1→11（+10 用例）。C3 严守：仅 `deploy/sso/ldap_client.py` + 对应 tests；
+未碰 backend/frontend/deploy/proxy。待 L 审合（署名合入改写 LEBLINC）。
+
+---
