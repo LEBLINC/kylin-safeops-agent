@@ -357,3 +357,21 @@ pytest 亲跑复核：**689 passed, 17 skipped**（分支独立基线 685 + 4 �
 C3 边界：仅 `deploy/sso/ldap_client.py` + 对应 tests，未碰 backend/frontend/deploy/proxy。
 
 ---
+
+## ★之六十二（分支 `feat/l-rca-llm-p4-metrics`，2026-07-15 L 域 RCA LLM P4 真接 + C1 summarize 埋点 + C2 原子化说明）
+
+> dev 基线 `c6cc2eb`（origin/dev=`985b160`），commit `1cf4655`，pytest 703/17。
+
+**RCA P4**：`orchestrator._emit_rca_summary` 接收 LLM.summarize 返回值（原裸 await 丢弃），
+成功路径 audit `rca_llm_summary` + `scan_and_redact` C4 兜底 + 返回 redacted summary；
+`_execute_batch` 合并一次 emit `{"report":..., "llm_summary":...}`（NullRCA→{}→falsy→跳过不回归）。
+adapter/real_client 签名升级，真 LLM 可把 RCA 结构化报告拼进 prompt。
+
+**C1 summarize 埋点**：`_emit_natural_language`/`_emit_rca_summary` 两处补 `llm.calls`/`llm.failures` 计数。
+
+**C2 原子化说明**（不实现锁）：docstring 注明 DoS 软上限非安全不变量，asyncio 单线程竞态窗口极小。
+
+4 新用例（T1-T4 全 PASS）+ 5 处 inline `summary_fn` 签名修复（`**_kwargs`）。
+分支未推未合 dev，等架构者审阅。
+
+---
