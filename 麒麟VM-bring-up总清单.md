@@ -411,3 +411,16 @@ CI：ruff/ruff-format/mypy ✅；pytest 701 passed + 3 预存失败（T17/T18/T1
 AI 署名违规已 amend 清除（filter 前 93da5d1/e052c43 → 重写后 c297c28/301eb34，代码 tree 字节级不变，L 亲核 range-diff 坐实）。merge commit `b671e5d`，LEBLINC 署名。
 
 ---
+
+## ★之六十六 X 前端消费 rca llm_summary（分支 feat/x-sso-ldap，2026-07-15 待审）
+
+| 之六十六 | 前端消费 rca llm_summary（AI 根因摘要展示） | — | vitest 28/28 |
+
+**VM 实证点（RCA 真 LLM 端到端联调，记录性不合 dev）**：
+1. WSL/VM 真接 LLM（`KYLIN_LLM_PROVIDER=real`）触发磁盘满类场景（工具真执行出非空 RCA 报告）。
+2. SSE `rca` 事件 `llm_summary` 字段有值（LLM 自然语言根因摘要）。
+3. 前端 ChatView「RCA 证据链」区出现「AI 根因摘要」高亮块，内容为 LLM 文本。
+4. 反向：LLM 拒答/注入拦截场景 → 无 llm_summary 字段 → 前端不渲染该块（零感知兼容）。
+截图 + SSE trace 记录进本文档即可。
+
+---

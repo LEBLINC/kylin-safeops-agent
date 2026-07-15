@@ -52,6 +52,7 @@ export interface ChatPersistState {
   approvalByTrace: Record<string, InlineApproval | null>
   auditNodesByTrace: Record<string, AuditAppendedData[]>
   rcaReportByTrace: Record<string, RcaReport | null>
+  rcaLlmSummaryByTrace: Record<string, string | null>
 }
 
 /**
