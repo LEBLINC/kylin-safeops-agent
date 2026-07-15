@@ -357,3 +357,13 @@ pytest 亲跑复核：**689 passed, 17 skipped**（分支独立基线 685 + 4 �
 C3 边界：仅 `deploy/sso/ldap_client.py` + 对应 tests，未碰 backend/frontend/deploy/proxy。
 
 ---
+
+## ★之六十二 X 域 H10 审批假成功修复（分支 feat/x-sso-ldap，2026-07-15 待审）
+
+| 之六十二 | H10 审批假成功修复（approval.ts）| — | vitest 24→28 |
+
+纯前端逻辑修复（审批后端失败保持 pending + 弹错误提示），无新增 VM 部署项。
+功能验证：审批页在后端不可用时点通过/拒绝 → 状态仍待审批 + 顶部弹错误 toast（不假成功）。
+C3 边界：仅 `frontend/src/stores/approval.ts` + 测试。**H11 mock 出 bundle 本工单不含**（用户自行处理）。
+
+---

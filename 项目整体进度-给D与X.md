@@ -299,3 +299,12 @@ pytest deploy/sso 1→11（+10 用例）。C3 严守：仅 `deploy/sso/ldap_clie
 未碰 backend/frontend/deploy/proxy。待 L 审合（署名合入改写 LEBLINC）。
 
 ---
+
+## ★之六十二 X 域 H10 审批假成功修复（分支 feat/x-sso-ldap，2026-07-15 待审）
+
+- **H10**（approval.ts）：`approve()`/`reject()` 状态更新移进 try（await 后端成功后），
+  catch 改 `ElMessage.error`+`return` 保持 pending，不再假成功。chat.ts 未碰。
+- vitest +4（approval-h10.test.ts），vue-tsc 0 / eslint 0 / vitest 24→28。C3：仅 approval.ts + 测试。
+- **H11 不含**：mock 出 bundle 需抽 isMockEnabled（9 处静态 import），用户自行处理，已回退 chat.ts。
+
+---
