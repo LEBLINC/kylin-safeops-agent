@@ -299,3 +299,18 @@ pytest deploy/sso 1→11（+10 用例）。C3 严守：仅 `deploy/sso/ldap_clie
 未碰 backend/frontend/deploy/proxy。待 L 审合（署名合入改写 LEBLINC）。
 
 ---
+
+## ★最新权威状态（分支 `feat/l-rca-llm-p4-metrics`，2026-07-15 之六十二 L 域 RCA LLM P4 真接 + C1 summarize 埋点 + C2 原子化说明）
+
+L 域 backlog 清理批，dev 基线 `c6cc2eb`（`1cf4655`，703/17）：
+
+- **RCA P4**：`orchestrator._emit_rca_summary` 接收返回值，成功路径 emit `rca.llm_summary` +
+  audit `rca_llm_summary`；`adapter.summarize` 透传 `evidence`/`structured_report`；
+  `real_client.summarize` 签名升级，`structured_report` 拼进 prompt。
+- **C1 summarize 埋点**：`_emit_natural_language` + `_emit_rca_summary` 两处补 `llm.calls`/
+  `llm.failures` 计数（与 `plan()` 同口径，消除 metrics 监控盲区）。
+- **C2 原子化说明**：`chat.py` docstring 注明 check-then-act 可接受理由（DoS 软上限非安全不变量）。
+
+4 新用例全 PASS，5处既有测试签名修复。四道闸全绿，分支未推未合 dev，等架构者审阅。
+
+---

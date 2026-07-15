@@ -37,11 +37,14 @@ CompletionFn: TypeAlias = Callable[[list[Message]], Awaitable[str]]
 # 可注入的流式补全函数：输入消息列表，异步产出文本增量片段。
 StreamFn: TypeAlias = Callable[[list[Message]], AsyncIterator[str]]
 
-# 可注入的自然语言总结函数：输入 (tool_results, user_intent) 返回 str | None。
-# 返 None 表示 LLM 拒答/超时/无内容（前端聊天区不显示自然语言，状态机照常 FINISHED）。
-# 默认实现见 LLMAdapter._default_summary_fn（确定性、CI 友好）；真 LLM 路径由 LLMAdapter
-# 装配时通过 summary_fn=RealLLMClient.summarize_fn 注入（D VM evidence 后接）。
-SummaryFn: TypeAlias = Callable[[list[dict], str], Awaitable[str | None]]
+# 可注入的自然语言总结函数：输入 (tool_results, user_intent, *, evidence=, structured_report=)
+# 返回 str | None。返 None 表示 LLM 拒答/超时/无内容（前端聊天区不显示自然语言，
+# 状态机照常 FINISHED）。默认实现见 LLMAdapter._default_summary_fn（确定性、CI 友好）；
+# 真 LLM 路径由 LLMAdapter 装配时通过 summary_fn=RealLLMClient.summarize 注入。
+# RCA P4：所有实现（default/fake/real）统一接受 evidence/structured_report 关键字参数
+# （fixture/fake 忽略，real 用于把 RCA 结构化报告拼进 prompt）；用 Callable[..., ...] 放宽
+# 精确形参签名检查（本仓其余可注入函数也用宽松 TypeAlias，非新引入模式）。
+SummaryFn: TypeAlias = Callable[..., Awaitable[str | None]]
 
 
 @dataclass
@@ -276,11 +279,20 @@ class LLMAdapter:
         async for piece in self._stream_fn(convo):
             yield piece
 
-    async def _default_summary_fn(self, tool_results: list[dict], user_intent: str) -> str | None:
+    async def _default_summary_fn(
+        self,
+        tool_results: list[dict],
+        user_intent: str,
+        *,
+        evidence: list[dict] | None = None,
+        structured_report: dict | None = None,
+    ) -> str | None:
         """默认自然语言总结实现（确定性，CI 友好）。
 
         把 tool_results 里的工具名去重排序，输出 "已完成:<tool_names>"。
         真实 LLM 路径走 summary_fn 注入（RealLLMClient.summarize / fake _fake_summary_fn）。
+        RCA P4：evidence/structured_report 本实现不使用（确定性桩不产结构化摘要），
+        接受仅为与 SummaryFn 签名一致，避免调用方按 RCA 路径传参时 TypeError。
         """
         # 防御性：tool_results 可能是 None / 空，单测覆盖
         if not tool_results:
@@ -303,10 +315,16 @@ class LLMAdapter:
         间接注入防御纵深由 orchestrator 在调本方法**之前**先跑 detect_tool_output_injection，
         LLM 喂的 tool_results 已 S9 浅过滤 + 不可信（is_untrusted）封装。
 
-        X P6: evidence + structured_report 可选 — RCA 路径用，其他路径默认 None.
+        evidence + structured_report 可选 — RCA 路径用（_emit_rca_summary 传入），
+        其他路径（_emit_natural_language）默认 None。
+        RCA P4：真接 — 透传给 _summary_fn，让 RealLLMClient.summarize 能把结构化报告
+        拼进 prompt；fixture/fake 实现忽略这两个参数（向后兼容，签名统一接受不 raise）。
         """
         if self._summary_fn is None:
             return None
-        # X P6 修真: 忽略 evidence/structured_report (留给未来 P4 真 LLM 增强).
-        # 当前 _summary_fn 签名仅 (tool_results, user_intent) 保持向后兼容.
-        return await self._summary_fn(tool_results, user_intent)
+        return await self._summary_fn(
+            tool_results,
+            user_intent,
+            evidence=evidence,
+            structured_report=structured_report,
+        )

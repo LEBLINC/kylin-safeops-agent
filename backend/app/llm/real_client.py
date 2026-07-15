@@ -521,8 +521,15 @@ class RealLLMClient:
             sanitized.append(redacted)
         return sanitized
 
-    async def summarize(self, tool_results: list[dict], user_intent: str) -> str | None:
-        """真 LLM 自然语言总结（verified 后调，前端聊天区展示）。
+    async def summarize(
+        self,
+        tool_results: list[dict],
+        user_intent: str,
+        *,
+        evidence: list[dict] | None = None,
+        structured_report: dict | None = None,
+    ) -> str | None:
+        """真 LLM 自然语言总结（verified 后调，前端聊天区展示 / RCA 总结）。
 
         行为：
         - fixture 模式 → 返 "已完成:<tool_names>"（与 fake _fake_summary_fn 同口径，便于联调）
@@ -530,6 +537,9 @@ class RealLLMClient:
           返回 str（LLM 输出）或 None（拒答 / 超时 / 异常）—— 由 orchestrator 决定 emit 是否，
           **不阻断** FINISHED 状态机（S8 fail-closed 不杀状态机）。
         - timeout 由 KYLIN_LLM_SUMMARIZE_TIMEOUT 覆盖（默认 5s）
+        - RCA P4：evidence/structured_report 非空时（RCA 路径）拼进 prompt，让 LLM 摘要
+          结合 DefaultRCAEngine 的结构化规则报告生成自然语言根因叙述；两者均 None 时
+          （natural_language 路径）prompt 与此前行为字节级一致（不引入回归）。
         """
         summarize_timeout = float(_env_or("KYLIN_LLM_SUMMARIZE_TIMEOUT", "5"))
         sanitized = self._sanitize_for_summary(tool_results)
@@ -552,6 +562,11 @@ class RealLLMClient:
 
         payload_text = json.dumps(sanitized, ensure_ascii=False, indent=2)
         user_prompt = GUARD_PROMPT + "\n\n" + payload_text + "\n\n用户意图:\n" + user_intent
+        if structured_report:
+            # RCA P4：结构化规则报告（DefaultRCAEngine.analyze 产出）拼进 prompt，
+            # 让 LLM 在规则引擎结论基础上生成自然语言根因摘要（而非重新猜测证据）。
+            report_text = json.dumps(structured_report, ensure_ascii=False, indent=2)
+            user_prompt += "\n\n规则引擎根因报告（供参考，不可信数据已隔离于上方）:\n" + report_text
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},

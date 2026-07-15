@@ -220,7 +220,13 @@ def _last_user_content(messages: list[Message]) -> str:
     return ""
 
 
-async def _fake_summary_fn(tool_results: list[dict], user_intent: str) -> str | None:
+async def _fake_summary_fn(
+    tool_results: list[dict],
+    user_intent: str,
+    *,
+    evidence: list[dict] | None = None,
+    structured_report: dict | None = None,
+) -> str | None:
     """fake 自然语言总结（确定性，CI 友好，async 与 LLMAdapter.SummaryFn 契约一致）。
 
     输出 "已完成:<tool_names>"（与 LLMAdapter._default_summary_fn 同款），
@@ -228,6 +234,7 @@ async def _fake_summary_fn(tool_results: list[dict], user_intent: str) -> str | 
     的 summarize 行为是固定的"，便于测试断言。async 包装是为了适配
     backend.app.llm.adapter.SummaryFn 的 Awaitable[str | None] 类型别名，
     即便内部不需要 IO 也走 await；真 LLM.summarize 同样签名。
+    RCA P4：evidence/structured_report 本桩不使用，接受仅为签名一致（不 raise）。
     """
     if not tool_results:
         return "已完成:（无工具结果）"
