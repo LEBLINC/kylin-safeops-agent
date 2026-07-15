@@ -320,3 +320,18 @@ L 域 backlog 清理批，dev 基线 `c6cc2eb`（`1cf4655`，703/17）：
 - **H11 不含**：mock 出 bundle 需抽 isMockEnabled（9 处静态 import），用户自行处理，已回退 chat.ts。
 
 ---
+
+## ★之六十三 X 域 UI 视觉优化批（feat/x-sso-ldap @44cf60d，2026-07-15，merge 1b591d4）
+
+X 域前端视觉改进，dev 基线 `2e140ab`（之六十二合入后），本批 11 文件全在 `frontend/src/`：
+
+- **顶栏清理**：`MainLayout.vue` 删环境标识条（麒麟版本 / Agent Online / 安全护栏 tag），简化布局
+- **8 页页头清理**：删各页固定 `PageHeader`；`ApprovalView` 刷新按钮移至 `.approval-toolbar`（功能保留）；`ToolDetailView` 保留动态工具名 PageHeader
+- **ChatView**：会话列表只留标题；hover 上浮裁切修复（padding-top 6px）；下拉菜单美化（图标 + 圆角 + 删除红底）
+- **ToolsView**：删 `MCP Registry` 字样；pill 移位；调用按钮放大
+- **DashboardView**：风险环形图 `riskColor/riskLabel` 扩充 `low/medium/high/critical` 键 + toLowerCase fallback（兼容后端两套 key）；终态色系统一
+- **PolicyView**：严重性列改 `<el-tag>`（critical 红 / high 橙 / medium 蓝 / low 灰）
+- **style.css**：主按钮蓝紫渐变柔化（`.is-plain` 排除）
+
+vue-tsc 0 / eslint 0 / vitest 28/28 / build 通过。C3 严守：全 frontend/src/，未碰 backend/deploy/D域。
+**留痕号**：之六十三（H11 取之六十四）。no-ff 合入 dev，merge commit `1b591d4`，LEBLINC 署名。

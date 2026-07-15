@@ -382,3 +382,10 @@ adapter/real_client 签名升级，真 LLM 可把 RCA 结构化报告拼进 prom
 C3 边界：仅 `frontend/src/stores/approval.ts` + 测试。**H11 mock 出 bundle 本工单不含**（用户自行处理）。
 
 ---
+
+## ★之六十三 X 域 UI 视觉优化批（2026-07-15，merge 1b591d4，无新 VM 部署项）
+
+X 域前端视觉调整批次（MainLayout 顶栏 + 8 页页头清理 + 仪表盘配色 + 按钮柔化），
+**不含新增 VM 部署组件、端口、证书、systemd 单元或环境变量**，VM bring-up 清单本条目无实质变化。
+
+---
