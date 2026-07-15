@@ -267,3 +267,25 @@ def test_secure_perms_not_fail_closed_no_raise_on_chmod_failure(
 
     monkeypatch.setattr(session_mod.os, "chmod", _bad_chmod)
     session_mod._secure_perms(db, fail_closed=False)  # 不应抛
+
+
+def test_connect_sets_durability_pragmas(tmp_path: Path) -> None:
+    """B4 durability：connect() 建立的连接必须落齐 WAL + FULL + busy_timeout。
+
+    把 durability 下沉到连接工厂本身（不依赖调用方记得包 SqliteAuditSink），
+    掉电场景下 synchronous=FULL 保证已 commit 的审计记录真落盘；
+    busy_timeout 让并发写在锁竞争下等待而非立即 SQLITE_BUSY。
+    """
+    from backend.app.db.session import connect
+
+    conn = connect(tmp_path / "durability.db", fail_closed=False)
+    try:
+        journal = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        synchronous = conn.execute("PRAGMA synchronous").fetchone()[0]
+        busy_timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+    finally:
+        conn.close()
+
+    assert str(journal).lower() == "wal"
+    assert synchronous == 2  # 2 == FULL
+    assert busy_timeout == 5000

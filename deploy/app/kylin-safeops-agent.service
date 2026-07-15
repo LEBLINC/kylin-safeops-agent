@@ -29,7 +29,11 @@ StandardError=journal
 SyslogIdentifier=kylin-safeops-agent
 
 # ── 安全加固 ──────────────────────────────────────────────
-NoNewPrivileges=yes
+# 注意：本单元【故意不设】NoNewPrivileges——app 进程需保留 setuid 能力，
+# 才能经 sudo 调 wrapper（deploy/sandbox/kylin-safeops-run.sh）拉起沙箱。
+# NoNewPrivileges 会让内核吞掉 sudo 的 setuid 提权，沙箱一开则所有需提权
+# 工具全失败（B3 麒麟 VM 实证坐实）。真正的 NNP 隔离在 wrapper 内层
+# systemd-run，施加到【被执行的工具】而非 app 进程本身，删此处不削弱沙箱。
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
