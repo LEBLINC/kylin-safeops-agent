@@ -43,11 +43,13 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
+from backend.app.agent.metrics import get_metrics
 from backend.app.agent.ports import AuditSink
 from backend.app.api.app import get_audit, get_bus, get_gateway, get_registry
 from backend.app.api.deps import verify_token
 from backend.app.api.event_bus import EventBus
 from backend.app.api.schemas import (
+    MetricsResponse,
     OverviewHistoryResponse,
     ReadinessResponse,
     ServiceStatus,
@@ -372,6 +374,26 @@ def _hours_to_timedelta(hours: int):  # type: ignore[no-untyped-def]
     import datetime as _dt
 
     return _dt.timedelta(hours=hours)
+
+
+# ============================================================
+# C1（阶段6 第二梯队）：自研轻量指标端点
+# ============================================================
+
+
+@router.get("/metrics", response_model=MetricsResponse)
+async def get_metrics_endpoint(
+    _user: str = Depends(verify_token),
+) -> MetricsResponse:
+    """GET /api/system/metrics：暴露 agent/metrics.py 的进程内 counter/gauge 快照。
+
+    授权：与 /overview /stats 同层，走 verify_token（proxy 模式需反代签名身份）。
+    """
+    snapshot = get_metrics().snapshot()
+    return MetricsResponse(
+        counters=snapshot["counters"],  # type: ignore[arg-type]
+        gauges=snapshot["gauges"],  # type: ignore[arg-type]
+    )
 
 
 # ============================================================

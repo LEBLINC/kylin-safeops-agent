@@ -20,8 +20,10 @@ from collections.abc import Sequence
 
 import httpx
 
+from backend.app.agent.metrics import get_metrics
 from backend.app.agent.ports import AuditSink, EventSink
 from backend.app.agent.rca import NullRCA, RCAEngine
+from backend.app.agent.secret_scan import scan_and_redact
 from backend.app.agent.state_machine import (
     INITIAL_STATE,
     State,
@@ -124,6 +126,8 @@ class Orchestrator:
         if not is_valid_transition(self.state, dst):
             raise RuntimeError(f"illegal transition {self.state.value} -> {dst.value}")
         self.state = dst
+        # C1：编排状态机各阶段计数（埋点，不影响状态机语义）
+        get_metrics().inc(f"orchestrator.state.{dst.value}")
 
     def _append_audit(
         self,
@@ -152,7 +156,10 @@ class Orchestrator:
             prev_hash=self._prev_hash,
             curr_hash=curr_hash,
         )
+        # C1：审计 append 延迟埋点（gauge，反映最近一次落库耗时，毫秒）
+        _t0 = time.monotonic()
         self._audit.append(record)
+        get_metrics().set_gauge("audit.append_latency_ms", (time.monotonic() - _t0) * 1000)
         self._prev_hash = curr_hash
         self._seq += 1
         # 审计增长本身是一个流事件（与状态无关，统一推送）
@@ -215,9 +222,12 @@ class Orchestrator:
             )
 
         # 规划：LLM 网络异常 / rate-limit / token-cap → error 事件 + 审计并终止
+        # C1：LLM 调用次数/失败数埋点
+        get_metrics().inc("llm.calls")
         try:
             intent = await self._llm.plan(messages)
         except (httpx.HTTPError, RuntimeError) as exc:
+            get_metrics().inc("llm.failures")
             self._append_audit({"error": str(exc), "phase": self.state.value})
             self._emit("error", {"message": str(exc), "phase": self.state.value})
             return self.state
@@ -247,8 +257,10 @@ class Orchestrator:
                 try:
                     feedback = wrap_many_for_feedback(observations)
                     convo = [*convo, {"role": "user", "content": feedback}]
+                    get_metrics().inc("llm.calls")
                     current = await self._llm.plan(convo)
                 except (httpx.HTTPError, RuntimeError) as exc:
+                    get_metrics().inc("llm.failures")
                     self._append_audit({"error": str(exc), "phase": self.state.value})
                     self._emit("error", {"message": str(exc), "phase": self.state.value})
                     return self.state
@@ -575,8 +587,13 @@ class Orchestrator:
             # LLM 拒答/超时/无内容 → 不 emit 自然语言（仍 FINISHED，状态机照常）
             return
 
+        # C4（阶段6 第二梯队 H9 输出侧收尾）：summary 是 LLM 生成的自由文本，发前端前
+        # 再做一次确定性凭据扫描（复用 S9 同口径 6 类字段名模式）；命中 → redact +
+        # sensitive_filtered=True（原恒 False 死标志变活）。
+        redacted_summary, hit = scan_and_redact(summary)
+
         # 3) emit natural_language 事件（仅前端聊天区展示，不进审计哈希链 S3 字节级不动）
-        self._emit("natural_language", {"text": summary, "sensitive_filtered": False})
+        self._emit("natural_language", {"text": redacted_summary, "sensitive_filtered": hit})
         # B6 L-C6: 成功路径不增加 fallback_count (synthetic 修正)
 
     async def _emit_rca_summary(

@@ -12,6 +12,14 @@ files = ["backend/app", "deploy/sso", "deploy/proxy"]
 exclude = ["deploy/sso/tests", "deploy/proxy/tests"]  # B5 commit 1 + deploy tests 目录不进 mypy
 explicit_package_bases = true   # 多个 deploy 目录同名 module 冲突解决（B5 commit 1）
 
+# C3（阶段6 第二梯队）：deploy/proxy 经 deploy.sso.ldap_client 传递 import ldap3；
+# ldap3 无类型 stub（types-ldap3 未装，LoongArch 离线部署不引入新依赖）。
+# 该库本身缺 stub（非本仓代码问题），用 per-module override 精准消音，
+# 不碰 deploy/sso/ldap_client.py（X 域文件，C3 边界不可越）。
+[[tool.mypy.overrides]]
+module = "ldap3"
+ignore_missing_imports = true
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"

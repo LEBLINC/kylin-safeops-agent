@@ -10,11 +10,12 @@ L-H1 IDOR 修复：body.session_id 若传 → store.assert_owner 校验。
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from backend.app.agent.orchestrator import Orchestrator
 from backend.app.agent.ports import AuditSink
@@ -97,14 +98,25 @@ async def post_chat(
     )
 
 
-@router.get("/{trace_id}/events")
+@router.get("/{trace_id}/events", response_model=None)
 async def get_events(
     trace_id: str,
     request: Request,
     _user: str = Depends(verify_token),
     bus: EventBus = Depends(get_bus),
-) -> StreamingResponse:
-    """SSE 事件流：消费 trace_id 队列推前端，检测断连即清理队列。"""
+) -> StreamingResponse | JSONResponse:
+    """SSE 事件流：消费 trace_id 队列推前端，检测断连即清理队列。
+
+    C2（阶段6 第二梯队）：新连接前查 bus.active_count，达 KYLIN_SSE_MAX_CONN
+    上限（默认100）→ 拒绝 503（防连接耗尽 DoS）。复用 event_bus.py 现有
+    active_count（与 readiness 端点 T5/T6 同一口径），不新增独立计数器。
+    """
+    max_conn = int(os.environ.get("KYLIN_SSE_MAX_CONN", "100") or "100")
+    if bus.active_count >= max_conn:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "SSE connection limit reached", "active_count": bus.active_count},
+        )
 
     async def _event_source() -> AsyncIterator[str]:
         try:

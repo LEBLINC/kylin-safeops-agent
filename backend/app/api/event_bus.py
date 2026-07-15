@@ -19,6 +19,7 @@ import logging
 import os
 from collections.abc import AsyncIterator
 
+from backend.app.agent.metrics import get_metrics
 from backend.app.contracts.stream import StreamEvent
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,8 @@ class EventBus:
         """为 trace_id 创建事件队列。重复创建则复用已有队列。"""
         if trace_id not in self._queues:
             self._queues[trace_id] = asyncio.Queue(maxsize=self._maxsize or 0)
+        # C1：SSE 活跃连接数埋点（gauge，与 active_count 同口径）
+        get_metrics().set_gauge("sse.active_count", len(self._queues))
         return self._queues[trace_id]
 
     def get(self, trace_id: str) -> asyncio.Queue[StreamEvent | None] | None:
@@ -89,6 +92,7 @@ class EventBus:
     def remove(self, trace_id: str) -> None:
         """移除 trace_id 队列（清理资源）。"""
         self._queues.pop(trace_id, None)
+        get_metrics().set_gauge("sse.active_count", len(self._queues))
 
     def drain_all(self) -> int:
         """L-B4-2：lifespan shutdown 阶段移除所有队列，返回移除数。
@@ -99,6 +103,7 @@ class EventBus:
         keys = list(self._queues.keys())
         for key in keys:
             self._queues.pop(key, None)
+        get_metrics().set_gauge("sse.active_count", len(self._queues))
         return len(keys)
 
     @property

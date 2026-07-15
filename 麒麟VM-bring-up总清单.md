@@ -274,3 +274,55 @@ pytest 亲跑复核：656 passed, 17 skipped。新工作留痕号顺延 之五�
    - `KYLIN_LDAP_MOCK=true` 误启 proxy → systemd 显示 failed（fail-fast 生效）
 
 ---
+
+## ★最新权威状态（分支 `feat/l-stage6-t2-observability`，2026-07-15 之六十 C1-C4 可观测性+CI keystone+SSE封顶+H9收尾）
+
+> 架构者阶段6 第二梯队旗舰工单：H14(SSE队列有界)/H16(日志集中) 各留半个窄缺口 + mypy 认证源码
+> 从未覆盖 + H9(自然语言总结)sensitive_filtered 死标志。dev 基线 `2aaa252`（=origin/dev）。
+
+| 编号 | 内容 | commit | pytest |
+|---|---|---|---|
+| 之六十 | C1 metrics + C2 SSE上限 | `860d4ce` | 685/17 |
+| 之六十 | C3 mypy 补 deploy/proxy | `7e3f6bc` | 685/17（config-only） |
+| 之六十 | C4 H9 输出侧凭据扫描 | `9f3779a` | 689/17 |
+
+**C1**：`backend/app/agent/metrics.py` 自研 Metrics（counter/gauge，勿引 prometheus_client 避
+LoongArch 离线 wheel 风险）；埋点 orchestrator._goto 状态计数、LLM 调用/失败数、审计 append 延迟
+gauge、event_bus SSE active_count gauge；新增 `GET /api/system/metrics` 走 verify_token。
+
+**C2**：`chat.py::get_events` 新连接前查 `bus.active_count`，达 `KYLIN_SSE_MAX_CONN`（默认100）→
+503（防连接耗尽 DoS），复用现有 active_count，释放后可再连。
+
+**C3**：`.pre-commit-config.yaml` mypy files 正则加 `deploy/proxy`（exclude tests/）；
+`pyproject.toml` 加 `[[tool.mypy.overrides]] module="ldap3"` 消音第三方 stub 缺失（不碰
+`deploy/sso/ldap_client.py` 源码，X 域边界）；`deploy/app` 无 .py 文件不需要加。mypy deploy/proxy
+4 源文件 Success: no issues found。
+
+**C4**：`backend/app/agent/secret_scan.py` 新增 `scan_and_redact`（与 audit_logger 同口径 6 类
+字段名的正则扫描）；`orchestrator.py::_emit_natural_language` summary 发前端前先扫，命中 → redact
++ `sensitive_filtered=True`（原恒 False 死标志变活）。
+
+**VM 实证计划**（本次纯代码/CI 层收尾，不涉及新部署拓扑，无新增 VM 验证项）：
+沿用之五十九 VM 实证计划（nginx:443→proxy:8080→app:8000），本工单新增内容为纯软件层
+（metrics/SSE cap/mypy/凭据扫描），可在阶段5/6 常规回归中随全链路一并验证：
+1. `curl /api/system/metrics`（proxy 模式需带 v2 签名头）应返回 counters/gauges 两键非空。
+2. 并发起 >`KYLIN_SSE_MAX_CONN` 个 SSE 连接，验证第 N+1 个连接收到 503。
+3. LLM 真接后驱动一次含疑似凭据文本的工具输出，观察 `natural_language` SSE 事件
+   `sensitive_filtered=true` 且 text 已 redact。
+
+pytest 亲跑复核：**689 passed, 17 skipped**（分支独立基线 685 + 4 增量数学吻合 ✅，685 = dev 基线
+680（=之五十九収口值）+ 5（C1+C2 用例））。
+
+**C3 域边界**：仅 `backend/app/{agent,api}` + `.pre-commit-config.yaml` + `pyproject.toml` +
+`backend/tests`。未碰 `backend/app/db`（D 正在动）、`deploy/sandbox`、frontend/、`deploy/sso`、
+契约、S3 哈希链。
+
+**已知风险 / 未覆盖项**：
+1. `limit_req_zone` 主配置声明（之五十九已知项）与本工单无关，仍待运维手动补 `http{}` 块。
+2. metrics 端点无持久化——进程重启后指标清零（与 EventBus/SessionRegistry 同前提，单节点部署
+   可接受，未来若需要跨重启持久指标需额外落库）。
+3. `secret_scan.py` 正则只覆盖 `key: value` / `key=value` 形态，LLM 若把凭据拆成多行或用别的
+   分隔符描述仍可能漏检——纯字符串模式匹配的已知局限，非本工单可根治（真正防线仍是输入侧
+   S9 浅过滤 + 绝不把真实凭据喂给 LLM）。
+
+---
