@@ -395,6 +395,10 @@ async function escalateBatch(traceId: string) {
         </PageSection>
 
         <PageSection title="RCA 证据链" v-if="chat.currentRcaReport">
+          <div v-if="chat.currentRcaLlmSummary" class="rca-llm-summary">
+            <div class="rca-llm-badge">AI 根因摘要</div>
+            <p class="rca-llm-text">{{ chat.currentRcaLlmSummary }}</p>
+          </div>
           <p class="rca-summary">{{ chat.currentRcaReport.summary }}</p>
           <EvidenceTree :evidence="chat.currentRcaReport.evidence_chain" />
         </PageSection>
@@ -601,6 +605,29 @@ async function escalateBatch(traceId: string) {
   padding: 6px 4px 0 0;
 }
 .rca-summary { color: var(--ks-text-muted); line-height: 1.6; margin: 0 0 12px; }
+.rca-llm-summary {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(79, 124, 246, 0.08), rgba(99, 102, 241, 0.06));
+  border: 1px solid rgba(99, 102, 241, 0.18);
+}
+.rca-llm-badge {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #4f46e5;
+  background: rgba(99, 102, 241, 0.12);
+}
+.rca-llm-text {
+  margin: 0;
+  color: var(--ks-text);
+  line-height: 1.7;
+  font-size: 13px;
+}
 
 /* ---- 面板折叠/展开按钮 ---- */
 .panel-collapse-btn,

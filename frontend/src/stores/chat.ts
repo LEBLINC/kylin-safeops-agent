@@ -137,6 +137,8 @@ export const useChatStore = defineStore('chat', {
     approvalByTrace: {} as Record<string, InlineApproval | null>,
     auditNodesByTrace: {} as Record<string, AuditAppendedData[]>,
     rcaReportByTrace: {} as Record<string, RcaReport | null>,
+    /** RCA LLM 自然语言根因摘要（可选，后端 rca 事件 llm_summary 字段；无摘要时为 null）。 */
+    rcaLlmSummaryByTrace: {} as Record<string, string | null>,
 
     /** 当前 SSE/Mock stream 连接。切换会话时关闭，防止旧 trace 继续写入。 */
     stream: null as ChatStreamConnection | null,
@@ -206,6 +208,11 @@ export const useChatStore = defineStore('chat', {
     currentRcaReport(state): RcaReport | null {
       const traceId = state.activeTraceIdBySession[state.currentSessionId]
       return traceId ? state.rcaReportByTrace[traceId] || null : null
+    },
+    /** 当前 trace 的 RCA LLM 自然语言摘要（可选，无则 null）。 */
+    currentRcaLlmSummary(state): string | null {
+      const traceId = state.activeTraceIdBySession[state.currentSessionId]
+      return traceId ? state.rcaLlmSummaryByTrace[traceId] || null : null
     }
   },
 
@@ -230,7 +237,8 @@ export const useChatStore = defineStore('chat', {
         policyVerdictByTrace: this.policyVerdictByTrace,
         approvalByTrace: this.approvalByTrace,
         auditNodesByTrace: this.auditNodesByTrace,
-        rcaReportByTrace: this.rcaReportByTrace
+        rcaReportByTrace: this.rcaReportByTrace,
+        rcaLlmSummaryByTrace: this.rcaLlmSummaryByTrace
       })
     },
 
@@ -266,6 +274,7 @@ export const useChatStore = defineStore('chat', {
         this.approvalByTrace = cached.approvalByTrace || {}
         this.auditNodesByTrace = cached.auditNodesByTrace || {}
         this.rcaReportByTrace = cached.rcaReportByTrace || {}
+        this.rcaLlmSummaryByTrace = cached.rcaLlmSummaryByTrace || {}
       }
 
       this.ensureDefaultSession()
@@ -351,6 +360,7 @@ export const useChatStore = defineStore('chat', {
         delete this.approvalByTrace[traceId]
         delete this.auditNodesByTrace[traceId]
         delete this.rcaReportByTrace[traceId]
+        delete this.rcaLlmSummaryByTrace[traceId]
       }
       if (this.currentSessionId === sessionId) {
         this.currentSessionId = sessionIdOf(this.sessions[0])
@@ -417,6 +427,7 @@ export const useChatStore = defineStore('chat', {
       this.approvalByTrace[traceId] = null
       this.auditNodesByTrace[traceId] = []
       this.rcaReportByTrace[traceId] = null
+      this.rcaLlmSummaryByTrace[traceId] = null
       const session = this.sessions.find(item => sessionIdOf(item) === targetSessionId)
       if (session) session.last_trace_id = traceId
       this.persist()
@@ -584,6 +595,9 @@ export const useChatStore = defineStore('chat', {
 
       if (event.type === 'rca') {
         this.rcaReportByTrace[traceId] = (event.data.report as RcaReport) || null
+        // RCA P4：后端 rca 事件可选带 llm_summary（LLM 自然语言根因摘要）。
+        // 拒答/注入拦截/NullRCA 时该字段不存在 → 存 null，展示层零感知兼容。
+        this.rcaLlmSummaryByTrace[traceId] = (event.data.llm_summary as string) || null
       }
 
       // 守卫语义与下方 verified 一致：只在明确 REJECTED 时拦截打字机。

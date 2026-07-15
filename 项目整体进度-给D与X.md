@@ -349,3 +349,11 @@ D 域第一梯队收口批，dev 基线 `16f67cc`，2 commit（`301eb34` B3 / `c
 
 ruff/ruff-format/mypy ✅；pytest 701 passed + 3 pre-existing 失败（T17/T18/T19 Windows bash，非本批引入，dev 基线上已有）+ 17 skipped。C3：`deploy/app/kylin-safeops-agent.service` 属 L 域，B3 派 D 时已 pre-authorize，L 当面接受留注。merge commit `b671e5d`，LEBLINC 署名。
 **留痕号**：之六十四（第一梯队 B1+B2+B3+B4 全闭合；H11 顺延之六十五）。
+
+## ★之六十六 X 前端消费 rca llm_summary（分支 feat/x-sso-ldap，2026-07-15 待审）
+
+- 前端消费后端之六十二 RCA LLM 摘要：`chat.ts` 存取 `llm_summary` + `ChatView.vue` RCA 区
+  「AI 根因摘要」高亮块（非空才显示，零感知兼容）。
+- vue-tsc 0 / eslint 0 / vitest 28/28。C3：仅 frontend/src 3 文件。H11 之六十五独立待起。
+
+---
