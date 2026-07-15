@@ -244,3 +244,11 @@ pytest 亲跑复核：656 passed, 17 skipped。新工作留痕号顺延 之五�
 | 之五十七 | A2 wsproxy.py 真接 LDAP + start.bat + 部署文档补完（含 REPLY_DEPLOYMENT.md 字段名纠正） | `8a71d16`+`b2db94a` | 659/17 |
 
 ---
+
+## ★最新权威状态（分支 `feat/l-v2-sign-fix-whoami-idor`，2026-07-15 之五十八 v2 签名收尾）
+
+| 编号 | 内容 | commit | pytest |
+|---|---|---|---|
+| 之五十八 | v2 签名收尾 2 bug（whoami 恒401 + principal_for_idor roles恒空）修复 + 2 守门测试 | （待提交） | 666/17 |
+
+---

@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import os
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Header, HTTPException
 
 from backend.app.api.auth import Principal, verify_proxy_identity
 
@@ -132,20 +132,43 @@ async def require_proxy_identity(
 
 
 async def principal_for_idor(
-    user: str = Depends(verify_token),
+    x_auth_user: str | None = Header(default=None),
+    x_auth_roles: str | None = Header(default=None),
+    x_auth_timestamp: str | None = Header(default=None),
+    x_auth_signature: str | None = Header(default=None),
+    x_auth_method: str | None = Header(default=None, alias="X-Auth-Method"),
+    x_auth_path: str | None = Header(default=None, alias="X-Auth-Path"),
+    x_auth_body_sha: str | None = Header(default=None, alias="X-Auth-Body-Sha"),
+    x_auth_nonce: str | None = Header(default=None, alias="X-Auth-Nonce"),
     x_user_role: str | None = Header(default=None, alias="X-User-Role"),
 ) -> Principal:
-    """L-H1 IDOR 校验专用：从已验证身份派生 Principal。
+    """L-H1 IDOR 校验专用：从已验证身份派生 Principal（含 roles）。
 
-    dev: user="dev", roles = header X-User-Role(env KYLIN_TEST_X_USER_ROLE 兜底).
-    proxy: user/roles 来自 verify_token 签名头.
+    dev: user="dev", roles = header X-User-Role(env KYLIN_TEST_X_USER_ROLE 兜底)（不验签，仅联调）。
+    proxy: v2 收尾修复 — 镜像 whoami/require_proxy_identity，直接调 verify_proxy_identity
+        取含 roles 的完整 Principal（fail-closed 401）；不再从裸 X-User-Role 取角色
+        （反代已剥除该头，此前恒空——principal.roles 恒空 → IDOR is_admin 恒 False）。
+        本调用即认证闸门，不叠加 Depends(verify_token)（避免二次消费一次性 nonce，见
+        routers/auth.py::whoami 同一教训）。
     """
-    roles: frozenset[str] = frozenset()
-    raw: str = ""
-    if x_user_role:
-        raw = x_user_role
-    else:
-        raw = os.environ.get("KYLIN_TEST_X_USER_ROLE", "")
-    if raw:
-        roles = frozenset({r.strip().lower() for r in raw.split(",") if r.strip()})
-    return Principal(user=user, roles=roles)
+    mode = _auth_mode()
+    if mode == "dev":
+        roles: frozenset[str] = frozenset()
+        raw: str = x_user_role if x_user_role else os.environ.get("KYLIN_TEST_X_USER_ROLE", "")
+        if raw:
+            roles = frozenset({r.strip().lower() for r in raw.split(",") if r.strip()})
+        return Principal(user="dev", roles=roles)
+
+    principal = verify_proxy_identity(
+        user=x_auth_user,
+        roles=x_auth_roles,
+        timestamp=x_auth_timestamp,
+        signature=x_auth_signature,
+        method=x_auth_method or "",
+        path=x_auth_path or "",
+        body_sha=x_auth_body_sha or "",
+        nonce=x_auth_nonce or "",
+    )
+    if principal is None:
+        raise HTTPException(status_code=401, detail="missing or invalid proxy-signed identity")
+    return principal
