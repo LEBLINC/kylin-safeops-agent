@@ -523,3 +523,21 @@ curl → nginx:443(TLS) → sidecar:8080 → app:8000
 | **deploy/sandbox 部署 wrapper+sudoers** | ⏳ 阶段3 部署时做 | `cp → chown root → chmod 0755/0440 → visudo -c` |
 
 ---
+
+---
+
+## ★之六十八 L 域 RCA 架构对接（分支 feat/l-rca-arch-integration @ `8bab816`，2026-07-16 待审）
+
+L 域 RCA 架构对接（X 提议 + L 工单一并跑），本机 mock 复现：
+- **Task 1**：orchestrator._execute_batch 在 DefaultRCAEngine 路径按 get_scenario_plan 驱动 evidence_steps
+  二次采证（仅 R0/R1，只读工具经 gateway 闸筛选，schema 不匹配/未注册/非只读 → skip）
+- **Task 2a+3**：playbooks 的 summary 字段由 LLM 改写（≤200字，scan_and_redact 兜底，playbooks 模板作 fallback）；
+  独立 RCA 端点 GET 响应新增 `llm_summary` 字段（Optional，前端零感知兼容）
+- **Task 4**：3 套新测试 12 用例全 PASS（mock LLM + mock gateway + mock DefaultRCAEngine）
+
+pytest：**712 → 724 / 18 skipped**。C3 严守：仅 backend/app/{agent,api}/routers + backend/tests/；
+未碰 mcp_servers/rca/（X 域）/ frontend/ / D 域 / 契约 / S3 哈希链。
+**VM 实证**：本工单不需 VM（mock 路径全覆盖），沿用之五十九拓扑；真 LLM 真接续待后续工单
+（D VM 接入后单跑 RCA 真实链路）。
+
+---

@@ -389,3 +389,17 @@ C3：仅 executor + test 2 文件。feature 署名 youzWSN640，merge `da225be` 
 - RCA 真 LLM 端到端验证：X WSL 真接不稳，X 提议 L 在 dev 用 ToolResult 假证据（disk.usage 80% + disk.large_files 命中）走 _emit_rca_summary 全链路单测 mock 复现，不需 VM
 
 **非阻断 backlog 单列**：O-H7-1 FD 卫生（kill 后显式关 transport）/ T17/T18/T19 Windows bash skipif（deploy/proxy/tests）/ nginx 部署兼容 2 缺口（http2 / server_names_hash_bucket_size）/ X P1 SSE 阻塞读 body（client.stream + aiter_bytes）/ O-B3 真装 app 单元 Q3 systemctl start+show
+
+---
+
+## ★最新权威状态（分支 `feat/l-rca-arch-integration`，2026-07-16 之六十八 L 域 RCA 架构对接）
+
+L 域 RCA 架构对接工单（X 提议 + L 工单一并跑）：mock 复现，不需 VM。
+- **Task 1**（orchestrator 驱动 RCA 场景模板采证）：`backend/app/agent/rca_drive.py::collect_rca_evidence`。
+- **Task 2a**（report[summary] LLM 化）：`backend/app/agent/rca_summary_llm.py::llm_rewrite_summary`。
+- **Task 3**（独立 RCA 端点补 llm_summary 字段）：`routers/rca.py` + `schemas.py::RCAReportResponse.llm_summary`。
+- **Task 4**（mock 复现 + drive 守门）：`test_rca_llm_summary_e2e.py`(4) + `test_rca_router_e2e.py`(3) + `test_rca_drive_collect.py`(5)。
+
+pytest：**712 → 724 / 18 skipped**。四道闸全绿；分支未推未合 dev，等架构者审阅。
+
+---
