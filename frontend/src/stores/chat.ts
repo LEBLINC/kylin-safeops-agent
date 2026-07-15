@@ -586,7 +586,10 @@ export const useChatStore = defineStore('chat', {
         this.rcaReportByTrace[traceId] = (event.data.report as RcaReport) || null
       }
 
-      if (event.type === 'natural_language' && (event.data as any)?.state === 'FINISHED') {
+      // 守卫语义与下方 verified 一致：只在明确 REJECTED 时拦截打字机。
+      // 后端正常 FINISHED 路径 emit 的 natural_language 不带 state 字段（orchestrator.py:579），
+      // 若用 state === 'FINISHED' 正向校验会把无 state 的正常总结全部误拦，导致 LLM 回复不显示。
+      if (event.type === 'natural_language' && (event.data as any)?.state !== 'REJECTED') {
         const nlData = event.data as { text: string; sensitive_filtered: boolean }
         const fullText = nlData.sensitive_filtered
           ? nlData.text + '\n(已过滤敏感字段)'
