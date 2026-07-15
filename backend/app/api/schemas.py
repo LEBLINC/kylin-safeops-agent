@@ -562,3 +562,14 @@ class ReadinessResponse(BaseModel):
     bus: bool = Field(..., description="EventBus 是否存活")
     registry: bool = Field(..., description="SessionRegistry.active_count 是否在阈值内")
     active_sessions: int = Field(default=0, description="当前活跃会话数")
+
+
+class MetricsResponse(BaseModel):
+    """GET /api/system/metrics 响应体（C1 自研轻量指标系统）。
+
+    counters：只增计数（如 orchestrator.state.* / llm.calls / llm.failures）。
+    gauges：瞬时值（如 audit.append_latency_ms / sse.active_count）。
+    """
+
+    counters: dict[str, int] = Field(default_factory=dict, description="累加计数器快照")
+    gauges: dict[str, float] = Field(default_factory=dict, description="瞬时值快照")
