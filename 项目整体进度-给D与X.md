@@ -251,3 +251,26 @@ pytest 亲跑复核：661 passed, 17 skipped（分支独立基线 658 + 3 增量
   未碰 `backend/app`（除 proxy.py 一处 fail-fast，非 backend 域）/前端/D 域 sandbox
 
 ---
+
+## ★最新权威状态（分支 `feat/l-stage6-t2-observability`，2026-07-15 之六十 C1-C4 可观测性+CI keystone+SSE封顶+H9收尾）
+
+阶段6 第二梯队旗舰工单，dev 基线 `2aaa252`（=origin/dev）：
+
+- **之六十 C1+C2**（`860d4ce`）：自研 `backend/app/agent/metrics.py`（counter/gauge，勿引
+  prometheus_client）；埋点编排状态机计数/LLM调用失败数/审计append延迟/SSE active_count；新增
+  `GET /api/system/metrics`。`chat.py::get_events` 加 `KYLIN_SSE_MAX_CONN`（默认100）连接上限，
+  超限 503。5 用例。
+- **之六十 C3**（`7e3f6bc`）：`.pre-commit-config.yaml` mypy files 加 `deploy/proxy`；
+  `pyproject.toml` 加 `ldap3` stub 消音 override。mypy deploy/proxy 4 文件 Success。
+- **之六十 C4**（`9f3779a`）：`backend/app/agent/secret_scan.py::scan_and_redact`，
+  `_emit_natural_language` 输出前扫凭据模式，命中 → redact + `sensitive_filtered=True`（死标志
+  变活）。4 用例。
+
+pytest 亲跑：**685/17 → 685/17（config-only）→ 689/17**（分支基线 685 = dev 680 + 5，最终 689 =
+685 + 4，数学吻合）。C3 严守：仅 `backend/app/{agent,api}` + `.pre-commit-config.yaml` +
+`pyproject.toml` + `backend/tests`。未碰 `backend/app/db`（D 域在动）/`deploy/sandbox`/前端/`deploy/sso`。
+
+**VM 实证**：本工单为纯代码/CI 层收尾，沿用之五十九拓扑，无新增部署项；功能验证可随常规回归
+（curl /api/system/metrics 走 v2 签名 / 并发 SSE 触发 503 / 真 LLM 输出凭据触发 redact）一并做。
+
+---
