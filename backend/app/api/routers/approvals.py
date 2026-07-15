@@ -84,7 +84,9 @@ async def resume_approval(
             if actor_user and principal.user == actor_user and not _admin_bypass_sod(principal):
                 # 写一条 sod_violation 审计（hash 链不变：仅 payload.extra 标记）
                 try:
-                    session.orchestrator._append_audit(  # type: ignore[attr-defined]
+                    # 之六十七 H15: _append_audit 已 async 化，此处必须 await
+                    # （否则 coroutine 创建后被 except 吞掉、SoD 违规审计静默丢失）。
+                    await session.orchestrator._append_audit(  # type: ignore[attr-defined]
                         payload={
                             "cause": "sod_violation",
                             "actor_user": actor_user,
