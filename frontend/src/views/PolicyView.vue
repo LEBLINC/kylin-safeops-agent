@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { isMockEnabled } from '@/api/mock'
 import { onMounted, ref } from 'vue'
-import PageHeader from '@/layouts/PageHeader.vue'
 import PageSection from '@/components/PageSection.vue'
 import RiskTag from '@/components/RiskTag.vue'
 import StatusTag from '@/components/StatusTag.vue'
@@ -51,11 +50,21 @@ onMounted(async () => {
     // 后端策略规则接口不可用时保留默认规则。
   }
 })
+
+/** 严重性 → el-tag 类型映射：critical 红 / high 橙 / medium 蓝 / low 灰。 */
+const SEVERITY_TAG: Record<string, 'danger' | 'warning' | 'primary' | 'info'> = {
+  critical: 'danger',
+  high: 'warning',
+  medium: 'primary',
+  low: 'info'
+}
+function severityTagType(severity?: string) {
+  return SEVERITY_TAG[(severity || '').toLowerCase()] || 'info'
+}
 </script>
 
 <template>
   <div class="ks-page">
-    <PageHeader title="策略规则" subtitle="只读展示当前安全护栏规则、风险等级与保护路径" />
 
     <el-alert v-if="apiLoadFailed && !isMockEnabled()" type="warning" show-icon :closable="false"
       title="策略规则 API 加载失败"
@@ -88,7 +97,11 @@ onMounted(async () => {
       <el-table :data="rules">
         <el-table-column prop="rule_id" label="规则 ID" width="140" />
         <el-table-column prop="name" label="规则名称" />
-        <el-table-column prop="severity" label="严重性" width="120" />
+        <el-table-column label="严重性" width="120">
+          <template #default="{ row }">
+            <el-tag :type="severityTagType(row.severity)" effect="light">{{ row.severity }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="处置" width="120">
           <template #default="{ row }">
             <StatusTag :status="row.action" />

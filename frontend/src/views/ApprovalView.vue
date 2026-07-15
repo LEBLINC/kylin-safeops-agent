@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
-import PageHeader from '@/layouts/PageHeader.vue'
 import ApprovalCard from '@/components/ApprovalCard.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { useApprovalStore } from '@/stores/approval'
@@ -63,9 +62,9 @@ async function rejectById(id?: string) {
 
 <template>
   <div class="ks-page">
-    <PageHeader title="风险审批" subtitle="R2/R3 操作必须经过人工确认，R4 直接拒绝">
+    <div class="approval-toolbar">
       <el-button type="primary" @click="approval.load()">刷新</el-button>
-    </PageHeader>
+    </div>
 
     <div class="approval-grid" v-if="approval.pending.length">
       <ApprovalCard
@@ -81,6 +80,11 @@ async function rejectById(id?: string) {
 </template>
 
 <style scoped>
+.approval-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
 .approval-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

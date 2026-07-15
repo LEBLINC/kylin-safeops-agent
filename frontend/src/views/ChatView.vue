@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { DArrowLeft, DArrowRight, Plus, Search } from '@element-plus/icons-vue'
-import PageHeader from '@/layouts/PageHeader.vue'
+import { DArrowLeft, DArrowRight, Delete, Edit, Plus, Search } from '@element-plus/icons-vue'
 import PageSection from '@/components/PageSection.vue'
 import AgentTimeline from '@/components/AgentTimeline.vue'
 import SecurityDecisionCard from '@/components/SecurityDecisionCard.vue'
@@ -11,7 +10,6 @@ import ApprovalCard from '@/components/ApprovalCard.vue'
 import HashChainViewer from '@/components/HashChainViewer.vue'
 import EvidenceTree from '@/components/EvidenceTree.vue'
 import EmptyState from '@/components/EmptyState.vue'
-import RiskTag from '@/components/RiskTag.vue'
 import { canRoleApprove, useChatStore } from '@/stores/chat'
 import type { PerToolVerdict, PolicyVerdict } from '@/types/policy'
 
@@ -264,7 +262,6 @@ async function escalateBatch(traceId: string) {
 
 <template>
   <div class="ks-page chat-page">
-    <PageHeader title="智能对话" subtitle="自然语言运维入口，所有工具调用均经过策略校验与审计" />
 
     <div class="chat-layout">
       <!-- 左侧面板：展开态 -->
@@ -297,22 +294,21 @@ async function escalateBatch(traceId: string) {
           >
             <div class="session-main">
               <strong>{{ session.title }}</strong>
-              <el-dropdown trigger="click" @command="(cmd: string) => cmd === 'rename' ? renameSession(session.session_id, session.title) : deleteSession(session.session_id)">
+              <el-dropdown trigger="click" popper-class="session-menu-popper" @command="(cmd: string) => cmd === 'rename' ? renameSession(session.session_id, session.title) : deleteSession(session.session_id)">
                 <span class="session-more" @click.stop>⋯</span>
                 <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item command="rename">重命名</el-dropdown-item>
-                    <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
+                  <el-dropdown-menu class="session-menu">
+                    <el-dropdown-item command="rename">
+                      <el-icon><Edit /></el-icon>
+                      <span>重命名</span>
+                    </el-dropdown-item>
+                    <el-dropdown-item command="delete" divided class="danger-item">
+                      <el-icon><Delete /></el-icon>
+                      <span>删除</span>
+                    </el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
-            </div>
-            <span>{{ session.last_message || session.last_trace_id || '暂无消息' }}</span>
-            <div class="session-tags" v-if="session.risk_level || session.pending_approval_count">
-              <RiskTag v-if="session.risk_level" :level="session.risk_level" />
-              <el-tag v-if="session.pending_approval_count" type="warning" effect="dark" size="small">
-                待审批 {{ session.pending_approval_count }}
-              </el-tag>
             </div>
           </div>
 
@@ -425,7 +421,8 @@ async function escalateBatch(traceId: string) {
   gap: 0;
   align-items: stretch;
   overflow: hidden;
-  padding: 0 12px;
+  /* 顶部留缓冲：会话列表/对话窗口卡片 hover 上浮 translateY(-5px) 时不被裁切 */
+  padding: 6px 12px 0;
   transition: grid-template-columns 200ms ease;
 }
 .resize-handle {
@@ -482,7 +479,6 @@ async function escalateBatch(traceId: string) {
 .session-more { color: var(--ks-text-muted); padding: 2px 6px; border-radius: 8px; }
 .session-more:hover { color: var(--ks-primary); background: #eef4ff; }
 .session span { display: block; margin-top: 6px; color: var(--ks-text-muted); font-size: 12px; line-height: 1.4; }
-.session-tags { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
 .conversation :deep(.section-header) { flex: 0 0 auto; }
 .messages {
   flex: 1;
@@ -601,7 +597,8 @@ async function escalateBatch(traceId: string) {
   display: grid;
   gap: 16px;
   align-content: start;
-  padding-right: 4px;
+  /* 顶部留出缓冲：卡片 hover 上浮 translateY(-5px) 时不被滚动容器上边缘裁切 */
+  padding: 6px 4px 0 0;
 }
 .rca-summary { color: var(--ks-text-muted); line-height: 1.6; margin: 0 0 12px; }
 
@@ -682,5 +679,49 @@ async function escalateBatch(traceId: string) {
   .panel-expand-btn,
   .collapsed-strip,
   .collapsed-action-btn { display: none; }
+}
+</style>
+
+<!-- 会话操作下拉菜单：teleport 到 body，需用全局样式（非 scoped）美化 -->
+<style>
+/* 下拉外层 popper 圆角（默认直角，圈选处） */
+.session-menu-popper.el-popper {
+  border-radius: 12px;
+  overflow: hidden;
+}
+.session-menu.el-dropdown-menu {
+  padding: 6px;
+  border-radius: 12px;
+  min-width: 140px;
+}
+.session-menu .el-dropdown-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  transition: background 140ms ease, color 140ms ease;
+}
+.session-menu .el-dropdown-menu__item .el-icon {
+  font-size: 15px;
+}
+.session-menu .el-dropdown-menu__item:not(.is-disabled):hover,
+.session-menu .el-dropdown-menu__item:not(.is-disabled):focus {
+  background: #eef4ff !important;
+  color: var(--ks-primary, #2563eb) !important;
+}
+.session-menu .el-dropdown-menu__item.danger-item,
+.session-menu .el-dropdown-menu__item.danger-item .el-icon {
+  color: #ef4444;
+}
+.session-menu .el-dropdown-menu__item.danger-item:not(.is-disabled):hover,
+.session-menu .el-dropdown-menu__item.danger-item:not(.is-disabled):focus {
+  background: #ef4444 !important;
+  color: #fff !important;
+}
+.session-menu .el-dropdown-menu__item.danger-item:not(.is-disabled):hover .el-icon,
+.session-menu .el-dropdown-menu__item.danger-item:not(.is-disabled):focus .el-icon {
+  color: #fff !important;
 }
 </style>

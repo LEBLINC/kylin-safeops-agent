@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import PageHeader from '@/layouts/PageHeader.vue'
 import PageSection from '@/components/PageSection.vue'
 import RiskTag from '@/components/RiskTag.vue'
 import StatusTag from '@/components/StatusTag.vue'
@@ -210,10 +209,14 @@ function barPct(count: number, dict: Record<string, number>): string {
   return `${Math.max(4, (count / max) * 100)}%`
 }
 
-/** 风险等级颜色映射。 */
+/** 风险等级颜色映射（有序低→高：翡翠→青→琥珀→橙红→深红，成体系不刺眼）。
+ * 同时兼容后端两套键：R0-R4 与 low/medium/high/critical。 */
 function riskColor(risk: string): string {
-  const m: Record<string, string> = { R0: '#22c55e', R1: '#06b6d4', R2: '#f59e0b', R3: '#f43f5e', R4: '#dc2626' }
-  return m[risk] || '#94a3b8'
+  const m: Record<string, string> = {
+    R0: '#10b981', R1: '#0891b2', R2: '#f59e0b', R3: '#ef4444', R4: '#b91c1c',
+    low: '#10b981', medium: '#f59e0b', high: '#ef4444', critical: '#b91c1c'
+  }
+  return m[risk] || m[risk.toLowerCase()] || '#94a3b8'
 }
 
 /** 工具调用按次数降序，取前 N。 */
@@ -249,9 +252,13 @@ function riskLabel(risk: string): string {
     R1: '轻量诊断',
     R2: '需要确认',
     R3: '高风险',
-    R4: '禁止执行'
+    R4: '禁止执行',
+    low: '低风险',
+    medium: '中风险',
+    high: '高风险',
+    critical: '严重风险'
   }
-  return labels[risk] || risk
+  return labels[risk] || labels[risk.toLowerCase()] || risk
 }
 
 function riskDescription(risk: string): string {
@@ -260,31 +267,35 @@ function riskDescription(risk: string): string {
     R1: '低影响诊断操作，可直接执行',
     R2: '执行前需要用户明确确认',
     R3: '可能产生较大影响，需要重点关注',
-    R4: '命中禁止策略，任务不会执行'
+    R4: '命中禁止策略，任务不会执行',
+    low: '低影响操作，风险可控',
+    medium: '中等影响，建议关注',
+    high: '较高影响，需要重点关注',
+    critical: '严重影响，命中高危策略'
   }
-  return descriptions[risk] || '查看该风险等级的任务占比'
+  return descriptions[risk] || descriptions[risk.toLowerCase()] || '查看该风险等级的任务占比'
 }
 
 function statusMeta(status: string): { label: string; color: string; description: string } {
   const normalized = status.toLowerCase()
 
   if (['completed', 'complete', 'success', 'succeeded', 'done', 'finished', '已完成', '完成'].includes(normalized)) {
-    return { label: '已完成', color: '#22c55e', description: '任务已正常执行完成' }
+    return { label: '已完成', color: '#10b981', description: '任务已正常执行完成' }
   }
   if (['rejected', 'denied', 'blocked', '拒绝', '已拒绝'].includes(normalized)) {
-    return { label: '已拒绝', color: '#f43f5e', description: '任务被策略或权限规则拒绝' }
+    return { label: '已拒绝', color: '#ef4444', description: '任务被策略或权限规则拒绝' }
   }
   if (['failed', 'failure', 'error', '异常', '失败'].includes(normalized)) {
-    return { label: '执行失败', color: '#ef4444', description: '任务执行过程中发生异常' }
+    return { label: '执行失败', color: '#b91c1c', description: '任务执行过程中发生异常' }
   }
   if (['running', 'processing', 'pending', 'queued', '执行中', '等待中'].includes(normalized)) {
-    return { label: '执行中', color: '#3b82f6', description: '任务仍在队列或执行流程中' }
+    return { label: '执行中', color: '#0891b2', description: '任务仍在队列或执行流程中' }
   }
   if (['cancelled', 'canceled', '已取消', '取消'].includes(normalized)) {
     return { label: '已取消', color: '#94a3b8', description: '任务已被用户或系统取消' }
   }
 
-  return { label: status, color: '#8b5cf6', description: '该终态在近 24 小时内的任务占比' }
+  return { label: status, color: '#7c3aed', description: '该终态在近 24 小时内的任务占比' }
 }
 
 function polarPoint(cx: number, cy: number, radius: number, angle: number) {
@@ -368,7 +379,7 @@ function buildDonutSegments(
 const riskDonutSegments = computed(() =>
   buildDonutSegments(
     stats.value?.by_risk ?? {},
-    ['R0', 'R1', 'R2', 'R3', 'R4'],
+    ['R0', 'R1', 'R2', 'R3', 'R4', 'low', 'medium', 'high', 'critical'],
     riskColor,
     riskLabel,
     riskDescription
@@ -441,11 +452,6 @@ onMounted(async () => {
 
 <template>
   <div class="ks-page dashboard-page">
-    <PageHeader
-      title="安全智能运维总览"
-      subtitle="数据驾驶舱：用图表化卡片展示资源、趋势、服务与安全态势"
-    />
-
     <!-- 加载中：等待 API 返回 -->
     <div v-if="!overviewLoaded && !overviewLoadFailed" class="dashboard-loading">
       <el-skeleton :rows="4" animated />

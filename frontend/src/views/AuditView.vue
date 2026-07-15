@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import PageHeader from '@/layouts/PageHeader.vue'
 import PageSection from '@/components/PageSection.vue'
 import HashChainViewer from '@/components/HashChainViewer.vue'
 import StatusTag from '@/components/StatusTag.vue'
@@ -57,8 +56,6 @@ function phaseTagType(phase: string): 'success' | 'warning' | 'danger' | 'info' 
 
 <template>
   <div class="ks-page">
-    <PageHeader title="审计日志" subtitle="按 trace_id 回溯完整链路，并校验哈希链防篡改" />
-
     <div class="audit-main">
       <!-- 左：Trace 列表 -->
       <PageSection title="Trace 列表">
