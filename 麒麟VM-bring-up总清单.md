@@ -344,3 +344,16 @@ pytest 亲跑复核：**689 passed, 17 skipped**（分支独立基线 685 + 4 �
 > 完整状态全景以 `集成对齐备忘.md` §「★完成状态校准快照（dev=de90626）」为当前权威。
 
 ---
+
+## ★之六十一 X 域 H3+H4 LDAP 安全修复（分支 feat/x-sso-ldap @ `9434572`，2026-07-15 待审）
+
+| 之六十一 | H3 空口令 bind 拒绝 + H4 LDAP TLS | `9434572` | deploy/sso 1→11 |
+
+**VM 实证点**（待真 LDAP server 环境验证）：
+1. 真 LDAP server 正确 username + 空口令 bind → 拒绝（不因 unauthenticated bind 绕过）。
+2. `KYLIN_LDAP_USE_TLS=true`（或 `ldaps://` URL）→ 抓包确认 service 账号 bind 口令加密过网。
+3. 回归：`KYLIN_LDAP_USE_TLS` 未设 + `ldap://` → 明文（保持向后兼容默认）。
+
+C3 边界：仅 `deploy/sso/ldap_client.py` + 对应 tests，未碰 backend/frontend/deploy/proxy。
+
+---

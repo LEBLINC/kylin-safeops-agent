@@ -27,6 +27,7 @@ from __future__ import annotations  # Python 3.9 compat: str | None / X | Y unio
 
 import json
 import os
+import ssl
 from dataclasses import dataclass
 from typing import Any
 
@@ -109,6 +110,39 @@ def _import_ldap3() -> Any | None:
         return None
 
 
+def _tls_enabled(url: str) -> bool:
+    """H4：判定是否启用 TLS——ldaps:// scheme 或 KYLIN_LDAP_USE_TLS=true 任一即开。
+
+    真模式 bind 口令（service 账号 KYLIN_LDAP_BIND_PASSWORD）不能明文过网。
+    """
+    if url.lower().startswith("ldaps://"):
+        return True
+    return os.environ.get("KYLIN_LDAP_USE_TLS", "false").strip().lower() == "true"
+
+
+def _build_server(ldap3: Any, url: str) -> Any:
+    """H4：构建 ldap3.Server，按需启用 TLS（use_ssl + 证书校验 CERT_REQUIRED）。
+
+    启用条件见 _tls_enabled。证书校验默认 CERT_REQUIRED（生产要求真校验），
+    证书链/CA 配置在部署文档说明（KYLIN_LDAP_CA_CERT 可选指定 CA bundle）。
+    """
+    if _tls_enabled(url):
+        ca_cert = os.environ.get("KYLIN_LDAP_CA_CERT", "").strip() or None
+        tls = ldap3.Tls(validate=ssl.CERT_REQUIRED, ca_certs_file=ca_cert)
+        return ldap3.Server(
+            url,
+            connect_timeout=5,
+            get_info=ldap3.NONE,
+            use_ssl=True,
+            tls=tls,
+        )
+    return ldap3.Server(
+        url,
+        connect_timeout=5,
+        get_info=ldap3.NONE,
+    )
+
+
 @dataclass
 class LdapUser:
     username: str
@@ -137,16 +171,16 @@ class LdapClient:
 
         任何步骤失败返 False（不区分"用户不存在" vs "密码错"——防 enumeration）。
         """
+        # H3 空口令绕过防护：空/None 口令直接拒。RFC 4513 下很多 LDAP server 允许
+        # unauthenticated bind（空口令 bind 返 success），ldap3 auto_bind 会误判为认证通过。
+        if not password:
+            return False
         if not self._real_cfg:
             return False
         cfg = self._real_cfg
         escaped_user = _escape_ldap_filter(username)
         user_filter = cfg["KYLIN_LDAP_USER_FILTER"].format(escaped_user)
-        server = ldap3.Server(
-            cfg["KYLIN_LDAP_URL"],
-            connect_timeout=5,
-            get_info=ldap3.NONE,
-        )
+        server = _build_server(ldap3, cfg["KYLIN_LDAP_URL"])
         conn: Any = None
         try:
             conn = ldap3.Connection(
@@ -196,11 +230,7 @@ class LdapClient:
         cfg = self._real_cfg
         escaped_user = _escape_ldap_filter(username)
         user_filter = cfg["KYLIN_LDAP_USER_FILTER"].format(escaped_user)
-        server = ldap3.Server(
-            cfg["KYLIN_LDAP_URL"],
-            connect_timeout=5,
-            get_info=ldap3.NONE,
-        )
+        server = _build_server(ldap3, cfg["KYLIN_LDAP_URL"])
         conn: Any = None
         try:
             conn = ldap3.Connection(
@@ -242,6 +272,9 @@ class LdapClient:
         Mock mode: accept only known users with password "kylin123" (demo only).
         Real mode: bind as service account → search user DN → re-bind as user.
         """
+        # H3 空口令绕过防护：mock/真模式入口一律拒空口令，保持行为一致。
+        if not password:
+            return False
         if self.mock:
             entry = _MOCK_USERS.get(username)
             if entry is None:
