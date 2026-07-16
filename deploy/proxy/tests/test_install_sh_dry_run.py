@@ -13,8 +13,18 @@ from __future__ import annotations
 
 import pathlib
 import subprocess
+import sys
+
+import pytest
 
 _INSTALL_SH = pathlib.Path(__file__).resolve().parents[3] / "deploy" / "install.sh"
+
+# 之七十: Windows 本地无 bash（install.sh dry-run 必须 bash）→ FileNotFoundError [WinError 2]；
+# 该缺陷是 dev 基线预存（16f67cc 起），非 D B3/B4 引入。Linux CI / 麒麟 VM 正常跑。
+_REQUIRES_BASH = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="install.sh dry-run needs bash; skip on Windows (Linux CI/VM 验证)",
+)
 
 
 def _dry_run_output() -> str:
@@ -30,6 +40,7 @@ def _dry_run_output() -> str:
     return result.stdout
 
 
+@_REQUIRES_BASH
 def test_t17_dry_run_installs_both_units() -> None:
     """T17: dry-run 输出必含双单元安装（app + kylin-proxy sidecar）。"""
     out = _dry_run_output()
@@ -37,6 +48,7 @@ def test_t17_dry_run_installs_both_units() -> None:
     assert "kylin-proxy.service" in out, "T17: 必装 proxy sidecar 单元（B1 前门洞修复）"
 
 
+@_REQUIRES_BASH
 def test_t18_dry_run_creates_nonroot_user_idempotent() -> None:
     """T18: dry-run 输出必含非 root 系统用户创建（幂等 id 检查）。"""
     out = _dry_run_output()
@@ -44,6 +56,7 @@ def test_t18_dry_run_creates_nonroot_user_idempotent() -> None:
     assert "useradd" in out or "id -u kylin-safeops" in out, "T18: 必含幂等用户创建逻辑"
 
 
+@_REQUIRES_BASH
 def test_t19_dry_run_scaffolds_proxy_env() -> None:
     """T19: dry-run 输出必含 /etc/kylin/proxy.env 骨架创建提示。"""
     out = _dry_run_output()
