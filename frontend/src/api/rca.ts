@@ -1,5 +1,6 @@
 import { request } from './request'
-import { isMockEnabled, mockGetRcaResult, mockStartRcaAnalysis } from './mock'
+import { isMockEnabled } from './mock-flag'
+import { mockGetRcaResult, mockStartRcaAnalysis } from './mock'
 import type { RcaApiResponse, RcaProblemType, RcaResult } from '@/types/rca'
 
 /**

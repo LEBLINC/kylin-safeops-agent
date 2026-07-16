@@ -544,3 +544,12 @@ pytest：**712 → 724 / 18 skipped**。C3 严守：仅 backend/app/{agent,api}/
 （D VM 接入后单跑 RCA 真实链路）。
 
 ---
+
+## ★之六十七 H11 mock.ts 出 bundle（分支 feat/x-sso-ldap，2026-07-16 待审）
+
+| 之六十七 | H11 mock.ts 出 bundle（isMockEnabled 抽离 mock-flag.ts） | — | vitest 28/28 |
+
+**验收**：`npm run build && grep -r mockSendMessage dist/` 输出为空 ✅。
+纯前端代码调整（frontend/src），无后端/VM 变更。
+
+---

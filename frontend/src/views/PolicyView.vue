@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { isMockEnabled } from '@/api/mock'
+import { isMockEnabled } from '@/api/mock-flag'
 import { onMounted, ref } from 'vue'
 import PageSection from '@/components/PageSection.vue'
 import RiskTag from '@/components/RiskTag.vue'

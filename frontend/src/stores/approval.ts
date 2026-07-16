@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ElMessage } from 'element-plus'
 import { approveAction, getPendingApprovals, rejectAction } from '@/api/approval'
-import { isMockEnabled } from '@/api/mock'
+import { isMockEnabled } from '@/api/mock-flag'
 import type { ApprovalItem } from '@/types/approval'
 
 export const useApprovalStore = defineStore('approval', {

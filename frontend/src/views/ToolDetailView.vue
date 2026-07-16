@@ -6,7 +6,7 @@ import ToolCallCard from '@/components/ToolCallCard.vue'
 import RiskTag from '@/components/RiskTag.vue'
 import { getToolCallDetail, getToolRegistry } from '@/api/tools'
 import type { ToolCallLog, ToolDefinition } from '@/types/tool'
-import { isMockEnabled } from '@/api/mock'
+import { isMockEnabled } from '@/api/mock-flag'
 
 const route = useRoute()
 const param = computed(() => String(route.params.callId))

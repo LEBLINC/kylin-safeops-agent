@@ -1,6 +1,6 @@
 import { request } from './request'
+import { isMockEnabled } from '@/api/mock-flag'
 import {
-  isMockEnabled,
   mockApproveAction,
   mockEscalateApproval,
   mockGetApprovalDetail,

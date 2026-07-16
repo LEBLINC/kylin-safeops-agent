@@ -1,7 +1,7 @@
 import { buildApiUrl, request } from './request'
+import { isMockEnabled } from '@/api/mock-flag'
 import {
   connectMockChatStream,
-  isMockEnabled,
   mockCreateSession,
   mockDeleteSession,
   mockGetSessionDetail,
