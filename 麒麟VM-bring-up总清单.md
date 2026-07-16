@@ -544,3 +544,9 @@ pytest：**712 → 724 / 18 skipped**。C3 严守：仅 backend/app/{agent,api}/
 （D VM 接入后单跑 RCA 真实链路）。
 
 ---
+
+## ★H11 首交打回备忘（2026-07-16，返修中，不合 dev）
+
+feat/x-sso-ldap @840b2a5 的"之六十七 H11 待审"块（X 冲突解决时写入本文档的那块）**作废**：审阅取证 mock.ts 仍在主 bundle（api 层静态 import 未动，字符串字面量 KS_SAFEOPS_MOCK_SESSIONS/mock://chat/ 在 index chunk 命中），打回返修。留痕号在返修合入时按当时 4 文档真 max 重新分配。VM 侧无影响（纯前端）。
+
+---
