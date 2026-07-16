@@ -9,6 +9,10 @@ export const useAuditStore = defineStore('audit', {
     records: [] as AuditRecord[],
     verifyResult: null as HashChainVerifyResult | null,
     loading: false,
+    detailLoading: false,
+    verifying: false,
+    error: '',
+    detailError: '',
     total: 0,
     page: 1,
     pageSize: 15
@@ -17,6 +21,7 @@ export const useAuditStore = defineStore('audit', {
   actions: {
     async loadTraces(page?: number) {
       this.loading = true
+      this.error = ''
       if (page !== undefined) this.page = page
       const offset = (this.page - 1) * this.pageSize
       try {
@@ -25,7 +30,9 @@ export const useAuditStore = defineStore('audit', {
         this.traces = Array.isArray(list) ? list : []
         this.total = resp?.total ?? this.traces.length
       } catch {
+        this.error = '审计列表加载失败，请确认后端服务正常后重试'
         if (!isMockEnabled()) return
+        this.error = ''
         this.traces = [
           {
             trace_id: 'mock_trace',
@@ -42,11 +49,18 @@ export const useAuditStore = defineStore('audit', {
     },
 
     async loadDetail(traceId: string) {
+      this.detailLoading = true
+      this.detailError = ''
       try {
         const detail: any = await getAuditTraceDetail(traceId)
         this.records = Array.isArray(detail?.records) ? detail.records : Array.isArray(detail) ? detail : []
       } catch {
-        if (!isMockEnabled()) return
+        this.detailError = '审计记录详情加载失败，请重试'
+        if (!isMockEnabled()) {
+          this.records = []
+          return
+        }
+        this.detailError = ''
         this.records = [
           {
             seq: 1,
@@ -65,15 +79,29 @@ export const useAuditStore = defineStore('audit', {
             created_at: new Date().toISOString()
           }
         ]
+      } finally {
+        this.detailLoading = false
       }
     },
 
     async verify(traceId: string) {
+      this.verifying = true
       try {
         this.verifyResult = await verifyHashChain(traceId)
       } catch {
-        if (!isMockEnabled()) { this.verifyResult = null; return }
-        this.verifyResult = { trace_id: traceId, valid: false, records: [] }
+        if (!isMockEnabled()) {
+          this.verifyResult = null
+          return
+        }
+        this.verifyResult = {
+          trace_id: traceId,
+          valid: false,
+          record_count: 0,
+          broken_seq: null,
+          reason: 'mock 模式无后端校验结果'
+        }
+      } finally {
+        this.verifying = false
       }
     }
   }
