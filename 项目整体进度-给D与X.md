@@ -407,3 +407,17 @@ C3：仅 executor + test 2 文件。feature 署名 youzWSN640，merge `da225be` 
 - **backlog（非阻断）**：Task 2b root_cause LLM 化 / nginx 部署兼容 2 缺口 / X P1 SSE 阻塞读 body / O-B3 Q3 systemctl
 
 **合批最终 CI（dev=20c7f19）**：ruff/ruff-format/mypy ✅，pytest **726 passed / 21 skipped**（714+12=726 ✅）
+
+## ★H11 首交打回（feat/x-sso-ldap @840b2a5，2026-07-16，返修中）
+
+X 首交 mock-flag.ts 抽离方向正确（保留），但 **mock.ts 仍在主 bundle**：api/{chat,approval,rca}.ts 顶层静态 import mock 函数体未动。原验收 `grep mockSendMessage dist/` 为空是压缩器改名的假阴性（L 工单验收标准 authoring 错误，非 X 责任）；字符串字面量取证 KS_SAFEOPS_MOCK_SESSIONS / mock://chat/ 均在 index chunk，与 dev 基线相同 = 目标未达成。
+
+**返修要点（工单已回发 X）**：
+1. api 三文件 mock 调用改 `isMockEnabled()` 分支内 `await import('./mock')` 动态导入
+2. DemoView 演示数据从 mock.ts 拆出独立 api/demo-fixtures.ts（DemoView 是懒加载 chunk，静态 import 即可）
+3. 新验收：`grep -c "KS_SAFEOPS_MOCK_SESSIONS" dist/assets/index-*.js` = 0 且 `grep -o "mock://chat/" dist/assets/index-*.js` = 0
+4. 保留：mock-flag.ts / 10+1 处改指向 / types/demo.ts / DemoView 消内联
+
+**H11 仍是唯一生产阻断项**。vitest 真值 26/26（X 自报 28/28 为口误，与 dev 基线一致无回归）。
+
+---
