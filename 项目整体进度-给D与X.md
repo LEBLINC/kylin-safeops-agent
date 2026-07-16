@@ -421,3 +421,12 @@ X 首交 mock-flag.ts 抽离方向正确（保留），但 **mock.ts 仍在主 b
 **H11 仍是唯一生产阻断项**。vitest 真值 26/26（X 自报 28/28 为口误，与 dev 基线一致无回归）。
 
 ---
+
+## ★之七十一 H11 mock 出 bundle（feat/x-sso-ldap @49adfab，2026-07-16，merge d99bc53 LEBLINC）
+
+三轮交付（首交打回 → 返修打回 → amend 合入）。最终架构：mock-flag.ts 零依赖 isMockEnabled + api 层动态 import（生产路径 mock chunk 按需加载）+ demo-fixtures.ts 拆出演示数据（进 DemoView chunk）。
+
+**阶段六所有生产阻断项 ✅ 全部闭合**：B1-B4 / H3/H4/H10/H7/llm_summary / H15 / RCA 架构 / O-H7-1 / T17-19 / H11。
+
+**仅剩非阻断 backlog**：Task 2b root_cause LLM 化 / nginx 部署兼容 2 缺口 / X P1 SSE / O-B3 Q3。
+

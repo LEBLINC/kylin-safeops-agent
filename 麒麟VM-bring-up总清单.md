@@ -553,3 +553,9 @@ pytest：**712 → 724 / 18 skipped**。C3 严守：仅 backend/app/{agent,api}/
 纯前端代码调整（frontend/src），无后端/VM 变更。
 
 ---
+
+## ★之七十一 H11 mock 出 bundle（2026-07-16，merge d99bc53，纯前端，VM 无影响）
+
+三轮交付闭合。mock chunk 按需加载，生产 bundle 干净。VM 侧无任何变更。
+
+---
