@@ -1,45 +1,45 @@
 <script setup lang="ts">
-import type { ApprovalItem, InlineApproval } from '@/types/approval'
 import { computed } from 'vue'
+import type { ApprovalItem, InlineApproval } from '@/types/approval'
 import RiskTag from './RiskTag.vue'
 import StatusTag from './StatusTag.vue'
-import { prettyJson } from '@/utils/format'
+import { formatTime } from '@/utils/time'
 
 /**
- * ApprovalCard.vue
+ * 审批卡片组件。
  *
- * 审批卡片组件，有两种使用场景：
- * 1. ChatView.vue 中间聊天区：使用 inline 属性，处理当前对话里的多工具原子审批；
- * 2. ApprovalView.vue 集中审批页：使用 item 属性，展示管理员待办审批单。
- *
- * 重要设计：
- * - 对话内审批必须显示在“中间聊天区”，不能放到右侧执行详情里；
- * - await_approval.data.tools 表示一批需要确认的工具；
- * - 用户的批准/拒绝作用于整批原子计划，不支持逐个工具审批；
- * - 当前用户权限不足时，不显示“批准”操作，而是显示“申请转管理员审批”。
+ * - inline：对话流 await_approval 事件，事件真实携带 reason/tools；
+ * - item：集中审批列表 GET /api/approvals 的真实 DTO，仅展示后端实际返回字段。
  */
-
 const props = defineProps<{
-  /** 审批页中的审批单数据，来源 GET /api/approvals?status=pending。 */
   item?: ApprovalItem
-  /** 对话内审批数据，来源 await_approval StreamEvent。 */
   inline?: InlineApproval
-  /** 当前用户角色，例如 Viewer / Operator / Admin。 */
   currentRole?: string
-  /** 当前用户是否满足 inline.approval_role。 */
   canApprove?: boolean
 }>()
 
 const emit = defineEmits<{
-  /** 批准审批。ChatView 中表示批准整批原子计划，ApprovalView 中表示通过审批单。 */
   approve: [id: string]
-  /** 拒绝审批。ChatView 中表示拒绝整批原子计划。 */
   reject: [id: string]
-  /** 权限不足时申请转管理员审批。只用于 ChatView 内联审批。 */
   escalate: [id: string]
 }>()
 
-const title = computed(() => props.inline ? '本批计划需要审批' : props.item?.title || '审批单')
+const title = computed(() => {
+  if (props.inline) return '本批计划需要审批'
+  return props.item?.user_intent?.trim() || '未命名审批操作'
+})
+
+const roleLabel = computed(() => {
+  const role = props.item?.approval_role
+  const labels: Record<string, string> = {
+    viewer: '只读用户',
+    operator: '运维操作员',
+    admin: '管理员',
+    auditor: '审计员'
+  }
+  if (!role) return '未声明'
+  return labels[role] || role
+})
 </script>
 
 <template>
@@ -58,7 +58,7 @@ const title = computed(() => props.inline ? '本批计划需要审批' : props.i
         <span>批准或拒绝会作用于整批工具，不支持逐个工具审批。</span>
       </div>
 
-      <div class="meta">
+      <div class="meta inline-meta">
         <span>当前角色</span><code>{{ currentRole || '-' }}</code>
         <span>所需角色</span><code>{{ inline.approval_role || '无' }}</code>
       </div>
@@ -82,7 +82,7 @@ const title = computed(() => props.inline ? '本批计划需要审批' : props.i
       </div>
 
       <p v-if="inline.status === 'pending' && !canApprove" class="permission-warning">
-        当前角色权限不足，不能直接批准该批计划。你可以提交给管理员在审批页集中处理。
+        当前角色权限不足，不能直接批准该批计划。
       </p>
       <p v-if="inline.status === 'escalated'" class="permission-warning">
         已提交管理员审批，请等待管理员处理。
@@ -90,29 +90,38 @@ const title = computed(() => props.inline ? '本批计划需要审批' : props.i
     </template>
 
     <template v-else-if="item">
-      <div class="head">
-        <div>
-          <strong>{{ item.title }}</strong>
-          <p>{{ item.reason }}</p>
+      <div class="head centralized-head">
+        <div class="title-block">
+          <span class="card-kicker">待审批操作</span>
+          <strong>{{ title }}</strong>
+          <p>该操作已进入人工审批闸，审批结果将作用于对应执行链路。</p>
         </div>
-        <StatusTag :status="item.status" />
+        <StatusTag :status="item.state" />
       </div>
 
-      <div class="meta">
-        <span>风险等级</span><RiskTag :level="item.risk_level" />
-        <span>工具</span><code>{{ item.tool || '-'  }}</code>
-        <span>角色要求</span><code>{{ item.approval_role || 'Admin' }}</code>
+      <div class="detail-grid">
+        <div class="detail-item">
+          <span>风险等级</span>
+          <RiskTag :level="item.risk_level" />
+        </div>
+        <div class="detail-item">
+          <span>审批角色</span>
+          <strong>{{ roleLabel }}</strong>
+        </div>
+        <div class="detail-item">
+          <span>进入队列</span>
+          <strong>{{ formatTime(item.created_at) }}</strong>
+        </div>
       </div>
 
-      <el-collapse v-if="item.args || item.dry_run">
-        <el-collapse-item title="参数与 dry-run" name="args">
-          <pre>{{ prettyJson({ args: item.args, dry_run: item.dry_run }) }}</pre>
-        </el-collapse-item>
-      </el-collapse>
+      <div class="trace-row">
+        <span>Trace ID</span>
+        <code :title="item.trace_id">{{ item.trace_id }}</code>
+      </div>
 
-      <div v-if="item.status === 'pending'" class="actions">
-        <el-button type="success" @click="emit('approve', item.approval_id)">通过</el-button>
-        <el-button type="danger" plain @click="emit('reject', item.approval_id)">拒绝</el-button>
+      <div v-if="item.state === 'WAIT_APPROVAL'" class="actions centralized-actions">
+        <el-button type="success" @click="emit('approve', item.trace_id)">通过并继续执行</el-button>
+        <el-button type="danger" plain @click="emit('reject', item.trace_id)">拒绝执行</el-button>
       </div>
     </template>
   </div>
@@ -120,17 +129,42 @@ const title = computed(() => props.inline ? '本批计划需要审批' : props.i
 
 <style scoped>
 .approval {
-  padding: 16px;
+  padding: 18px;
 }
+
 .head {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
 }
+
 .head p {
-  color: var(--ks-text-muted);
   margin: 6px 0 0;
+  color: var(--ks-text-muted);
+  line-height: 1.65;
 }
+
+.centralized-head {
+  align-items: flex-start;
+}
+
+.title-block {
+  min-width: 0;
+}
+
+.title-block > strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 17px;
+  line-height: 1.45;
+}
+
+.card-kicker {
+  color: var(--ks-primary);
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .atomic-tip {
   margin-top: 12px;
   display: flex;
@@ -140,6 +174,7 @@ const title = computed(() => props.inline ? '本批计划需要审批' : props.i
   font-size: 12px;
   line-height: 1.5;
 }
+
 .meta {
   margin: 14px 0;
   display: grid;
@@ -147,46 +182,118 @@ const title = computed(() => props.inline ? '本批计划需要审批' : props.i
   gap: 10px;
   font-size: 13px;
 }
+
 .meta span {
   color: var(--ks-text-muted);
 }
+
+.detail-grid {
+  margin-top: 18px;
+  padding: 14px;
+  display: grid;
+  grid-template-columns: 1fr 1fr minmax(170px, 1.2fr);
+  gap: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.detail-item {
+  min-width: 0;
+}
+
+.detail-item > span,
+.detail-item > strong {
+  display: block;
+}
+
+.detail-item > span {
+  margin-bottom: 7px;
+  color: var(--ks-text-muted);
+  font-size: 11px;
+}
+
+.detail-item > strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-row {
+  margin-top: 12px;
+  padding: 11px 12px;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid var(--ks-border);
+  border-bottom: 1px solid var(--ks-border);
+  color: var(--ks-text-muted);
+  font-size: 12px;
+}
+
+.trace-row code {
+  overflow: hidden;
+  color: var(--ks-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tool-list {
   display: grid;
   gap: 8px;
   margin: 12px 0;
 }
+
 .tool-list > strong {
   font-size: 14px;
 }
+
 .tool-item {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   padding: 10px;
+  border: 1px solid var(--ks-border);
   border-radius: 10px;
   background: #f8fafc;
-  border: 1px solid var(--ks-border);
   font-size: 12px;
 }
+
 .tool-item span {
   color: var(--ks-text-muted);
 }
-pre {
-  white-space: pre-wrap;
-  color: var(--ks-primary);
-  background: #f8fafc;
-  border-radius: 10px;
-  padding: 12px;
-}
+
 .actions {
   margin-top: 14px;
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
 }
+
+.centralized-actions {
+  justify-content: flex-end;
+}
+
 .permission-warning {
   margin: 10px 0 0;
   color: #b45309;
   font-size: 12px;
 }
+
+@media (max-width: 720px) {
+  .detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .centralized-head {
+    flex-direction: column;
+  }
+
+  .centralized-actions {
+    justify-content: flex-start;
+  }
+}
 </style>
+

@@ -281,41 +281,33 @@ export async function mockEscalateApproval(data: EscalateApprovalRequest): Promi
   }
 }
 
-/** Mock：GET /api/approvals?status=pending。 */
+/** Mock：GET /api/approvals?status=pending（对齐后端 ApprovalItem 6 字段）。 */
 export async function mockGetPendingApprovals(): Promise<ApprovalItem[]> {
   return [
     {
-      approval_id: 'mock_ap_001',
       trace_id: 'mock_trace_disk_full',
-      title: '压缩并轮转 /var/log/app.log',
-      tool: 'log.compress_rotate',
+      user_intent: '压缩并轮转 /var/log/app.log',
       risk_level: 'R2',
-      status: 'pending',
-      reason: '涉及日志文件变更，需要人工确认；不允许直接删除数据库 binlog。',
       approval_role: 'operator',
-      args: { path: '/var/log/app.log' },
-      dry_run: {
-        passed: true,
-        impact: '会生成 .gz 归档文件，并创建新的 app.log，不直接删除原始日志。'
-      },
+      state: 'WAIT_APPROVAL',
       created_at: nowIso()
     }
   ]
 }
 
-/** Mock：GET /api/approvals/{approval_id}。 */
-export async function mockGetApprovalDetail(approvalId: string): Promise<ApprovalItem> {
-  return (await mockGetPendingApprovals()).find(item => item.approval_id === approvalId) || (await mockGetPendingApprovals())[0]
+/** Mock：GET /api/approvals/{trace_id}。 */
+export async function mockGetApprovalDetail(traceId: string): Promise<ApprovalItem> {
+  return (await mockGetPendingApprovals()).find(item => item.trace_id === traceId) || (await mockGetPendingApprovals())[0]
 }
 
-/** Mock：POST /api/approvals/{approval_id}/approve。 */
-export async function mockApproveAction(approvalId: string) {
-  return { approval_id: approvalId, status: 'approved' }
+/** Mock：POST /api/approvals/{trace_id}/approve。 */
+export async function mockApproveAction(traceId: string) {
+  return { trace_id: traceId, decision: 'approved', accepted: true }
 }
 
-/** Mock：POST /api/approvals/{approval_id}/reject。 */
-export async function mockRejectAction(approvalId: string, comment?: string) {
-  return { approval_id: approvalId, status: 'rejected', comment }
+/** Mock：POST /api/approvals/{trace_id}/reject。 */
+export async function mockRejectAction(traceId: string, comment?: string) {
+  return { trace_id: traceId, decision: 'rejected', accepted: true, comment }
 }
 
 /** Mock RCA 任务缓存：startRcaAnalysis 生成 trace_id，getRcaResult 再按 trace_id 读取。 */

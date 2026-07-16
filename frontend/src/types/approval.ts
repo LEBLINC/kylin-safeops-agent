@@ -1,47 +1,29 @@
 import type { RiskLevel, UserRole } from './policy'
 import type { AwaitApprovalTool } from './chat'
 
-/** 审批单状态。 */
+/** 内联审批（对话流）状态。await_approval 事件 + 前端本地流转使用。 */
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'escalated'
 
 /**
  * ApprovalItem
  *
- * 风险审批页中的审批单。
- * 命名统一原则：
- * - 工具名称使用 tool；
- * - 所需审批角色使用 approval_role；
- * - 用户审批/拒绝/转交时填写的备注统一使用 comment。
+ * 集中审批页 GET /api/approvals 的单条审批记录。
+ * **严格对齐后端 schemas.py ApprovalItem**（仅 6 字段，不多不少）：
+ * 后端主键是 trace_id（approve/reject 端点为 POST /{trace_id}/approve）。
  */
 export interface ApprovalItem {
-  /** 审批单 ID，审批页列表/详情使用。 */
-  approval_id: string
-  /** 对应的 trace_id，用于回到审计链路或续跑原子计划。 */
+  /** 对应的 trace_id，也是 approve/reject 的主键。 */
   trace_id: string
-  /** 审批单标题。 */
-  title: string
-  /** 单工具展示时使用；多工具审批时以 tools 列表为主。 */
-  tool?: string
-  /** 多工具审批列表。 */
-  tools?: AwaitApprovalTool[]
+  /** 用户原始意图（后端唯一的可读标题来源，无独立 title 字段）。 */
+  user_intent: string
   /** 本批计划最高风险等级。 */
   risk_level: RiskLevel
-  /** 当前审批状态。 */
-  status: ApprovalStatus
-  /** 为什么需要审批，这是系统给出的审批原因，不是用户备注。 */
-  reason: string
-  /** 完成该审批所需的最低角色。 */
-  approval_role?: UserRole | null
-  /** 工具参数。 */
-  args?: Record<string, unknown>
-  /** dry-run 结果，展示影响范围。 */
-  dry_run?: {
-    passed: boolean
-    impact?: string
-    output?: unknown
-  }
+  /** 完成该审批所需的角色；无则 null。 */
+  approval_role: UserRole | null
+  /** 状态机状态：WAIT_APPROVAL | FINISHED | REJECTED（后端原值，非 pending/approved）。 */
+  state: string
   /** 创建时间。 */
-  created_at?: string
+  created_at: string
 }
 
 /**

@@ -67,44 +67,25 @@ export interface AuditRecord {
 }
 
 /**
- * HashChainVerifyRecord
- *
- * 哈希链完整性校验中的单条记录。
- *
- * 使用位置：
- * - HashChainViewer.vue。
- *
- * 字段说明：
- * @field seq 链节点序号。
- * @field record_type 审计记录类型。
- * @field prev_hash 前序 hash。
- * @field curr_hash 当前 hash。
- * @field valid 该节点是否校验通过；false 表示该节点或前序链路可能被篡改。
- */
-export interface HashChainVerifyRecord {
-  seq: number
-  record_type?: string
-  prev_hash: string
-  curr_hash: string
-  valid: boolean
-}
-
-/**
  * HashChainVerifyResult
  *
- * 某个 trace 的哈希链校验结果。
+ * 某个 trace 的哈希链校验结果。与后端 schemas.py AuditVerifyResponse 字段对齐。
  *
  * 使用位置：
- * - AuditView.vue 调用 verifyHashChain() 后保存；
+ * - AuditView.vue 调用 verify() 后保存；
  * - HashChainViewer.vue 展示整体是否完整。
  *
  * 字段说明：
  * @field trace_id 被校验的 trace。
  * @field valid 整条链是否全部通过。
- * @field records 每个链节点的校验明细。
+ * @field record_count 参与校验的记录数。
+ * @field broken_seq 第一个校验失败的序号；null 表示全部通过。
+ * @field reason 校验结论说明（通过或失败原因）。
  */
 export interface HashChainVerifyResult {
   trace_id: string
   valid: boolean
-  records: HashChainVerifyRecord[]
+  record_count: number
+  broken_seq: number | null
+  reason: string
 }
