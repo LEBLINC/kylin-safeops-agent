@@ -34,6 +34,7 @@ import os
 import platform
 import shutil
 from collections.abc import Sequence
+from contextlib import suppress
 
 from backend.app.contracts.intent import CandidateTool
 from backend.app.contracts.untrusted import ToolResult
@@ -234,6 +235,9 @@ class PrivilegeExecutor:
             await self._kill_and_reap(proc)
             return self._fail(tool, 124, f"<timeout after {self._timeout}s>")
 
+        # O-H7-1: 正常完成路径也显式关 transport，避免长生命周期 loop 里 socket/pipe FD 累积
+        self._close_transport(proc)
+
         stdout_text = self._truncate(stdout_head, stdout_over)
         stderr_text = stderr_head.decode("utf-8", errors="replace").strip()
         if stderr_text:
@@ -308,6 +312,26 @@ class PrivilegeExecutor:
             await asyncio.wait_for(proc.wait(), timeout=KILL_REAP_TIMEOUT)
         except asyncio.TimeoutError:
             pass
+        PrivilegeExecutor._close_transport(proc)
+
+    @staticmethod
+    def _close_transport(proc: asyncio.subprocess.Process | None) -> None:
+        """显式关 transport，FD 立即归还池而非等 GC（O-H7-1 高压场景卫生）。
+
+        H7（之六十五）解决了孤儿泄漏 + 内存 DoS，但 D Gate B 压测尾部仍出现
+        RuntimeError: Event loop is closed（BaseSubprocessTransport.__del__ 后 FD
+        到 GC 才释放）。裸 asyncio.run() 脚手架产物，生产长生命周期 loop 不触发；
+        本 helper 让 kill/wait 回收后立即关 transport，高压场景下少一次 FD 泄漏。
+
+        不 await（transport.close 同步、立即释放）。失败兜住（已关、平台差异）。
+        """
+        if proc is None:
+            return
+        transport = getattr(proc, "_transport", None)
+        if transport is None:
+            return
+        with suppress(Exception):
+            transport.close()
 
     async def _execute_system_info(self, tool: CandidateTool) -> ToolResult:
         """system.info: 多命令聚合，stdout 用 JSON 字符串。"""
@@ -334,10 +358,15 @@ class PrivilegeExecutor:
                 results[key] = out.decode("utf-8", errors="replace").strip()
             except asyncio.TimeoutError:
                 # H7 孤儿泄漏：固定命令超时（如 who/uptime 卡 stale utmp）也须 kill + 回收
+                # （_kill_and_reap 内部已含 _close_transport，不重复关）
                 await self._kill_and_reap(proc)
                 results[key] = ""
             except Exception:  # noqa: BLE001
                 results[key] = ""
+            finally:
+                # O-H7-1: 成功/非超时异常路径显式关 transport（超时路径已在 _kill_and_reap 关，
+                # _close_transport 幂等 with suppress 二次调用无害）。FD 立即归还池不等 GC。
+                self._close_transport(proc)
         return ToolResult(
             tool=tool.name,
             args=tool.args,

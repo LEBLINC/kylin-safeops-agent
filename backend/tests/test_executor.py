@@ -375,6 +375,71 @@ def test_kill_reap_none_proc_noop() -> None:
     asyncio.run(PrivilegeExecutor._kill_and_reap(None))
 
 
+# ---- O-H7-1 FD 卫生：kill 后 / 正常完成后显式关 transport --------------------
+
+
+def test_close_transport_releases_fd() -> None:
+    """_close_transport 显式调 proc._transport.close()（FD 立即归还池不等 GC）。"""
+    proc = MagicMock()
+    transport = MagicMock()
+    proc._transport = transport
+
+    PrivilegeExecutor._close_transport(proc)
+
+    transport.close.assert_called_once()
+
+
+def test_close_transport_none_proc_and_no_transport_noop() -> None:
+    """_close_transport(None) 与 proc 无 _transport 属性 → 无操作不抛（幂等/防御）。"""
+    # None proc
+    PrivilegeExecutor._close_transport(None)
+    # proc 存在但 _transport 为 None
+    proc = MagicMock()
+    proc._transport = None
+    PrivilegeExecutor._close_transport(proc)  # 不抛即通过
+
+
+def test_close_transport_swallows_close_exception() -> None:
+    """transport.close() 抛异常（已关/平台差异）→ with suppress 兜住不外泄。"""
+    proc = MagicMock()
+    transport = MagicMock()
+    transport.close = MagicMock(side_effect=RuntimeError("Event loop is closed"))
+    proc._transport = transport
+
+    # 不抛即通过（suppress(Exception)）
+    PrivilegeExecutor._close_transport(proc)
+    transport.close.assert_called_once()
+
+
+def test_timeout_path_closes_transport() -> None:
+    """超时 kill 回收后（_kill_and_reap 末尾）显式关 transport。"""
+    ex = PrivilegeExecutor()
+    ex._timeout = 0.05
+    proc = _make_hanging_proc(returncode=-9)
+    transport = MagicMock()
+    proc._transport = transport
+
+    with patch("asyncio.create_subprocess_exec", return_value=proc):
+        result = asyncio.run(ex.execute(_tool("disk.usage")))
+
+    assert result.exit_code == 124
+    transport.close.assert_called_once()  # 超时路径也关 transport
+
+
+def test_normal_path_closes_transport() -> None:
+    """_consume 成功路径（正常完成）也显式关 transport，防长生命周期 FD 累积。"""
+    ex = PrivilegeExecutor()
+    proc = _make_proc(stdout=b"ok output", stderr=b"", returncode=0)
+    transport = MagicMock()
+    proc._transport = transport
+
+    with patch("asyncio.create_subprocess_exec", return_value=proc):
+        result = asyncio.run(ex.execute(_tool("disk.usage")))
+
+    assert result.exit_code == 0
+    transport.close.assert_called_once()  # 正常完成路径也关 transport
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="真子进程超时回收需 POSIX 环境（CI ubuntu 跑）")
 def test_real_subprocess_timeout_reaps_process() -> None:
     """真进程：sleep 60 在 1s 超时后被 kill + 回收——proc.returncode 由 None 变为已退出值。
@@ -635,6 +700,9 @@ def test_system_info_not_sandboxed() -> None:
     mock_proc = AsyncMock()
     mock_proc.communicate = AsyncMock(return_value=(b"x", b""))
     mock_proc.returncode = 0
+    # O-H7-1: _execute_system_info finally 里调 _close_transport；给同步 _transport
+    # 避免 AsyncMock 自动把 close() 造成协程（RuntimeWarning: never awaited）。
+    mock_proc._transport = MagicMock()
 
     with (
         patch("platform.system", return_value="Linux"),
