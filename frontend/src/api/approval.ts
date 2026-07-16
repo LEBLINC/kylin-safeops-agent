@@ -2,6 +2,7 @@ import { request } from './request'
 import { isMockEnabled } from '@/api/mock-flag'
 import type {
   ApprovalItem,
+  ApprovalListResponse,
   EscalateApprovalRequest,
   EscalateApprovalResponse,
   ResumeApprovalRequest,
@@ -44,9 +45,11 @@ import type {
  */
 export async function getPendingApprovals() {
   if (isMockEnabled()) { const { mockGetPendingApprovals } = await import("./mock"); return mockGetPendingApprovals() }
-  return request.get<ApprovalItem[], ApprovalItem[]>('/api/approvals', {
+  // 后端返回信封 {items, total}，解包 items 给 store（store 期望裸数组）
+  const res = await request.get<ApprovalListResponse, ApprovalListResponse>('/api/approvals', {
     params: { status: 'pending' }
   })
+  return (res as unknown as ApprovalListResponse).items
 }
 
 /**

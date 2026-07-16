@@ -44,6 +44,12 @@ export interface InlineApproval {
   status: ApprovalStatus
 }
 
+/** GET /api/approvals 返回信封。后端返回 {items, total}，前端调用方需解包 .items。 */
+export interface ApprovalListResponse {
+  items: ApprovalItem[]
+  total: number
+}
+
 /** POST /api/approvals/resume 请求体。后端 ResumeRequest 设置了 extra="forbid"，禁止多余字段。 */
 export interface ResumeApprovalRequest {
   /** 要续跑或拒绝的 trace_id。 */
