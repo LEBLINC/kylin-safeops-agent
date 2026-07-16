@@ -521,5 +521,8 @@ curl → nginx:443(TLS) → sidecar:8080 → app:8000
 | B4 session.py durability | ✅ | 之六十四 c297c28 合入（定性=防御纵深，非数据丢失修复）|
 | **nginx 部署兼容 2 缺口** | 🟠 部署层 backlog | ① http2 on 1.24 不识 ② server_names_hash_bucket_size 32→64 |
 | **deploy/sandbox 部署 wrapper+sudoers** | ⏳ 阶段3 部署时做 | `cp → chown root → chmod 0755/0440 → visudo -c` |
+| **T17/T18/T19 install.sh bash** | ✅ 之七十 | skipif(win32) 守门，Linux CI 正常跑 |
+| **O-H7-1 FD 卫生** | ✅ 之六十九 | _close_transport staticmethod，高压场景 FD 立即归还 |
+| **H15 审计阻塞** | ✅ 之六十七 | asyncio.to_thread 释放主协程，22+1处 await，哈希链守恒 |
 
 ---

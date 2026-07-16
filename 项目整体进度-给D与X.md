@@ -384,8 +384,13 @@ C3：仅 executor + test 2 文件。feature 署名 youzWSN640，merge `da225be` 
 **二梯队 全闭合**：C1 metrics / C2 SSE 封顶（之六十）/ C3 mypy 守门 / C4 H9 输出收尾 / H3 空口令 bind / H4 LDAP TLS / f62d20f chat.ts 守卫回归（之六十一）/ H10 审批假成功 / RCA LLM P4 真接 / C1 summarize 埋点（之六十二）/ X UI 视觉优化批（之六十三）/ H7 执行器孤儿+内存 DoS（之六十五）/ X 前端消费 rca llm_summary（之六十六）
 
 **仍在跑（之六十七并行工单）**：
-- H15 to_thread L 落地：`_append_audit` 改 async + `asyncio.to_thread(self._audit.append, record)`（24 处调用点 + test_b2_auth_layer.py:179/216 全部加 await + 顶部 import asyncio；D 调研 md 待收）
+- H15 to_thread L 落地 ✅ **之六十七已闭合**（22+1 处 await + _branch_on_verdict 竞态修复 + approvals.py SoD 第23处修正）
 - H11 mock 出 bundle X 起工单：抽 isMockEnabled 到 mock-flag.ts + 10 处静态 import 改指向（DemoView.vue 已在 router 注册必须一并改；build 实测 grep dist/ 必须空）
-- RCA 真 LLM 端到端验证：X WSL 真接不稳，X 提议 L 在 dev 用 ToolResult 假证据（disk.usage 80% + disk.large_files 命中）走 _emit_rca_summary 全链路单测 mock 复现，不需 VM
+- RCA 真 LLM 端到端验证：X WSL 真接不稳，X 提议 L 在 dev 用 ToolResult 假证据走 _emit_rca_summary 全链路单测 mock 复现，不需 VM
+- **之六十八 RCA 架构对接**：Task1/2a/3 架构 ✅，Task4 测试文件丢失已打回 L amend 待重交付
 
-**非阻断 backlog 单列**：O-H7-1 FD 卫生（kill 后显式关 transport）/ T17/T18/T19 Windows bash skipif（deploy/proxy/tests）/ nginx 部署兼容 2 缺口（http2 / server_names_hash_bucket_size）/ X P1 SSE 阻塞读 body（client.stream + aiter_bytes）/ O-B3 真装 app 单元 Q3 systemctl start+show
+**非阻断 backlog 已闭合**：~~O-H7-1 FD 卫生~~ ✅ **之六十九**（_close_transport staticmethod + 5 测试）；~~T17/T18/T19 Windows bash skipif~~ ✅ **之七十**（skipif(win32)装饰器）
+
+**非阻断 backlog 仍挂**：nginx 部署兼容 2 缺口（http2 / server_names_hash_bucket_size）/ X P1 SSE 阻塞读 body（client.stream + aiter_bytes）/ O-B3 真装 app 单元 Q3 systemctl start+show
+
+**阶段6 合批 CI（dev=cf555bf，2026-07-16）**：ruff/ruff-format/mypy ✅，pytest **714 passed / 21 skipped**
