@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -149,13 +150,22 @@ def _to_item(session: object) -> schemas.ApprovalItem:
             role = orch.pending_approval_role  # type: ignore[attr-defined,union-attr]
         except Exception:
             role = None
+    # 之七十二值域修真：兑现本函数 docstring——role→R 级映射（operator=R2/admin=R3/其他=R0）
+    # 与 created_at epoch→ISO 转换。此前直接把 "operator"/"admin" 塞进 risk_level、
+    # str(time.time()) 塞进 created_at，前端 RiskTag/formatTime 对齐契约后反而渲染异常。
+    risk_level = {"operator": "R2", "admin": "R3"}.get(role or "", "R0")
+    raw_created = getattr(session, "created_at", None)
+    if isinstance(raw_created, int | float):
+        created_at = datetime.fromtimestamp(raw_created, tz=timezone.utc).isoformat()
+    else:
+        created_at = str(raw_created or "")
     return schemas.ApprovalItem(
         trace_id=str(getattr(session, "trace_id", "")),
         user_intent=user_intent,
-        risk_level=role or "R0",
+        risk_level=risk_level,
         approval_role=role,
         state=state,
-        created_at=str(getattr(session, "created_at", "")),
+        created_at=created_at,
     )
 
 

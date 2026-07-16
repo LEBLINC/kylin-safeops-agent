@@ -80,3 +80,36 @@ def test_approval_escalate_admin_only() -> None:
     with _setup(_admin()) as client:
         resp = client.post("/api/approvals/missing/escalate", json={"to_user": "alice"})
         assert resp.status_code == 404
+
+
+def test_to_item_value_domain_contract() -> None:
+    """之七十二：_to_item 值域契约（前端 RiskTag/formatTime 消费口径）。
+
+    - risk_level 必须是 R 级（operator→R2 / admin→R3 / 非 WAIT→R0），
+      不得把 approval_role 字符串原样塞入；
+    - created_at 必须是 ISO 字符串（epoch float 转换），不得是 str(time.time())。
+    """
+    from types import SimpleNamespace
+
+    from backend.app.api.routers.approvals import _to_item
+
+    def _session(state: str, role: str | None, created: float) -> SimpleNamespace:
+        orch = SimpleNamespace(
+            user_intent="清理日志",
+            state=SimpleNamespace(value=state),
+            pending_approval_role=role,
+        )
+        return SimpleNamespace(trace_id="t-1", orchestrator=orch, created_at=created)
+
+    epoch = 1752650000.0
+    item = _to_item(_session("WAIT_APPROVAL", "operator", epoch))
+    assert item.risk_level == "R2"
+    assert item.approval_role == "operator"
+    assert item.created_at.startswith("2025") or item.created_at.startswith("2026")
+    assert "T" in item.created_at  # ISO 格式，非 str(time.time())
+
+    assert _to_item(_session("WAIT_APPROVAL", "admin", epoch)).risk_level == "R3"
+    # 非 WAIT_APPROVAL：role 不取、risk 归 R0
+    finished = _to_item(_session("FINISHED", "admin", epoch))
+    assert finished.risk_level == "R0"
+    assert finished.approval_role is None
