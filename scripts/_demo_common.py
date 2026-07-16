@@ -3,7 +3,7 @@
 提供：参考策略桩 / 演示执行器 / 事件打印 / 静默审计 + 编排器装配 + 脚本化 LLM +
 统一驱动 run/（按需 resume）的 drive()。各场景剧本只声明"意图序列 + 叙事文案"。
 
-全部【跑在 fake 上】（D/X 真件到位后翻真三处，见各剧本文末与 集成对齐备忘.md §3）：
+全部【跑在 fake 上】（D/X 真件到位后翻真三处，见各剧本文末）：
 - 策略 → backend.app.security 的 PolicyEngine(DEFAULT_POLICY, registry)；
 - Executor → D 的特权代理 Executor；
 - LLM → 真实端点（backend.app.llm.adapter 默认 httpx 实现 + LLMConfig）。

@@ -10,7 +10,7 @@
 - `backend/app/` —— contracts(契约) / llm / mcp / agent / api / security / executor / audit / db
 - `mcp_servers/` —— os_ops(感知与变更工具) / rca
 - `third_party/` —— 原样保留的 fork 源码及其 LICENSE（见 NOTICE）
-- `frontend/ deploy/ demo/ docs/` —— 前端 / 部署 / 演示 / 提交物
+- `frontend/ deploy/ demo/` —— 前端 / 部署 / 演示
 
 ## 开发约定（铁律摘要）
 1. 绝不 `subprocess(shell=True)`；命令只走模板白名单。

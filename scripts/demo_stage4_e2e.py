@@ -9,7 +9,7 @@
   python -m scripts.demo_stage4_e2e --use-real-llm --user-intent "重启 nginx 服务"
   python -m scripts.demo_stage4_e2e --use-real-llm --user-intent "查看磁盘占用情况"
 
-场景对照表（与 `docs/design/stage4-e2e-demo-testplan.md` §1 一一对应）：
+场景对照表（阶段4 端到端 demo 四场景）：
   A 输入闸 deny：注入红队 high→REJECTED
   B 策略闸 deny：file.lsof_check(path=/etc/shadow) 命中 FILE001→REJECTED
   C 确认闸 resume R3：admin 批准 service.restart 沙箱内真重启 cron.service
