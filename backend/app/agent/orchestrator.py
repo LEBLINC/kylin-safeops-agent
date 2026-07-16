@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
@@ -129,7 +130,7 @@ class Orchestrator:
         # C1：编排状态机各阶段计数（埋点，不影响状态机语义）
         get_metrics().inc(f"orchestrator.state.{dst.value}")
 
-    def _append_audit(
+    async def _append_audit(
         self,
         payload: dict,
         *,
@@ -142,6 +143,10 @@ class Orchestrator:
         显式标注 (e.g. rate_limited / token_cap_exceeded / injection_high).
         payload = 结构化推理摘要 (手册固定字段子集).
         actor = {user, roles} 三段由调用方注入 (L-M3 决策⑨ traceability).
+
+        之六十七 H15: 落库走 asyncio.to_thread 释放主协程（D 调研 md 第三章，
+        SqliteAuditSink 线程安全 + session.py check_same_thread=False 双确认）。
+        compute_curr_hash 仍在主协程（哈希链顺序不变量），record 入线程池只做 IO。
         """
         if actor is None and self._actor is not None:
             actor = self._actor
@@ -158,7 +163,7 @@ class Orchestrator:
         )
         # C1：审计 append 延迟埋点（gauge，反映最近一次落库耗时，毫秒）
         _t0 = time.monotonic()
-        self._audit.append(record)
+        await asyncio.to_thread(self._audit.append, record)
         get_metrics().set_gauge("audit.append_latency_ms", (time.monotonic() - _t0) * 1000)
         self._prev_hash = curr_hash
         self._seq += 1
@@ -188,7 +193,7 @@ class Orchestrator:
         返回停止时的状态：FINISHED / REJECTED（终态）或 WAIT_APPROVAL（待审批，调 resume 续跑）。
         """
         # RECEIVED：仅审计，无独立前端事件
-        self._append_audit({"user_intent": user_intent})
+        await self._append_audit({"user_intent": user_intent})
         self._user_intent = user_intent  # 持久化供 _execute_batch 末尾 LLM.summarize 使用
 
         # 输入闸（D-10）：LLM 看到输入【之前】做确定性提示注入检测。防御纵深——只增限制、
@@ -197,7 +202,7 @@ class Orchestrator:
         if finding is not None and finding.severity == "high":
             # high → 输入闸 deny：拦在 LLM plan 之前，转 REJECTED 终态（原文入审计）。
             self._goto(State.REJECTED)
-            self._append_audit(
+            await self._append_audit(
                 {
                     "input_gate": "deny",
                     "category": finding.category,
@@ -212,7 +217,7 @@ class Orchestrator:
             return self.state
         if finding is not None and finding.severity == "medium":
             # medium → 仅标记审计，继续正常流程（不拦、不改裁决）。
-            self._append_audit(
+            await self._append_audit(
                 {
                     "input_gate": "flagged",
                     "category": finding.category,
@@ -228,12 +233,12 @@ class Orchestrator:
             intent = await self._llm.plan(messages)
         except (httpx.HTTPError, RuntimeError) as exc:
             get_metrics().inc("llm.failures")
-            self._append_audit({"error": str(exc), "phase": self.state.value})
+            await self._append_audit({"error": str(exc), "phase": self.state.value})
             self._emit("error", {"message": str(exc), "phase": self.state.value})
             return self.state
 
         self._goto(State.INTENT_PARSED)
-        self._append_audit({"user_intent": intent.intent, "risk_level": intent.risk_hint})
+        await self._append_audit({"user_intent": intent.intent, "risk_level": intent.risk_hint})
         self._emit("intent_parsed", {"intent": intent.model_dump()})
 
         # 观测分支（need_observation）：有界多轮 observe→re-plan（手册，防死循环）。
@@ -251,7 +256,7 @@ class Orchestrator:
                 observed_key = self._candidates_key(current.candidate_tools)
                 observations = await self._collect_observations(current.candidate_tools)
                 self._evidence.extend(observations)
-                self._append_audit({"observations": [o.exit_code for o in observations]})
+                await self._append_audit({"observations": [o.exit_code for o in observations]})
                 self._emit("observation", {"results": [o.model_dump() for o in observations]})
                 # 把观测结果作为不可信数据回喂，二次规划
                 try:
@@ -261,7 +266,7 @@ class Orchestrator:
                     current = await self._llm.plan(convo)
                 except (httpx.HTTPError, RuntimeError) as exc:
                     get_metrics().inc("llm.failures")
-                    self._append_audit({"error": str(exc), "phase": self.state.value})
+                    await self._append_audit({"error": str(exc), "phase": self.state.value})
                     self._emit("error", {"message": str(exc), "phase": self.state.value})
                     return self.state
                 action_intent = current
@@ -279,7 +284,9 @@ class Orchestrator:
         self._goto(State.PLAN_GENERATED)
         # 前端事件工具名口径统一为 "tool"（与 per_tool / await_approval 一致）；
         # 契约 CandidateTool 内部仍是 .name，此处仅整形展示用事件数据形状，不改 contracts。
-        self._append_audit({"tool_plan": [t.model_dump() for t in action_intent.candidate_tools]})
+        await self._append_audit(
+            {"tool_plan": [t.model_dump() for t in action_intent.candidate_tools]}
+        )
         self._emit(
             "plan_generated",
             {
@@ -294,7 +301,7 @@ class Orchestrator:
         per_tool = self._evaluate_all(action_intent.candidate_tools)
         batch_verdict = self._batch_decision(per_tool)
         self._goto(State.POLICY_CHECKED)
-        self._append_audit(
+        await self._append_audit(
             {
                 "decision": batch_verdict.decision,
                 "risk_level": batch_verdict.final_risk,
@@ -374,7 +381,7 @@ class Orchestrator:
         if batch_verdict.decision == "deny":
             denied = [t.name for t, v in per_tool if v.decision == "deny"]
             self._goto(State.REJECTED)
-            self._append_audit(
+            await self._append_audit(
                 {"decision": "deny", "approval_required": False, "denied_tools": denied}
             )
             # L-6 方案B：REJECTED 终态显式结论事件（策略 deny），让前端/任意消费者收尾。
@@ -401,13 +408,20 @@ class Orchestrator:
             self._pending_approval_role = _most_restrictive_role(
                 [v.approval_role for _, v in per_tool if v.decision == "confirm"]
             )
-            self._goto(State.WAIT_APPROVAL)
-            self._append_audit({"decision": "confirm", "approval_required": True})
+            # 之六十七 H15: _append_audit async 化后，goto→await(yield)→emit 之间存在观测窗口，
+            # 外部轮询 state==WAIT_APPROVAL 可能早于 await_approval 事件入队。修复：先 audit（显式
+            # phase=WAIT_APPROVAL 保留原语义）+ emit，最后才 _goto 翻转状态——保证观测到
+            # WAIT_APPROVAL 时 await_approval 事件必已入队（消除 async 化引入的事件/状态竞态）。
+            await self._append_audit(
+                {"decision": "confirm", "approval_required": True},
+                phase=State.WAIT_APPROVAL.value,
+            )
             # 面板展示的 confirm 工具，正是批准后会执行的同一批的子集（消除错配）
             self._emit(
                 "await_approval",
                 {"reason": batch_verdict.reason, "tools": confirm_tools},
             )
+            self._goto(State.WAIT_APPROVAL)
             return self.state  # 暂停，等 resume()
 
         # allow：整批无需审批
@@ -419,7 +433,7 @@ class Orchestrator:
             raise RuntimeError(f"resume only valid in WAIT_APPROVAL, got {self.state.value}")
         if not approved:
             self._goto(State.REJECTED)
-            self._append_audit({"decision": "deny", "approval_required": True})
+            await self._append_audit({"decision": "deny", "approval_required": True})
             # L-6 方案B：REJECTED 终态显式结论事件（用户拒批）。
             self._emit(
                 "rejected",
@@ -443,7 +457,7 @@ class Orchestrator:
         assert self._batch is not None  # 进入执行必有批次
 
         self._goto(State.EXECUTING)
-        self._append_audit({"tool_plan": [t.model_dump() for t in self._batch]})
+        await self._append_audit({"tool_plan": [t.model_dump() for t in self._batch]})
         self._emit("executing", {"tools": [t.name for t in self._batch]})
 
         results: list[ToolResult] = []
@@ -467,16 +481,16 @@ class Orchestrator:
             results.append(result)
             self._evidence.append(result)
             # 每个工具各自留痕
-            self._append_audit({"tool": tool.name, "exit_code": result.exit_code})
+            await self._append_audit({"tool": tool.name, "exit_code": result.exit_code})
             self._emit("tool_result", {"result": result.model_dump()})
 
         self._goto(State.EXECUTED)
-        self._append_audit({"executed": [t.name for t in self._batch]})
+        await self._append_audit({"executed": [t.name for t in self._batch]})
 
         # VERIFIED：方案 B 聚合判定——全部 exit_code==0 才算 ok
         all_ok = all(r.exit_code == 0 for r in results)
         self._goto(State.VERIFIED)
-        self._append_audit(
+        await self._append_audit(
             {
                 "verify_result": "ok" if all_ok else "non_zero",
                 "observations": [r.exit_code for r in results],
@@ -510,7 +524,7 @@ class Orchestrator:
             self._emit("rca", rca_payload)
 
         self._goto(State.FINISHED)
-        self._append_audit({"verify_result": "ok" if all_ok else "non_zero"})
+        await self._append_audit({"verify_result": "ok" if all_ok else "non_zero"})
         return self.state
 
     async def _emit_natural_language(self, results: list[ToolResult]) -> None:
@@ -534,7 +548,7 @@ class Orchestrator:
         )
         finding = detect_tool_output_injection(joined_text)
         if finding is not None:
-            self._append_audit(
+            await self._append_audit(
                 {
                     "natural_language_gate": "deny",
                     "category": finding.category,
@@ -569,7 +583,7 @@ class Orchestrator:
             # 记录 last_summarize_failed_phase 供 emit synthetic 分支用 (token_cap 仅)
             self._last_summarize_failed_phase = audit_phase
             try:
-                self._append_audit(
+                await self._append_audit(
                     {
                         "summarize_failed": True,
                         "audit_phase": audit_phase,
@@ -634,7 +648,7 @@ class Orchestrator:
         )
         finding = detect_tool_output_injection(joined)
         if finding is not None and finding.severity == "high":
-            self._append_audit(
+            await self._append_audit(
                 {"rca_injection_gate": "deny", "category": finding.category},
                 phase="injection_high",
             )
@@ -650,7 +664,7 @@ class Orchestrator:
             )
         except (httpx.HTTPError, RuntimeError) as exc:
             get_metrics().inc("llm.failures")
-            self._append_audit(
+            await self._append_audit(
                 {"rca_summarize": "failed", "error_class": type(exc).__name__},
                 phase="rca_summarize_failed",
             )
@@ -661,7 +675,7 @@ class Orchestrator:
             return None
 
         redacted_summary, hit = scan_and_redact(summary)
-        self._append_audit(
+        await self._append_audit(
             {"rca_llm_summary": "ok", "sensitive_filtered": hit},
             phase="rca_llm_summary",
         )

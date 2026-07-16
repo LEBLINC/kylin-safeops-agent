@@ -176,7 +176,7 @@ def test_t8_orchestrator_actor_appears_in_payload(audit_sink) -> None:
         orch = Orchestrator(llm=llm, gateway=gateway, audit=audit, events=events)
         orch.set_actor("alice", frozenset({"operator"}))
         # 调一次 _append_audit
-        rec = orch._append_audit({"test": "t8"})
+        rec = await orch._append_audit({"test": "t8"})
         return rec
 
     rec = asyncio.run(_scenario())
@@ -213,7 +213,7 @@ def test_t9_actor_roles_complete_set() -> None:
         orch = Orchestrator(llm=llm, gateway=gateway, audit=audit, events=events)
         # 多角色注入
         orch.set_actor("bob", frozenset({"admin", "auditor", "operator"}))
-        rec = orch._append_audit({"test": "t9"})
+        rec = await orch._append_audit({"test": "t9"})
         return rec
 
     rec = asyncio.run(_scenario())
