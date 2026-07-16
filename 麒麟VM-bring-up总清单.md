@@ -559,3 +559,8 @@ pytest：**712 → 724 / 18 skipped**。C3 严守：仅 backend/app/{agent,api}/
 三轮交付闭合。mock chunk 按需加载，生产 bundle 干净。VM 侧无任何变更。
 
 ---
+## ★之七十二 审批/审计契约对齐（2026-07-16，merge e9392de + a6d9d17）
+
+前端契约收敛 + L 侧 _to_item 值域修真（role→R 级 + epoch→ISO）。VM 验证影响：**审批页/审计页字段自此真实可信**——下次 VM bring-up 时审批工作台的风险等级/入队时间/状态标签均为后端真值渲染，无需再对照 mock 口径。pytest 727/21。dev = a6d9d17。
+
+---

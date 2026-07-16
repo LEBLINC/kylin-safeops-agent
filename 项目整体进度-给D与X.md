@@ -430,3 +430,13 @@ X 首交 mock-flag.ts 抽离方向正确（保留），但 **mock.ts 仍在主 b
 
 **仅剩非阻断 backlog**：Task 2b root_cause LLM 化 / nginx 部署兼容 2 缺口 / X P1 SSE / O-B3 Q3。
 
+
+---
+
+## ★之七十二 X 审批/审计前端契约对齐 + 审批点击无反应修复（feat/x-sso-ldap @7617276，2026-07-16，merge e9392de + L 联动 a6d9d17）
+
+X：ApprovalItem 收敛后端真实 6 字段（删 8 幽灵字段/主键 trace_id/状态后端原值）+ HashChainVerifyResult 对齐 AuditVerifyResponse 5 字段（删伪造 records[]）+ 审批点击无反应修复（成功后移出 pending 列表 + success 反馈）+ store error/loading 状态补全。
+
+L 联动修真（a6d9d17）：_to_item risk_level role→R 级映射（operator→R2/admin→R3）+ created_at epoch→ISO；此前值域错配会让对齐后的前端 RiskTag 渲「未知」、时间渲 Invalid Date。新增值域契约测试。
+
+CI：vue-tsc 0 / eslint 0 / vitest 26/26 / build ✅（index chunk 净减 8.6kB）；pytest **727/21**。dev = **a6d9d17**。
