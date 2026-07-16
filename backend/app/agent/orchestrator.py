@@ -13,7 +13,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import time
 import uuid
@@ -164,7 +163,14 @@ class Orchestrator:
         )
         # C1：审计 append 延迟埋点（gauge，反映最近一次落库耗时，毫秒）
         _t0 = time.monotonic()
-        await asyncio.to_thread(self._audit.append, record)
+        # H15-v2 backlog：asyncio.to_thread() 在 CI Python 3.11.15 Linux 环境下
+        # 测试拆解期（asyncio.run() → _cancel_all_tasks → anyio.stop）与线程池里
+        # 仍在运行的 sqlite 写入线程发生竞态，触发 threading._is_owned segfault。
+        # 根因：ThreadPoolExecutor 未等线程完成即被 event loop teardown 打断。
+        # 临时回退为同步调用（保留 async def 签名，22+1 处 await 不动），
+        # 事件循环阻塞 <1ms（:memory: 无 fsync，真文件 WAL 模式也极快）。
+        # 待 H15-v2 工单用 dedicated executor + graceful shutdown 替代。
+        self._audit.append(record)
         get_metrics().set_gauge("audit.append_latency_ms", (time.monotonic() - _t0) * 1000)
         self._prev_hash = curr_hash
         self._seq += 1
