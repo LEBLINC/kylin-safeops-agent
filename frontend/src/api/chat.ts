@@ -1,16 +1,6 @@
 import { buildApiUrl, request } from './request'
-import {
-  connectMockChatStream,
-  isMockEnabled,
-  mockCreateSession,
-  mockDeleteSession,
-  mockGetSessionDetail,
-  mockGetSessions,
-  mockRenameSession,
-  mockSearchSessions,
-  mockSendMessage,
-  type MockChatStreamConnection
-} from './mock'
+import { isMockEnabled } from './mock-flag'
+import type { MockChatStreamConnection } from './mock'
 import type { ChatSession, SendMessageRequest, SendMessageResponse, StreamEvent } from '@/types/chat'
 
 /**
@@ -48,8 +38,8 @@ import type { ChatSession, SendMessageRequest, SendMessageResponse, StreamEvent 
  * @returns session_id 后端确认的会话 ID。
  * @returns stream_url 事件流地址。真实模式可为 /api/chat/{trace_id}/events，Mock 模式为 mock://chat/{trace_id}。
  */
-export function sendMessage(data: SendMessageRequest) {
-  if (isMockEnabled()) return mockSendMessage(data)
+export async function sendMessage(data: SendMessageRequest) {
+  if (isMockEnabled()) { const { mockSendMessage } = await import('./mock'); return mockSendMessage(data) }
   return request.post<SendMessageResponse, SendMessageResponse>('/api/chat', data)
 }
 
@@ -60,8 +50,8 @@ export function sendMessage(data: SendMessageRequest) {
  * 使用位置：stores/chat.ts 的 initSessions()
  * 返回字段：ChatSession[]，用于左侧会话列表。
  */
-export function getSessions() {
-  if (isMockEnabled()) return mockGetSessions()
+export async function getSessions() {
+  if (isMockEnabled()) { const { mockGetSessions } = await import('./mock'); return mockGetSessions() }
   return request.get<ChatSession[], ChatSession[]>('/api/chat/sessions')
 }
 
@@ -72,8 +62,8 @@ export function getSessions() {
  * 请求体：{ title?: string }
  * 使用位置：ChatView.vue 点击“新建” -> stores/chat.ts createLocalSession()
  */
-export function createSession(title?: string) {
-  if (isMockEnabled()) return mockCreateSession(title)
+export async function createSession(title?: string) {
+  if (isMockEnabled()) { const { mockCreateSession } = await import('./mock'); return mockCreateSession(title) }
   return request.post<ChatSession, ChatSession>('/api/chat/sessions', { title })
 }
 
@@ -83,8 +73,8 @@ export function createSession(title?: string) {
  * 请求方式：GET /api/chat/sessions/{session_id}
  * 使用位置：预留给后端恢复历史消息；当前主要依赖 localStorage 恢复。
  */
-export function getSessionDetail(sessionId: string) {
-  if (isMockEnabled()) return mockGetSessionDetail(sessionId)
+export async function getSessionDetail(sessionId: string) {
+  if (isMockEnabled()) { const { mockGetSessionDetail } = await import('./mock'); return mockGetSessionDetail(sessionId) }
   return request.get(`/api/chat/sessions/${sessionId}`)
 }
 
@@ -94,8 +84,8 @@ export function getSessionDetail(sessionId: string) {
  * 请求方式：DELETE /api/chat/sessions/{session_id}
  * 使用位置：左侧会话更多菜单 -> 删除。
  */
-export function deleteSessionApi(sessionId: string) {
-  if (isMockEnabled()) return mockDeleteSession(sessionId)
+export async function deleteSessionApi(sessionId: string) {
+  if (isMockEnabled()) { const { mockDeleteSession } = await import('./mock'); return mockDeleteSession(sessionId) }
   return request.delete(`/api/chat/sessions/${sessionId}`)
 }
 
@@ -106,8 +96,8 @@ export function deleteSessionApi(sessionId: string) {
  * 请求体：{ title: string }
  * 使用位置：左侧会话更多菜单 -> 重命名。
  */
-export function renameSessionApi(sessionId: string, title: string) {
-  if (isMockEnabled()) return mockRenameSession(sessionId, title)
+export async function renameSessionApi(sessionId: string, title: string) {
+  if (isMockEnabled()) { const { mockRenameSession } = await import('./mock'); return mockRenameSession(sessionId, title) }
   return request.patch<ChatSession, ChatSession>(`/api/chat/sessions/${sessionId}`, { title })
 }
 
@@ -118,8 +108,9 @@ export function renameSessionApi(sessionId: string, title: string) {
  * 使用位置：左侧会话搜索框。
  * 说明：如果后端未实现，Store getter 会做本地过滤作为兜底。
  */
-export function searchSessionsApi(keyword: string) {
-  if (isMockEnabled()) return mockSearchSessions(keyword)
+export async function searchSessionsApi(keyword: string) {
+  if (isMockEnabled()) { const { mockSearchSessions } = await import("./mock"); return mockSearchSessions(keyword) }
+
   return request.get<ChatSession[], ChatSession[]>('/api/chat/sessions/search', {
     params: { keyword }
   })
@@ -157,8 +148,15 @@ export function connectChatStream(
   onError?: (error: Event) => void,
   onDone?: () => void
 ): ChatStreamConnection {
-  if (isMockEnabled() || streamUrl?.startsWith('mock://')) {
-    return connectMockChatStream(traceId, onMessage, onError, onDone)
+  if (isMockEnabled()) {
+    // H11：动态 import mock.ts（拆出主 bundle），返回一个同步代理避免破坏 Store 调用语义
+    let real: MockChatStreamConnection | null = null
+    let closed = false
+    import('./mock').then(({ connectMockChatStream }) => {
+      if (closed) return
+      real = connectMockChatStream(traceId, onMessage, onError, onDone)
+    })
+    return { close() { closed = true; real?.close() } }
   }
 
   const url = buildApiUrl(streamUrl || `/api/chat/${traceId}/events`)

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { getAuditTraceDetail, getAuditTraces, verifyHashChain } from '@/api/audit'
-import { isMockEnabled } from '@/api/mock'
+import { isMockEnabled } from '@/api/mock-flag'
 import type { AuditRecord, AuditTrace, HashChainVerifyResult } from '@/types/audit'
 
 export const useAuditStore = defineStore('audit', {

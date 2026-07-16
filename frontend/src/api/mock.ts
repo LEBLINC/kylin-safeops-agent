@@ -37,11 +37,6 @@ import type { RcaProblemType, RcaResult } from '@/types/rca'
 
 const MOCK_SESSION_KEY = 'KS_SAFEOPS_MOCK_SESSIONS_V1'
 
-/** 判断是否开启 Mock。开发环境默认建议 VITE_MOCK_ENABLED=true。 */
-export function isMockEnabled() {
-  return String(import.meta.env.VITE_MOCK_ENABLED || '').toLowerCase() === 'true'
-}
-
 /** 生成前端 Mock ID。 */
 function uid(prefix = 'id') {
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`
@@ -438,7 +433,10 @@ function buildApprovedEvents(traceId: string): StreamEvent[] {
     event(traceId, 'verified', {
       summary: '整批工具计划已执行并验证：普通应用日志已压缩轮转；数据库 binlog 未执行删除，建议交由 DBA 策略处理。'
     }),
-    event(traceId, 'rca', { report: buildRcaReportForChat() }),
+    event(traceId, 'rca', {
+      report: buildRcaReportForChat(),
+      llm_summary: '根分区磁盘占满，主要原因是 /var/log/app.log 应用日志长期未轮转积累了 18GB，建议立即压缩轮转该日志并配置 logrotate 策略，数据库 binlog 属于高风险数据不应直接删除。'
+    }),
     event(traceId, 'audit_appended', { seq: 2, curr_hash: '9bf1193af72cd012884e' })
   ]
 }

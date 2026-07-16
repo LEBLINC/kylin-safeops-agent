@@ -132,19 +132,19 @@ describe('mock mode audit safety', () => {
 
   it('isMockEnabled returns false when env not set', async () => {
     vi.stubEnv('VITE_MOCK_ENABLED', '')
-    const { isMockEnabled } = await import('@/api/mock')
+    const { isMockEnabled } = await import('@/api/mock-flag')
     expect(isMockEnabled()).toBe(false)
   })
 
   it('isMockEnabled returns true when VITE_MOCK_ENABLED=true', async () => {
     vi.stubEnv('VITE_MOCK_ENABLED', 'true')
-    const { isMockEnabled } = await import('@/api/mock')
+    const { isMockEnabled } = await import('@/api/mock-flag')
     expect(isMockEnabled()).toBe(true)
   })
 
   it('isMockEnabled is case-insensitive', async () => {
     vi.stubEnv('VITE_MOCK_ENABLED', 'TRUE')
-    const { isMockEnabled } = await import('@/api/mock')
+    const { isMockEnabled } = await import('@/api/mock-flag')
     expect(isMockEnabled()).toBe(true)
   })
 

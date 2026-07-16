@@ -1,5 +1,5 @@
 import { request } from './request'
-import { isMockEnabled, mockGetRcaResult, mockStartRcaAnalysis } from './mock'
+import { isMockEnabled } from './mock-flag'
 import type { RcaApiResponse, RcaProblemType, RcaResult } from '@/types/rca'
 
 /**
@@ -40,8 +40,8 @@ import type { RcaApiResponse, RcaProblemType, RcaResult } from '@/types/rca'
  * RCA 分析通常会先采集证据，再生成报告，因此真实后端可能是异步过程。
  * 当前前端先按“发起分析 -> 获取结果”的两步接口设计。
  */
-export function startRcaAnalysis(data: { problem_type: RcaProblemType; description: string }) {
-  if (isMockEnabled()) return mockStartRcaAnalysis(data)
+export async function startRcaAnalysis(data: { problem_type: RcaProblemType; description: string }) {
+  if (isMockEnabled()) { const { mockStartRcaAnalysis } = await import('./mock'); return mockStartRcaAnalysis(data) }
   return request.post<{ trace_id: string }, { trace_id: string }>('/api/rca/analyze', data)
 }
 
@@ -61,7 +61,7 @@ export function startRcaAnalysis(data: { problem_type: RcaProblemType; descripti
  * - dangerous_actions_rejected：被拒绝的危险动作。
  */
 export async function getRcaResult(traceId: string) {
-  if (isMockEnabled()) return mockGetRcaResult(traceId)
+  if (isMockEnabled()) { const { mockGetRcaResult } = await import('./mock'); return mockGetRcaResult(traceId) }
   const resp = await request.get<RcaApiResponse, RcaApiResponse>(`/api/rca/${traceId}`)
   return { trace_id: resp.trace_id, ...resp.report } as RcaResult
 }
