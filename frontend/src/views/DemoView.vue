@@ -3,8 +3,8 @@ import { computed, ref } from 'vue'
 import RiskTag from '@/components/RiskTag.vue'
 import { cleanupDemoScenario, prepareDemoScenario, runDemoScenario } from '@/api/demo'
 import { ElMessage } from 'element-plus'
-import type { DemoResult, GateStatus, GateView, MetricItem, Scenario, ScenarioId } from '@/api/mock'
-import { scenarios, mockResults, cloneMockResult, setMetric } from '@/api/mock'
+import type { DemoResult, GateStatus, GateView, MetricItem, Scenario, ScenarioId } from '@/types/demo'
+import { scenarios, mockResults, cloneMockResult, setMetric } from '@/api/demo-fixtures'
 
 
 

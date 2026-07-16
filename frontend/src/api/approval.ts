@@ -1,13 +1,5 @@
 import { request } from './request'
 import { isMockEnabled } from '@/api/mock-flag'
-import {
-  mockApproveAction,
-  mockEscalateApproval,
-  mockGetApprovalDetail,
-  mockGetPendingApprovals,
-  mockRejectAction,
-  mockResumeApproval
-} from './mock'
 import type {
   ApprovalItem,
   EscalateApprovalRequest,
@@ -50,8 +42,8 @@ import type {
  * - risk_level/status/required_role：风险、状态、审批角色；
  * - dry_run：执行前影响范围。
  */
-export function getPendingApprovals() {
-  if (isMockEnabled()) return mockGetPendingApprovals()
+export async function getPendingApprovals() {
+  if (isMockEnabled()) { const { mockGetPendingApprovals } = await import("./mock"); return mockGetPendingApprovals() }
   return request.get<ApprovalItem[], ApprovalItem[]>('/api/approvals', {
     params: { status: 'pending' }
   })
@@ -64,8 +56,8 @@ export function getPendingApprovals() {
  *
  * 使用位置：ApprovalView.vue 点击某条审批单查看详情。
  */
-export function getApprovalDetail(approvalId: string) {
-  if (isMockEnabled()) return mockGetApprovalDetail(approvalId)
+export async function getApprovalDetail(approvalId: string) {
+  if (isMockEnabled()) { const { mockGetApprovalDetail } = await import("./mock"); return mockGetApprovalDetail(approvalId) }
   return request.get<ApprovalItem, ApprovalItem>(`/api/approvals/${approvalId}`)
 }
 
@@ -76,8 +68,8 @@ export function getApprovalDetail(approvalId: string) {
  *
  * 注意：这是 ApprovalView 的旧式审批单接口；ChatView 对话内审批统一使用 resumeApproval()。
  */
-export function approveAction(approvalId: string) {
-  if (isMockEnabled()) return mockApproveAction(approvalId)
+export async function approveAction(approvalId: string) {
+  if (isMockEnabled()) { const { mockApproveAction } = await import("./mock"); return mockApproveAction(approvalId) }
   return request.post(`/api/approvals/${approvalId}/approve`)
 }
 
@@ -87,8 +79,8 @@ export function approveAction(approvalId: string) {
  * 请求方式：POST /api/approvals/{approval_id}/reject
  * 请求体：{ comment?: string }
  */
-export function rejectAction(approvalId: string, comment?: string) {
-  if (isMockEnabled()) return mockRejectAction(approvalId, comment)
+export async function rejectAction(approvalId: string, comment?: string) {
+  if (isMockEnabled()) { const { mockRejectAction } = await import("./mock"); return mockRejectAction(approvalId, comment) }
   return request.post(`/api/approvals/${approvalId}/reject`, { comment })
 }
 
@@ -109,8 +101,8 @@ export function rejectAction(approvalId: string, comment?: string) {
  * 原子语义：
  * 这个接口不是逐工具审批，而是对 await_approval.data.tools 中的整批工具统一批准或拒绝。
  */
-export function resumeApproval(data: ResumeApprovalRequest) {
-  if (isMockEnabled()) return mockResumeApproval(data)
+export async function resumeApproval(data: ResumeApprovalRequest) {
+  if (isMockEnabled()) { const { mockResumeApproval } = await import("./mock"); return mockResumeApproval(data) }
   return request.post<ResumeApprovalResponse, ResumeApprovalResponse>('/api/approvals/resume', data)
 }
 
@@ -133,7 +125,7 @@ export function resumeApproval(data: ResumeApprovalRequest) {
  * 注意：
  * 该接口不会续跑工具，也不会触发 executing/tool_result；它只是把审批单提交给管理员待办。
  */
-export function escalateApproval(data: EscalateApprovalRequest) {
-  if (isMockEnabled()) return mockEscalateApproval(data)
+export async function escalateApproval(data: EscalateApprovalRequest) {
+  if (isMockEnabled()) { const { mockEscalateApproval } = await import("./mock"); return mockEscalateApproval(data) }
   return request.post<EscalateApprovalResponse, EscalateApprovalResponse>('/api/approvals/escalate', data)
 }
