@@ -398,11 +398,12 @@ C3：仅 executor + test 2 文件。feature 署名 youzWSN640，merge `da225be` 
 ## ★之六十八 L 域 RCA 架构对接（feat/l-rca-arch-integration @537ed51，2026-07-16，merge LEBLINC）
 
 **之六十七/六十九/七十 合批之后** 紧接的 L 侧 RCA 架构工单：Task1 orchestrator 驱动 X 场景模板采证 + Task2a summary LLM化 + Task3 独立 RCA 端点补 llm_summary + Task4+4.5 mock 复现 12 用例。
+合并时审阅窗口补两处：① rca_drive.py resolve_problem_type docstring 注释三段→二段优先级修正；② orchestrator.py:536 `await` 漏加（H15 async 化后 RCA 分支的该调用点未 await，合并时 mypy 捕获，merge commit 中修复）。
 
 **已闭合**：第一梯队 B1+B2+B3+B4（含 VM 实证）✅；H3/H4/H10/H7/llm_summary/H15/O-H7-1/T17-19/RCA 架构 ✅ 全闭合。
 
 **仍待交付**：
-- **X 侧**：H11 mock 出 bundle（唯一剩余生产阻断项）
+- **X 侧**：H11 mock 出 bundle（唯一剩余生产阻断项，之六十七预留给 X）
 - **backlog（非阻断）**：Task 2b root_cause LLM 化 / nginx 部署兼容 2 缺口 / X P1 SSE 阻塞读 body / O-B3 Q3 systemctl
 
-**合批最终 CI**：ruff/ruff-format/mypy ✅，pytest **736/21**（714+12=726... 实际：见下文 CI 亲核结论）
+**合批最终 CI（dev=20c7f19）**：ruff/ruff-format/mypy ✅，pytest **726 passed / 21 skipped**（714+12=726 ✅）
