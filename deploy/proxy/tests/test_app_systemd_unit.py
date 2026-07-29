@@ -52,7 +52,7 @@ def _unit_directive(text: str, key: str) -> list[str]:
 def test_r3_1_install_sh_references_existing_app_unit() -> None:
     """R3-1: install.sh 拷贝的 app 单元路径必须真实存在。"""
     text = _install_sh_text()
-    refs = re.findall(r'\$\{PROJECT_DIR\}/(deploy/\S*?\.service)', text)
+    refs = re.findall(r"\$\{PROJECT_DIR\}/(deploy/\S*?\.service)", text)
     assert refs, "R3-1: install.sh 未引用任何 .service 单元文件"
     repo_root = _DEPLOY.parent
     for rel in refs:

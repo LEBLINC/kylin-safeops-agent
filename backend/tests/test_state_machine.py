@@ -25,6 +25,8 @@ _MANUAL_STATES = {
     "EXECUTED",
     "VERIFIED",
     "FINISHED",
+    # 之七十五 R-2 增补：执行期系统故障终态（≠ REJECTED 的安全拒绝语义）
+    "FAILED",
 }
 
 
@@ -51,10 +53,33 @@ def test_wait_approval_two_branches() -> None:
 
 
 def test_terminal_states() -> None:
-    assert TERMINAL_STATES == frozenset({State.REJECTED, State.FINISHED})
+    assert TERMINAL_STATES == frozenset({State.REJECTED, State.FINISHED, State.FAILED})
     assert is_terminal(State.REJECTED)
     assert is_terminal(State.FINISHED)
+    assert is_terminal(State.FAILED)
     assert not is_terminal(State.RECEIVED)
+
+
+def test_r2_executing_two_branches() -> None:
+    """R-2: EXECUTING 两出口——正常 → EXECUTED，系统故障 → FAILED。"""
+    assert allowed_transitions(State.EXECUTING) == frozenset({State.EXECUTED, State.FAILED})
+    assert is_valid_transition(State.EXECUTING, State.FAILED)
+    # FAILED 是终态，不得回流
+    assert not is_valid_transition(State.FAILED, State.EXECUTING)
+    # FAILED 只能由 EXECUTING 到达（系统故障仅发生在执行期）
+    sources = [s for s in State if is_valid_transition(s, State.FAILED)]
+    assert sources == [State.EXECUTING], f"FAILED 只应由 EXECUTING 可达，实际 {sources}"
+
+
+def test_r2_audit_retention_terminal_phases_in_sync() -> None:
+    """R-2: audit 域的终态字面值必须与状态机 TERMINAL_STATES 同步.
+
+    audit_logger 刻意不 import agent 模块（域解耦），改用字面常量；本用例是
+    两者不漂移的唯一保障——漏掉 FAILED 会让故障 trace 永远算 in-flight。
+    """
+    from backend.app.audit.audit_logger import _TERMINAL_PHASES
+
+    assert set(_TERMINAL_PHASES) == {s.value for s in TERMINAL_STATES}
 
 
 def test_valid_and_invalid_transitions() -> None:

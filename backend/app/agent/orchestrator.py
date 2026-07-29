@@ -471,17 +471,19 @@ class Orchestrator:
         for tool in self._batch:
             try:
                 outcome = await self._gateway.call(tool, approved=approved)
-            except Exception as exc:  # noqa: BLE001 系统级故障 → error 并终止
-                self._emit("error", {"message": str(exc), "phase": self.state.value})
+            except Exception as exc:  # noqa: BLE001 系统级故障 → 审计 + FAILED 终态
+                await self._fail(
+                    cause="gateway_exception",
+                    message=str(exc),
+                    tool_name=tool.name,
+                )
                 return self.state
-            # 防御纵深：gateway 二次过闸拦下（与裁决不一致）→ error 并终止
+            # 防御纵深：gateway 二次过闸拦下（与裁决不一致）→ 审计 + FAILED 终态
             if not outcome.executed or outcome.result is None:
-                self._emit(
-                    "error",
-                    {
-                        "message": f"gateway blocked {tool.name}: {outcome.reason}",
-                        "phase": self.state.value,
-                    },
+                await self._fail(
+                    cause="gateway_blocked",
+                    message=f"gateway blocked {tool.name}: {outcome.reason}",
+                    tool_name=tool.name,
                 )
                 return self.state
             result = outcome.result  # gateway 已密封（is_untrusted + 标准 wrap_token）
@@ -569,6 +571,38 @@ class Orchestrator:
         self._goto(State.FINISHED)
         await self._append_audit({"verify_result": "ok" if all_ok else "non_zero"})
         return self.state
+
+    async def _fail(self, *, cause: str, message: str, tool_name: str) -> None:
+        """执行期系统故障收尾：审计留痕 + 转 FAILED 终态 + emit error（之七十五 R-2）。
+
+        R-2 前两个故障分支只 emit error 就 return，留下三个洞：
+        ① 审计链缺这一条——事后无从判定 trace 因何中断（S3 链本身仍 valid，但少一环事实）；
+        ② 状态永久停在 EXECUTING——retention 的终态闸把它当 in-flight 永不清理；
+        ③ SSE 靠 runner 的通用兜底关闭，而非终态语义收尾。
+
+        与 REJECTED 严格区分：REJECTED 承载安全决策拒绝（策略/审批/注入），
+        FAILED 承载系统故障。终态信号复用既有 error 事件（契约6 stream.py 零改动，
+        不引入 rejected(cause="internal_error")——那会把系统故障混进安全拒绝语义）。
+
+        message 经 S9 同口径 scan_and_redact——异常字符串可能带上凭据
+        （如连接串、命令行回显），审计与 SSE 两条出口都不能裸放。
+        """
+        redacted, hit = scan_and_redact(message)
+        redacted = redacted[:500]  # S9：长异常截断，防审计/SSE 载荷失控
+        failed_phase = State.EXECUTING.value  # 故障发生时所处阶段（转移前）
+        # 审计先落库再翻状态：与 confirm 分支同款顺序，保证观测到 FAILED 时留痕已在
+        await self._append_audit(
+            {
+                "cause": cause,
+                "tool": tool_name,
+                "failed_phase": failed_phase,
+                "error_message": redacted,
+                "sensitive_filtered": hit,
+            },
+            phase=State.FAILED.value,
+        )
+        self._emit("error", {"message": redacted, "phase": failed_phase})
+        self._goto(State.FAILED)
 
     async def _emit_natural_language(self, results: list[ToolResult]) -> None:
         """verified 后调 LLM.summarize 生成自然语言总结（仅前端聊天区展示）。

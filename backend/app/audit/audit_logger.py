@@ -31,7 +31,9 @@ logger = logging.getLogger(__name__)
 #: 终态相位字面值（== agent.state_machine.TERMINAL_STATES 的 .value）。
 #: retention 的终态闸据此判定一条 trace 是否已闭合；此处用字面常量而非 import
 #: agent 模块，保持 audit 域对编排层零运行时耦合（终态字面值已冻结，见 state_machine）。
-_TERMINAL_PHASES: tuple[str, ...] = ("FINISHED", "REJECTED")
+#: 之七十五 R-2 增补 FAILED（执行期系统故障终态）——遗漏会让故障 trace 永远算
+#: in-flight，retention 永不清理。同步守卫见 test_state_machine.py。
+_TERMINAL_PHASES: tuple[str, ...] = ("FINISHED", "REJECTED", "FAILED")
 _TERMINAL_IN = ",".join("?" for _ in _TERMINAL_PHASES)
 
 

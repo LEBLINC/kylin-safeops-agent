@@ -355,7 +355,7 @@ def test_executor_exception_emits_error_and_stops() -> None:
         _llm_returning(_intent_json()), _verdict("allow"), raises=OSError("boom")
     )
     end = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
-    assert end is State.EXECUTING  # 停在执行态，未推进
+    assert end is State.FAILED  # 之七十五 R-2：执行期系统故障进 FAILED 终态（此前停在 EXECUTING）
     assert "error" in events.types()
 
 
@@ -567,7 +567,7 @@ class _FailOnNthExecutor:
 
 
 def test_batch_mid_failure_via_executor_exception() -> None:
-    """批次 [tool.a, tool.b] 均 allow，执行第 2 个时执行器抛异常 → 停在 EXECUTING、emit error。"""
+    """批次 [tool.a, tool.b] 均 allow，执行第 2 个时执行器抛异常 → 进 FAILED 终态、emit error。"""
     audit, events = FakeAudit(), FakeEvents()
     executor = _FailOnNthExecutor(fail_on=2)
     gateway = MCPGateway(
@@ -580,7 +580,7 @@ def test_batch_mid_failure_via_executor_exception() -> None:
     )
     end = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
 
-    assert end is State.EXECUTING  # 未推进到 FINISHED
+    assert end is State.FAILED  # 之七十五 R-2：未推进到 FINISHED，进 FAILED 终态
     # 仅 tool.a 产出 tool_result
     tr = [e for e in events.events if e.type == "tool_result"]
     assert len(tr) == 1
@@ -628,7 +628,7 @@ class _SecondBlockedGateway:
 
 
 def test_batch_mid_blocked_by_gateway_second_pass() -> None:
-    """批次第 2 个工具在 gateway 二次过闸被拦（executed=False）→ 停在 EXECUTING、emit error。"""
+    """批次第 2 个工具在 gateway 二次过闸被拦（executed=False）→ 进 FAILED 终态、emit error。"""
     audit, events = FakeAudit(), FakeEvents()
     gateway = _SecondBlockedGateway()
     orch = Orchestrator(
@@ -639,7 +639,7 @@ def test_batch_mid_blocked_by_gateway_second_pass() -> None:
     )
     end = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
 
-    assert end is State.EXECUTING
+    assert end is State.FAILED  # 之七十五 R-2：二次过闸拦下进 FAILED 终态
     # tool.a 已执行（产出 tool_result），tool.b 被拦
     tr = [e for e in events.events if e.type == "tool_result"]
     assert len(tr) == 1
