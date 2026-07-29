@@ -38,7 +38,7 @@ KYLIN_AUDIT_DB=/opt/kylin-safeops/data/audit.db
 
 属主漂移是 VM 上 “readonly database / 属主不符” 部署阻塞的根因。务必：
 
-1. **以专用用户运行**（已在 `deploy/kylin-safeops.service`）：`User=kylin-safeops`、`Group=kylin-safeops`。
+1. **以专用用户运行**（已在 `deploy/app/kylin-safeops-agent.service`）：`User=kylin-safeops`、`Group=kylin-safeops`。
 2. **审计目录归该用户所有**，且首次创建前不要用 root 起 app：
 
    ```bash
@@ -46,7 +46,7 @@ KYLIN_AUDIT_DB=/opt/kylin-safeops/data/audit.db
    ```
 
 3. **设置 `UMask=0077`**，保证进程新建文件默认即受限（与 `_secure_perms` 双保险）。
-   在 `deploy/kylin-safeops.service` 的 `[Service]` 段补：
+   `deploy/app/kylin-safeops-agent.service` 的 `[Service]` 段已含：
 
    ```ini
    UMask=0077

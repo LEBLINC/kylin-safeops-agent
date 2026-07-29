@@ -25,7 +25,7 @@ sudo bash deploy/install.sh
 | 文件 | 用途 |
 |------|------|
 | `install.sh` | 一键部署脚本（支持 --dry-run / --help） |
-| `kylin-safeops.service` | systemd unit 示例 |
+| `app/kylin-safeops-agent.service` | app systemd unit（install.sh 安装此份） |
 | `nginx.conf` | Nginx 反向代理配置示例 |
 | `sudoers.example` | sudoers 配置示例（特权限定） |
 | `verify.sh` | 部署后验证命令 |

@@ -44,7 +44,7 @@ def _dry_run_output() -> str:
 def test_t17_dry_run_installs_both_units() -> None:
     """T17: dry-run 输出必含双单元安装（app + kylin-proxy sidecar）。"""
     out = _dry_run_output()
-    assert "kylin-safeops.service" in out, "T17: 必装 app 单元"
+    assert "kylin-safeops-agent.service" in out, "T17: 必装 app 单元（之七十五 R-3 收敛后的完整版）"
     assert "kylin-proxy.service" in out, "T17: 必装 proxy sidecar 单元（B1 前门洞修复）"
 
 

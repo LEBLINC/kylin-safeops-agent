@@ -15,6 +15,11 @@ WorkingDirectory=/opt/kylin-safeops
 # 环境变量从受限文件读取（0600 root:kylin-safeops，含密钥，绝不入库）
 EnvironmentFile=/etc/kylin-safeops/agent.env
 
+# ADR-0004：生产 KYLIN_LDAP_MOCK 必须 false（mock 仅 demo/单测）。
+# 刻意置于 EnvironmentFile= 之后——systemd 按出现顺序覆盖，后者胜；
+# 即便 agent.env 被误填成 true，本行仍能把它压回 false（第二道保险）。
+Environment=KYLIN_LDAP_MOCK=false
+
 # app 绑 127.0.0.1：只反代可达，杜绝直接对外暴露
 ExecStart=/opt/kylin-safeops/.venv/bin/uvicorn \
     backend.app.api.app:create_app \

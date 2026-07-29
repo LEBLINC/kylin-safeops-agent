@@ -14,15 +14,15 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=kylin-proxy
 
-# 密钥/凭据带外注入，不硬编码进本单元（区别于 kylin-safeops.service 的
+# 密钥/凭据带外注入，不硬编码进本单元（区别于 kylin-safeops-agent.service 的
 # KYLIN_LDAP_MOCK=false 那类非敏感开关）。install.sh 生成 0600 骨架，运维填真值。
 EnvironmentFile=/etc/kylin/proxy.env
 
 # ADR-0004：生产 KYLIN_LDAP_MOCK 必须 false（proxy.py 模块级 fail-fast 第四道保险，
-# 本处硬编码是第五道——双保险同 kylin-safeops.service 模式）。
+# 本处硬编码是第五道——双保险同 kylin-safeops-agent.service 模式）。
 Environment=KYLIN_LDAP_MOCK=false
 
-# 安全加固（与 kylin-safeops.service 同款；本单元额外面向公网监听 nginx 上游，
+# 安全加固（与 kylin-safeops-agent.service 同款；本单元额外面向公网监听 nginx 上游，
 # 加固级别不低于内网 app 单元）。
 NoNewPrivileges=yes
 PrivateTmp=yes

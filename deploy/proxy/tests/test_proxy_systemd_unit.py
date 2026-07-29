@@ -1,6 +1,6 @@
 """B1a: kylin-proxy.service systemd unit 模板守门（架构审计 154f767 §2 B1）.
 
-审计发现：deploy/ 只有 app 单元（kylin-safeops.service），proxy sidecar
+审计发现：deploy/ 只有 app 单元（kylin-safeops-agent.service），proxy sidecar
 无 systemd unit——生产部署根本没有独立可信代理进程，nginx 只能直连 app（B1）。
 本用例锁死 kylin-proxy.service 必须存在且满足最低安全要求：
   T9  必含 EnvironmentFile（密钥/LDAP 配置不硬编码进 unit）

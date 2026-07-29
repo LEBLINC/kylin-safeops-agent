@@ -9,7 +9,8 @@
 openssl rand -hex 32
 ```
 
-写入 `/etc/kylin-safeops/ldap.env`:
+写入 app 侧 `/etc/kylin-safeops/agent.env` 与反代侧 `/etc/kylin/proxy.env`
+（**同一密钥，两侧必须字节级一致**，否则签名校验必失败）:
 
 ```
 KYLIN_PROXY_AUTH_SECRET=<生成的 hex>
@@ -32,14 +33,20 @@ KYLIN_PROXY_AUTH_SECRET=<生成的 hex>
 
 ## 3. systemd Environment= 硬编码
 
-`/etc/systemd/system/kylin-safeops.service` 段:
+app 单元 `/etc/systemd/system/kylin-safeops-agent.service`（源文件
+`deploy/app/kylin-safeops-agent.service`）段:
 
 ```ini
 [Service]
-EnvironmentFile=/etc/kylin-safeops/ldap.env
+EnvironmentFile=/etc/kylin-safeops/agent.env
+Environment=KYLIN_LDAP_MOCK=false
 ```
 
-`install.sh` 应 `chmod 600 /etc/kylin-safeops/ldap.env` (仅 root 读).
+反代 sidecar 单元 `kylin-proxy.service` 用的是另一个文件
+`EnvironmentFile=/etc/kylin/proxy.env`——两个单元各自的 env 文件，不是配置漂移。
+
+`install.sh` 已 `chmod 0600 /etc/kylin-safeops/agent.env`（仅 root 读写，
+组 kylin-safeops 可读）。
 
 ## 4. 反代 Basic Auth → 真 SSO/LDAP 链路 (决策⑨)
 
