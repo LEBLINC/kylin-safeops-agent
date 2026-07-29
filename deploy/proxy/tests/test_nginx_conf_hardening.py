@@ -28,6 +28,23 @@ def test_t12_listens_on_443_ssl() -> None:
     assert "return 301 https" in text, "T12: 80 端口应重定向到 https，不直接服务业务"
 
 
+def test_r1_http2_uses_merged_listen_syntax() -> None:
+    """R-1: http2 必须写在 listen 行内，不得用独立 `http2 on;` 指令.
+
+    麒麟 V11 随附 nginx 1.24 不认独立指令（unknown directive → 启动失败）；
+    合并语法在 1.25.1+ 仅弃用告警。注释行不参与判定。
+    """
+    text = _nginx_text()
+    assert "listen 443 ssl http2;" in text, "R-1: 必须用 `listen 443 ssl http2;` 合并语法"
+    directives = [
+        stripped
+        for line in text.splitlines()
+        if (stripped := line.strip()) and not stripped.startswith("#")
+    ]
+    offenders = [d for d in directives if d.startswith("http2 ")]
+    assert not offenders, f"R-1: 不得出现独立 http2 指令行（nginx 1.24 不支持）：{offenders}"
+
+
 def test_t13_upstream_is_sidecar_8080_not_app_8000() -> None:
     """T13: proxy_pass 必须指向 sidecar 8080，不得直连 app 的 8000（防绕过反代鉴权）."""
     text = _nginx_text()
