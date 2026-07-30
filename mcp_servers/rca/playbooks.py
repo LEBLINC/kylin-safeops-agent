@@ -348,7 +348,7 @@ def _io_high_report(items: list[RcaEvidenceItem]) -> RcaReport:
             "Confirm whether log flooding, retry storms, or batch tasks cause write hotspots.",
             "For log hotspots: reduce log level, fix error loops, or configure rotation.",
             "For business process hotspots: only locate and describe impact; do NOT directly kill.",
-            "Suggest L/D add disk.iostat or process.io_top tools for enhanced evidence.",
+            "Consider adding disk.iostat or process.io_top tools for richer IO evidence.",
         ],
         "safe_actions": [
             "Confirm whether log flooding, retry storms, or batch tasks cause write hotspots.",

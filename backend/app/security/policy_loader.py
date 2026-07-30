@@ -20,7 +20,22 @@ from backend.app.security.policy_rules import PolicySet
 DEFAULT_POLICY_DICT: dict = {
     "version": 1,
     "protected_paths": {
-        "forbid_modify": ["/", "/boot", "/etc", "/usr", "/bin", "/sbin", "/lib"],
+        # 审计库目录与安装目录必须进 forbid_modify。此前二者不在任何清单里，
+        # log.compress_rotate 作用于 /var/lib/kylin-safeops/audit.db 只被判
+        # confirm/operator——operator 点一次批准即以 root gzip 掉审计库，整条哈希链
+        # 连同证据消失；而 app 下次写入会自动新建空库、空链的 verify_chain 返 valid，
+        # 事后完全看不出发生过什么。审计是最终证据面，不能由被审计者销毁。
+        "forbid_modify": [
+            "/",
+            "/boot",
+            "/etc",
+            "/usr",
+            "/bin",
+            "/sbin",
+            "/lib",
+            "/var/lib/kylin-safeops",
+            "/opt/kylin-safeops",
+        ],
         "forbid_delete": ["/var/lib/mysql", "/var/lib/pgsql"],
         "confirm_required": ["/home"],
         "rotate_only": ["/var/log"],

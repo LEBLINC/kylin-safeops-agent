@@ -1,7 +1,8 @@
 """Kylin SafeOps Agent 契约层（冻结物，手册 §1.3）。
 
-6 份契约 = 全队唯一事实来源。D / X 拿桩并行开发。
-冻结纪律：任何改动须 L 本人 review + 通知 D、X，且单独成 commit（前缀 contract:）。
+6 份契约 = 全系统唯一事实来源，各层依赖注入时以此为准。
+冻结纪律：任何改动须单独成 commit（前缀 contract:），并同步值域防回归断言
+（见 backend/tests/test_contracts.py::test_contract_value_domains_frozen）。
 """
 
 from backend.app.contracts.audit import (

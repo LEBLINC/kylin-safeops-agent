@@ -59,7 +59,14 @@ def canonicalize_linux_path(raw: str) -> str:
 
 
 def _is_under(path: str, base: str) -> bool:
-    """大小写敏感前缀比对（与 Linux 文件系统语义一致）。"""
+    """大小写敏感前缀比对（与 Linux 文件系统语义一致）。
+
+    `base == "/"` 的特例**不是通配**：它只匹配根目录本身（`path == "/"`），
+    绝不匹配"根下的一切"。这是刻意的——forbid_modify 里含 "/"，若按通配解释，
+    任何绝对路径都会命中该条、所有变更类工具全被 deny，产品无法工作。
+    "保护根目录本身"与"保护根下全部"是两件事，此处取前者；对具体子树的保护
+    由清单里的其它条目（/etc、/usr、/var/lib/kylin-safeops …）逐条给出。
+    """
     base_norm = canonicalize_linux_path(base)
     if base_norm == "/":
         return path == "/"

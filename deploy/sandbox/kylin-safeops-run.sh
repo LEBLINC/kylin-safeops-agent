@@ -139,6 +139,54 @@ case "$CMD" in
             esac
         done
         ;;
+    /usr/bin/gzip)
+        # gzip 是**原地改写**工具：`gzip <file>` 把原文件替换成 .gz，能销毁任何
+        # 可写路径下的文件——包括审计库本身（gzip /var/lib/kylin-safeops/audit.db
+        # 会让整条哈希链连同证据消失，app 下次写入自动新建空库，而空链的
+        # verify_chain 返 valid，事后看不出发生过什么）。
+        # 唯一合法用途是 log.compress_rotate 轮转 /var/log 下日志，故：
+        #   ① 恰好 1 个参数（多参数意味着批量销毁）
+        #   ② 必须在 /var/log/ 前缀下
+        #   ③ 拒一切 - 开头选项（-f 强制覆盖 / -r 递归 / -d 解压）
+        if [[ $# -ne 2 ]]; then
+            reject "gzip 需恰好 1 个文件参数（实际 $(($# - 1)) 个）"
+        fi
+        GZ_TARGET="$2"
+        case "$GZ_TARGET" in
+            -*) reject "$GZ_TARGET（gzip 不接受任何选项）" ;;
+            *..*) reject "$GZ_TARGET（路径含 .. ，拒绝穿越）" ;;
+            /var/log/*) ;;
+            *) reject "$GZ_TARGET（gzip 仅允许作用于 /var/log/ 下的日志）" ;;
+        esac
+        ;;
+    /usr/bin/journalctl)
+        # journalctl 自带日志销毁开关：--vacuum-time/--vacuum-size/--vacuum-files
+        # 按条件清空 journal，--rotate 强制轮转。以 root 跑等于抹掉系统日志
+        # （与审计库同属"证据"，销毁后事后无从追溯）。
+        # 只读查询用的 -u/-p/-S/-n/--no-pager 由 flag_map 生成，不受影响。
+        for arg in "${@:2}"; do
+            case "$arg" in
+                --vacuum-time*|--vacuum-size*|--vacuum-files*|--rotate|--flush|--sync)
+                    reject "$arg（journalctl 日志销毁/轮转类开关）"
+                    ;;
+                --setup-keys|--verify)
+                    reject "$arg（journalctl 非查询类操作）"
+                    ;;
+            esac
+        done
+        ;;
+    # ---- 以下二进制经逐个评估：无动作类/破坏性开关，不需额外 case ----
+    # df        —— 纯查询磁盘用量；无写/删开关（-x/-t 仅过滤文件系统类型）
+    # ps        —— 纯查询进程；无 kill 能力（发信号需 kill(1)，不在白名单内）
+    # netstat   —— 纯查询；无动作开关
+    # lsof      —— 纯查询打开文件；无动作开关
+    # sha256sum —— 计算摘要；-c 仅校验、不改文件
+    # vmstat    —— 纯采样统计
+    # free      —— 纯读内存统计
+    # ss        —— 查询套接字。注意 ss 有 -K/--kill 可断开连接，但命令模板固定
+    #              argv 为 ["-tulnp"] 且 executor 只按模板拼参、不接受调用方注入
+    #              任意 argv，故当前无法触达。**若日后放开 ss 参数注入，须在此
+    #              补 case 拒 -K/--kill。**
 esac
 
 SYSTEMD_RUN=/usr/bin/systemd-run

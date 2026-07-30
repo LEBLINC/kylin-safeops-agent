@@ -510,7 +510,10 @@ class RCAReportResponse(BaseModel):
     """GET /api/rca/{trace_id} 响应体。"""
 
     trace_id: str = Field(..., description="RCA 分析 trace_id")
-    report: dict = Field(default_factory=dict, description="RCA 报告（结构待 X 定）")
+    report: dict = Field(
+        default_factory=dict,
+        description="RCA 结构化报告（root_cause / candidates / recommendations / evidence_chain 等）",
+    )
     # 之六十八 Task 3: LLM 化自然语言摘要（独立 RCA 端点）。LLM 不可用/失败 → None,
     # 前端零感知兼容（旧 client 不读此字段；新 client 可选订阅）
     llm_summary: str | None = Field(
