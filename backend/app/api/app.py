@@ -29,6 +29,12 @@ from backend.app.api.event_bus import EventBus
 from backend.app.api.session_registry import SessionRegistry
 from backend.app.api.session_store import SessionStore
 from backend.app.audit import SqliteAuditSink
+from backend.app.audit.write_executor import (
+    shutdown_executor as shutdown_audit_executor,
+)
+from backend.app.audit.write_executor import (
+    start_executor as start_audit_executor,
+)
 from backend.app.contracts.policy import PolicyEngine
 from backend.app.db.session import connect as _db_connect
 from backend.app.db.session import resolve_audit_db_path
@@ -235,6 +241,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
     _cleanup_task = asyncio.create_task(_periodic_cleanup())
 
+    # H-7：装配审计写专用线程池（max_workers=1 保序）。装配后 orchestrator 的
+    # _append_audit 走线程池，不再阻塞事件循环；关闭在 shutdown 阶段 5。
+    start_audit_executor()
+
     # B4 commit 2 L-H16: setup_logging 注入 JSON / console formatter
     from backend.app.main_logging import setup_logging
 
@@ -290,6 +300,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.info("lifespan shutdown: bus drain 移除 %d 个空 queue", drained)
         except Exception:  # noqa: BLE001 S8
             logger.exception("lifespan shutdown: bus drain 阶段异常（继续）")
+
+    # 阶段 3.5（H-7）：排空审计写线程池。**必须在阶段 4 的 audit close 之前**——
+    # 线程池里可能仍有在途 append，若先 close 连接，这些写入会撞上已关闭的 sqlite
+    # 连接（丢审计 + 抛异常）。shutdown(wait=True) 返回即保证无在途写入，
+    # 也保证事件循环关闭前线程已全部退出（消除 H15 的 teardown segfault 竞态）。
+    try:
+        shutdown_audit_executor()
+    except Exception:  # noqa: BLE001 S8
+        logger.exception("lifespan shutdown: 审计写线程池排空阶段异常（继续）")
 
     # 阶段 4：audit flush + close（防 WAL 数据丢）
     if _audit is not None:

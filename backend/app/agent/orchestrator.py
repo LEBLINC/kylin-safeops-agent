@@ -30,6 +30,7 @@ from backend.app.agent.state_machine import (
     State,
     is_valid_transition,
 )
+from backend.app.audit.write_executor import submit_append
 from backend.app.contracts.audit import GENESIS_HASH, AuditRecord, compute_curr_hash
 from backend.app.contracts.intent import CandidateTool
 from backend.app.contracts.policy import Decision, PolicyVerdict
@@ -144,9 +145,9 @@ class Orchestrator:
         payload = 结构化推理摘要 (手册固定字段子集).
         actor = {user, roles} 三段由调用方注入 (L-M3 决策⑨ traceability).
 
-        之六十七 H15: 落库走 asyncio.to_thread 释放主协程（见 H15 调研，
-        SqliteAuditSink 线程安全 + session.py check_same_thread=False 双确认）。
-        compute_curr_hash 仍在主协程（哈希链顺序不变量），record 入线程池只做 IO。
+        之七十五 H-7: 落库经审计专用线程池释放主协程（见 audit/write_executor.py）。
+        compute_curr_hash 仍在主协程（哈希链顺序不变量），入线程池只做 IO；
+        线程池 max_workers=1 保序，生命周期由 app lifespan 显式 join。
         """
         if actor is None and self._actor is not None:
             actor = self._actor
@@ -163,14 +164,12 @@ class Orchestrator:
         )
         # C1：审计 append 延迟埋点（gauge，反映最近一次落库耗时，毫秒）
         _t0 = time.monotonic()
-        # H15-v2 backlog：asyncio.to_thread() 在 CI Python 3.11.15 Linux 环境下
-        # 测试拆解期（asyncio.run() → _cancel_all_tasks → anyio.stop）与线程池里
-        # 仍在运行的 sqlite 写入线程发生竞态，触发 threading._is_owned segfault。
-        # 根因：ThreadPoolExecutor 未等线程完成即被 event loop teardown 打断。
-        # 临时回退为同步调用（保留 async def 签名，22+1 处 await 不动），
-        # 事件循环阻塞 <1ms（:memory: 无 fsync，真文件 WAL 模式也极快）。
-        # 待 H15-v2 工单用 dedicated executor + graceful shutdown 替代。
-        self._audit.append(record)
+        # H-7：交给 dedicated executor（未装配时同步落库，见该模块 docstring）。
+        # 之六十七 H15 的 asyncio.to_thread 方案已废弃——默认 executor 的生命周期
+        # 绑在 loop 上，asyncio.run() 退出时不等在途写线程，在 CI Linux Python 3.11
+        # 触发 threading._is_owned C 级 segfault。本方案由 lifespan shutdown(wait=True)
+        # 保证线程先排空、事件循环后关闭，从根上消除该竞态。
+        await submit_append(self._audit, record)
         get_metrics().set_gauge("audit.append_latency_ms", (time.monotonic() - _t0) * 1000)
         self._prev_hash = curr_hash
         self._seq += 1
