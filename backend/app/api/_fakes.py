@@ -172,6 +172,10 @@ _FAKE_INTENT_ROTATE = json.dumps(
 # 关键词 → 意图 JSON（命中顺序：restart 优先于 rotate）。
 _RESTART_KEYWORDS = ("重启", "restart")
 _ROTATE_KEYWORDS = ("压缩", "轮转", "rotate", "清日志", "清理日志")
+# 清理类：赛题原文示例句"帮我清理系统垃圾"此前无任何关键词命中，落到兜底
+# system.info——演示里最常被念的那句话反而什么都不做。
+# 该类刻意不直接给处置工具：不知道占用情况就动手是错的，故走观测闭环。
+_CLEANUP_KEYWORDS = ("清理", "垃圾", "空间不足", "磁盘满", "满了", "占满")
 _LOOKUP_KEYWORDS = ("查", "查询", "lsof", "看", "看哪些进程在用")  # file.lsof_check 路径
 _DISK_KEYWORDS = ("查看磁盘", "磁盘占用", "disk")  # disk.usage
 
@@ -278,6 +282,22 @@ def _intent_for_message(content: str) -> str:
                 "candidate_tools": [{"name": "log.compress_rotate", "args": {"path": path}}],
                 "risk_hint": "medium",
                 "justification": f"压缩轮转 {path}（fake 规划，R2→confirm/operator）",
+            }
+        )
+    if any(kw in content for kw in _CLEANUP_KEYWORDS):
+        # 观测闭环的唯一入口：先用只读工具看清占用，再由二次规划决定处置。
+        # 顺序在 rotate 之后——"清理日志"同时命中两者时，更具体的轮转意图优先。
+        return json.dumps(
+            {
+                "intent": "disk_cleanup",
+                "confidence": 0.9,
+                "need_observation": True,
+                "candidate_tools": [
+                    {"name": "disk.usage", "args": {}},
+                    {"name": "disk.large_files", "args": {"path": "/var"}},
+                ],
+                "risk_hint": "low",
+                "justification": "先观测磁盘占用与大文件，再决定清理对象（fake 规划，R0/R1 只读）",
             }
         )
     if any(kw in content for kw in _LOOKUP_KEYWORDS):

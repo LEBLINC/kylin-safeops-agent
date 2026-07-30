@@ -49,6 +49,18 @@ def _infer_problem_type_from_intent(user_intent: str) -> str | None:
         (r"iowait|i/o\s*high|io\s+high|disk\s*i/o", "io_high"),
         (r"config\s*drift|hash\s*mismatch|baseline\s*mismatch", "config_drift"),
         (r"service\s*fail|service\s*down|unit\s*inactive|unit\s*failed", "service_failure"),
+        # 中文触发词：产品面向中文运维场景，纯英文正则会让五套采证模板对
+        # 中文输入全部不可达（模板已实现，只是入不了口）。
+        # 与英文分支同表同优先级，不新增语义、不改模板。
+        (
+            r"磁盘.{0,4}(满|不足|爆)|空间.{0,4}(满|不足|紧张)|清理.{0,4}(垃圾|空间|磁盘)"
+            r"|垃圾.{0,2}文件|大文件|日志.{0,2}(占满|过大)",
+            "disk_full",
+        ),
+        (r"僵尸进程|僵死进程", "zombie_process"),
+        (r"io.{0,4}(高|飙|满)|读写.{0,4}(高|慢)|磁盘.{0,2}io", "io_high"),
+        (r"配置.{0,2}(漂移|变更|被改)|基线.{0,2}(不符|不一致)", "config_drift"),
+        (r"服务.{0,4}(挂|失败|起不来|异常|停了)|进程.{0,2}退出", "service_failure"),
     ]
     for pattern, problem_type in pattern_map:
         if re.search(pattern, text):
