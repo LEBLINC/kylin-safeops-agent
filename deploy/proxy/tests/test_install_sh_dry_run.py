@@ -12,18 +12,20 @@
 from __future__ import annotations
 
 import pathlib
+import shutil
 import subprocess
-import sys
 
 import pytest
 
 _INSTALL_SH = pathlib.Path(__file__).resolve().parents[3] / "deploy" / "install.sh"
 
-# 之七十: Windows 本地无 bash（install.sh dry-run 必须 bash）→ FileNotFoundError [WinError 2]；
-# 该缺陷是 dev 基线预存（16f67cc 起），非 D B3/B4 引入。Linux CI / 麒麟 VM 正常跑。
+# skip 谓词按"bash 是否可用"判定，而非按平台：Windows 上装了 Git Bash 时
+# shutil.which("bash") 有值，用例能真跑；按 sys.platform=="win32" 判会把这些
+# 环境一并 skip，与 test_wrapper_arg_validation.py 的谓词也不一致
+# （同一前提两套判据 → 两个文件在同一台机器上一个跑一个不跑）。
 _REQUIRES_BASH = pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="install.sh dry-run needs bash; skip on Windows (Linux CI/VM 验证)",
+    shutil.which("bash") is None,
+    reason="install.sh dry-run needs bash（Linux CI / Git Bash 均可）",
 )
 
 
@@ -32,6 +34,8 @@ def _dry_run_output() -> str:
         ["bash", str(_INSTALL_SH), "--dry-run"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=30,
     )
     assert (

@@ -89,9 +89,15 @@ fi
 #   find      合法参数仅 <path> 与 -type/-printf/-name（大小文件扫描各一套）
 #   systemctl 合法动词仅 show（service.status）/ restart（service.restart）
 #   其余命令的 flag 全部由模板硬编码，不接受调用方注入
+#
+# 退出码 2 = 参数校验拒绝，与退出码 1（命令不在白名单 / 缺少命令）区分。
+# 二者语义不同：1 说"这个二进制不许跑"，2 说"二进制可以但这组参数不行"。
+# 分开也让调用方与测试能断言退出码而非中文串——后者随 locale 变化，
+# GBK 环境下取不到还会让断言失效。
+readonly EXIT_ARG_REJECTED=2
 reject() {
     echo "参数被拒（H-1 逐参数校验）: $1" >&2
-    exit 1
+    exit "$EXIT_ARG_REJECTED"
 }
 
 case "$CMD" in
