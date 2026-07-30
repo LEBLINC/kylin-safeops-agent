@@ -15,7 +15,7 @@ DISK_USAGE = ToolSpec(
     description="获取各挂载点磁盘占用（大小、已用、可用、使用率、挂载点）。",
     risk="R0",
     input_schema={"type": "object", "properties": {}, "additionalProperties": False},
-    requires_roles=["operator"],
+    requires_roles=["viewer", "operator", "admin"],
     reversible=True,
 )
 
@@ -39,7 +39,7 @@ DISK_LARGE_FILES = ToolSpec(
         "required": ["path"],
         "additionalProperties": False,
     },
-    requires_roles=["operator"],
+    requires_roles=["viewer", "operator", "admin"],
     reversible=True,
 )
 

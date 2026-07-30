@@ -27,7 +27,7 @@ SERVICE_STATUS = ToolSpec(
         "required": ["service_name"],
         "additionalProperties": False,
     },
-    requires_roles=["operator"],
+    requires_roles=["viewer", "operator", "admin"],
     reversible=True,
 )
 

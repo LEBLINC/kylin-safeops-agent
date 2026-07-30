@@ -117,9 +117,7 @@ def _build(llm) -> tuple[Orchestrator, _Audit, _Events]:  # noqa: ANN001
 
     class _Executor:
         async def execute(self, tool):  # noqa: ANN001
-            return ToolResult(
-                tool=tool.name, args=tool.args, exit_code=0, stdout_truncated="ok"
-            )
+            return ToolResult(tool=tool.name, args=tool.args, exit_code=0, stdout_truncated="ok")
 
     audit, events = _Audit(), _Events()
     gateway = MCPGateway(ToolRegistry([spec]), _Policy(), _Executor())

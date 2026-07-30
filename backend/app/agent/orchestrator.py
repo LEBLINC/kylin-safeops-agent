@@ -629,9 +629,7 @@ class Orchestrator:
         self._goto(State.FINISHED)
         return self.state
 
-    async def _fail(
-        self, *, cause: str, message: str, tool_name: str | None = None
-    ) -> None:
+    async def _fail(self, *, cause: str, message: str, tool_name: str | None = None) -> None:
         """系统故障收尾：审计留痕 + 转 FAILED 终态 + emit error（R-2 / P1-9）。
 
         R-2 前故障分支只 emit error 就 return，留下三个洞：
@@ -741,7 +739,8 @@ class Orchestrator:
                     phase=audit_phase,
                 )
             except Exception:  # noqa: BLE001 审计失败不杀状态机 (S8 兜底)
-                log.warning("summarize_failed audit append failed (S8 兜底)")
+                # exception() 带 traceback：不留痕的"已知失败"事后无从追查
+                log.exception("summarize_failed audit append failed (S8 兜底)")
             log.warning(
                 "natural_language summarize failed (B6 L-C6 + 5.3 P4): phase=%s, "
                 "exc=%s, fallback_count=%d",

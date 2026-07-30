@@ -14,7 +14,7 @@ SYSTEM_INFO = ToolSpec(
     description="获取系统基本信息：主机名、发行版、内核、架构、运行时长、上次启动时间。",
     risk="R0",
     input_schema={"type": "object", "properties": {}, "additionalProperties": False},
-    requires_roles=["operator"],
+    requires_roles=["viewer", "operator", "admin"],
     reversible=True,
 )
 
@@ -25,7 +25,7 @@ SYSTEM_CPU_LOAD = ToolSpec(
     description="采集 CPU 使用率（vmstat 1 秒采样：usage = 100 - idle）。",
     risk="R0",
     input_schema={"type": "object", "properties": {}, "additionalProperties": False},
-    requires_roles=["operator"],
+    requires_roles=["viewer", "operator", "admin"],
     reversible=True,
 )
 
@@ -36,7 +36,7 @@ SYSTEM_MEM_USAGE = ToolSpec(
     description="采集内存使用率（free -b：used = (total-available)/total）。",
     risk="R0",
     input_schema={"type": "object", "properties": {}, "additionalProperties": False},
-    requires_roles=["operator"],
+    requires_roles=["viewer", "operator", "admin"],
     reversible=True,
 )
 

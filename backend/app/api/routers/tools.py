@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from backend.app.agent.ports import AuditSink
 from backend.app.api.app import get_audit, get_gateway
 from backend.app.api.auth import Principal
-from backend.app.api.deps import require_proxy_identity, verify_token
+from backend.app.api.deps import principal_for_tool_call, require_proxy_identity, verify_token
 from backend.app.api.schemas import (
     ToolCallDetail,
     ToolCallListResponse,
@@ -52,16 +52,39 @@ async def get_registry_list(
 async def post_tool_call(
     body: ToolCallRequest,
     _user: str = Depends(verify_token),
+    principal: Principal = Depends(principal_for_tool_call),
     gateway: MCPGateway = Depends(get_gateway),
 ) -> ToolCallResponse:
-    """手动单工具调用：经 gateway 三道闸。被拦下则 executed=False + reason/verdict。
+    """手动单工具调用：经工具级 RBAC + gateway 三道闸。被拦下则 executed=False + reason/verdict。
 
     防御纵深（S6）：手动端点**仅允许只读工具**——变更工具(R2+)必须走 chat→审批链路。
     不只信策略：即便策略引擎误配/有缺陷对变更工具返回 allow，本对外暴露端点也绝不执行，
     与观测阶段 is_read_only 兜底同一不变量（手动端点不充当审批旁路，此处用代码强制）。
     confirm 类工具同样被只读门拦在外（approved 默认 False 之外的第二道兜底）。
+
+    P1-6 工具级 RBAC 只挂在这一个端点，不进 gateway.call()，理由：
+    - overview 只读探针经 gateway.call 直接执行（决策⑩ 哈希链豁免路径），
+      塞进 gateway 会把探针一起拦死；
+    - chat / orchestrator 路径的"调用者"语义是会话属主，已由策略闸 + 审批闸治理，
+      工具级 RBAC 在那里是重复且语义错位的；
+    - 只有这条人工直调路径需要工具级 RBAC。
+
+    裁决置于只读门之前：无权访问应答 403（授权问题），而不是被只读门降级成
+    200 + executed=False（那会让"你没权限"和"这工具不给手动调"看起来一样）。
     """
     candidate = CandidateTool(name=body.tool, args=body.args)
+
+    spec = next((s for s in gateway.list_tools() if s.name == candidate.name), None)
+    if spec is not None and not (set(spec.requires_roles) & set(principal.roles)):
+        # fail-closed：交集为空即拒。未知工具交给下游按原路径报错，不在此处泄漏其存在与否。
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"roles {sorted(principal.roles)} cannot call tool '{candidate.name}' "
+                f"(requires one of {sorted(spec.requires_roles)})"
+            ),
+        )
+
     if not gateway.is_read_only(candidate):
         return ToolCallResponse(
             executed=False,

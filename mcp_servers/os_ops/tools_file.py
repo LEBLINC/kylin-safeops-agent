@@ -25,7 +25,7 @@ FILE_LSOF_CHECK = ToolSpec(
         },
         "additionalProperties": False,
     },
-    requires_roles=["operator"],
+    requires_roles=["viewer", "operator", "admin"],
     reversible=True,
 )
 

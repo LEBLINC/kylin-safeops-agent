@@ -28,7 +28,7 @@ CONFIG_HASH_SNAPSHOT = ToolSpec(
         "required": ["paths"],
         "additionalProperties": False,
     },
-    requires_roles=["operator"],
+    requires_roles=["viewer", "operator", "admin"],
     reversible=True,
 )
 
@@ -46,7 +46,7 @@ CONFIG_DIFF = ToolSpec(
         "required": ["paths"],
         "additionalProperties": False,
     },
-    requires_roles=["operator"],
+    requires_roles=["viewer", "operator", "admin"],
     reversible=True,
 )
 

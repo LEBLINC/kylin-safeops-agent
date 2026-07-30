@@ -59,7 +59,7 @@ LOG_JOURNAL_QUERY = ToolSpec(
         },
         "additionalProperties": False,
     },
-    requires_roles=["operator"],
+    requires_roles=["viewer", "operator", "admin"],
     reversible=True,
 )
 
@@ -78,7 +78,7 @@ LOG_LARGE_LOG_SCAN = ToolSpec(
         "required": ["path"],
         "additionalProperties": False,
     },
-    requires_roles=["operator"],
+    requires_roles=["viewer", "operator", "admin"],
     reversible=True,
 )
 
@@ -98,7 +98,7 @@ LOG_COMPRESS_ROTATE = ToolSpec(
         "required": ["path"],
         "additionalProperties": False,
     },
-    requires_roles=["operator"],
+    requires_roles=["operator", "admin"],
     reversible=True,
 )
 

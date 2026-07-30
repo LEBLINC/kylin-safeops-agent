@@ -14,7 +14,7 @@ NETWORK_PORTS = ToolSpec(
     description="列出本机监听端口（协议、本地地址:端口、占用进程）。",
     risk="R0",
     input_schema={"type": "object", "properties": {}, "additionalProperties": False},
-    requires_roles=["operator"],
+    requires_roles=["viewer", "operator", "admin"],
     reversible=True,
 )
 

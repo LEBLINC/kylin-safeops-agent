@@ -172,3 +172,43 @@ async def principal_for_idor(
     if principal is None:
         raise HTTPException(status_code=401, detail="missing or invalid proxy-signed identity")
     return principal
+
+
+async def principal_for_tool_call(
+    x_auth_user: str | None = Header(default=None),
+    x_auth_roles: str | None = Header(default=None),
+    x_auth_timestamp: str | None = Header(default=None),
+    x_auth_signature: str | None = Header(default=None),
+    x_auth_method: str | None = Header(default=None, alias="X-Auth-Method"),
+    x_auth_path: str | None = Header(default=None, alias="X-Auth-Path"),
+    x_auth_body_sha: str | None = Header(default=None, alias="X-Auth-Body-Sha"),
+    x_auth_nonce: str | None = Header(default=None, alias="X-Auth-Nonce"),
+    x_user_role: str | None = Header(default=None, alias="X-User-Role"),
+) -> Principal:
+    """P1-6 工具级 RBAC 专用：取含 roles 的 Principal，供 /api/tools/call 裁决。
+
+    与 principal_for_idor 同款实现（dev 取裸头 / proxy 验签）。单独立一个而非
+    复用，是为了让"谁在做工具级 RBAC"在路由签名上直接可见；也避免改
+    verify_token 的返回签名波及所有挂它的端点。
+    """
+    mode = _auth_mode()
+    if mode == "dev":
+        roles: frozenset[str] = frozenset()
+        raw: str = x_user_role if x_user_role else os.environ.get("KYLIN_TEST_X_USER_ROLE", "")
+        if raw:
+            roles = frozenset({r.strip().lower() for r in raw.split(",") if r.strip()})
+        return Principal(user="dev", roles=roles)
+
+    principal = verify_proxy_identity(
+        user=x_auth_user,
+        roles=x_auth_roles,
+        timestamp=x_auth_timestamp,
+        signature=x_auth_signature,
+        method=x_auth_method or "",
+        path=x_auth_path or "",
+        body_sha=x_auth_body_sha or "",
+        nonce=x_auth_nonce or "",
+    )
+    if principal is None:
+        raise HTTPException(status_code=401, detail="missing or invalid proxy-signed identity")
+    return principal

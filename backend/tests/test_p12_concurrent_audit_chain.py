@@ -30,8 +30,8 @@ from __future__ import annotations
 import asyncio
 
 from backend.app.agent.orchestrator import Orchestrator
-from backend.app.contracts.audit import GENESIS_HASH, AuditRecord
 from backend.app.audit import write_executor as we
+from backend.app.contracts.audit import GENESIS_HASH, AuditRecord
 from backend.app.contracts.stream import StreamEvent
 
 

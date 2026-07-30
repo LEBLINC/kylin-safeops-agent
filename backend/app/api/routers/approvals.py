@@ -8,6 +8,7 @@ trace_id 不存在 / 不在 WAIT_APPROVAL → 4xx 明确报错。
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from datetime import datetime, timezone
 
@@ -27,6 +28,8 @@ from backend.app.api.schemas import (
 )
 from backend.app.api.session_registry import SessionRegistry
 from backend.app.security.rbac import can_approve
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/approvals", tags=["approvals"])
 
@@ -96,7 +99,16 @@ async def resume_approval(
                         }
                     )
                 except Exception:
-                    pass  # S8：审计失败不杀安全决策
+                    # S8：审计失败不杀安全决策——SoD 拒批照常生效。但"不杀决策"
+                    # 不等于"不留痕"：这里丢掉的是一条自批自的安全事件，
+                    # 静默吞掉等于该事件从未发生过。exception() 带 traceback，
+                    # 让审计落库为何失败可被追查。
+                    logger.exception(
+                        "SoD 违规审计落库失败（拒批仍生效）: trace_id=%s actor=%s approver=%s",
+                        body.trace_id,
+                        actor_user,
+                        principal.user,
+                    )
                 raise HTTPException(
                     status_code=403,
                     detail="SoD violation: actor cannot approve own plan",
