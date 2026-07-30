@@ -78,6 +78,69 @@ if [[ "$ALLOWED" != "true" ]]; then
     exit 1
 fi
 
+# ---- 逐参数校验（之七十五 H-1）------------------------------------------
+# 首 argv 白名单只保证"跑哪个二进制"，不保证"用它做什么"。find 和 systemctl
+# 自带把只读命令变成任意执行/破坏的开关：
+#   find <path> -exec rm -rf {} \;   → 白名单里的 find 变成任意命令执行
+#   systemctl mask sshd              → 白名单里的 systemctl 变成拒绝服务
+# 二者都能在不换二进制的前提下越过白名单语义，故必须按命令逐参数校验。
+#
+# 误伤边界（对齐 command_templates.py + privilege_executor._tool_specific_argv）：
+#   find      合法参数仅 <path> 与 -type/-printf/-name（大小文件扫描各一套）
+#   systemctl 合法动词仅 show（service.status）/ restart（service.restart）
+#   其余命令的 flag 全部由模板硬编码，不接受调用方注入
+reject() {
+    echo "参数被拒（H-1 逐参数校验）: $1" >&2
+    exit 1
+}
+
+case "$CMD" in
+    /usr/bin/find)
+        # find 的动作类谓词一律拒——它们让 find 具备执行/删除能力。
+        # 用精确匹配而非模式匹配：-execdir/-okdir 等变体逐一列出，避免
+        # "-exec*" 这类通配把未来新增的只读谓词也误伤。
+        #
+        # 只读谓词白名单：除 <path> 与 -type/-printf/-name 的取值外，不允许
+        # 任何其它 - 开头的选项（挡住未来新增的危险谓词）。
+        FIND_ARGS=("${@:2}")   # 去掉 CMD 自身，只看参数
+        expect_value=false
+        for arg in "${FIND_ARGS[@]}"; do
+            if $expect_value; then
+                expect_value=false
+                continue
+            fi
+            case "$arg" in
+                -exec|-execdir|-delete|-ok|-okdir|-fls|-fprint|-fprintf|-fprint0)
+                    reject "$arg（find 动作类谓词，可执行命令或删除文件）"
+                    ;;
+                -type|-printf|-name)
+                    expect_value=true
+                    ;;
+                -*)
+                    reject "$arg（find 仅允许 -type/-printf/-name）"
+                    ;;
+            esac
+        done
+        ;;
+    /usr/bin/systemctl)
+        # 动词白名单：show（只读查询）/ restart（唯一放行的变更动作）。
+        # 明确拒绝 mask/disable/stop/kill/isolate 等——它们能在不换二进制的
+        # 前提下把"重启某服务"升级成整机拒绝服务。
+        VERB="${2:-}"
+        case "$VERB" in
+            show|restart) ;;
+            "") reject "systemctl 缺少动词" ;;
+            *) reject "$VERB（systemctl 动词仅允许 show/restart）" ;;
+        esac
+        # 动词之后只接受服务名/属性名，不接受选项注入（如 --signal=KILL）。
+        for arg in "${@:3}"; do
+            case "$arg" in
+                -*) reject "$arg（systemctl 动词后不接受选项）" ;;
+            esac
+        done
+        ;;
+esac
+
 SYSTEMD_RUN=/usr/bin/systemd-run
 COMMON_PROPS=(
     -p NoNewPrivileges=yes
