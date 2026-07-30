@@ -95,3 +95,31 @@ def test_r3_5_install_sh_creates_audit_db_dir() -> None:
     assert (
         "/var/lib/kylin-safeops" in install_text
     ), "R3-5: install.sh 未创建 /var/lib/kylin-safeops（strict 下 systemd 拒启）"
+
+
+def test_h5_verify_sh_probes_existing_route() -> None:
+    """之七十五 H-5: verify.sh 的健康检查必须指向真实存在的路由。
+
+    收敛前查的是 /health——全仓无此路由（实测 create_app() 的 routes 里没有），
+    这条 check 在任何环境都必然 FAIL，等于部署验证脚本自带一条永假断言：
+    要么运维习惯性忽略它（那整个脚本的可信度就没了），要么每次部署都被它误导。
+
+    也不该改用 /api/llm/health：那个端点会额外触发真 LLM 端点连通性探测，
+    部署冒烟阶段不应依赖外部网关可达。
+    """
+    verify_sh = _DEPLOY / "verify.sh"
+    assert verify_sh.exists(), f"verify.sh 不存在于 {verify_sh}"
+    text = verify_sh.read_text(encoding="utf-8")
+
+    assert "/api/system/ready" in text, "H-5: 应改查 /api/system/ready readiness 探针"
+    # 排除注释行后不得再出现对 /health 的探测
+    probe_lines = [
+        ln
+        for ln in text.splitlines()
+        if ln.strip() and not ln.strip().startswith("#") and "curl" in ln
+    ]
+    for line in probe_lines:
+        assert ":8000/health" not in line, f"H-5: 仍在探测不存在的 /health：{line.strip()}"
+    assert not any(
+        "/api/llm/health" in ln for ln in probe_lines
+    ), "H-5: 不应用 /api/llm/health 做部署冒烟（会触发外部 LLM 连通性探测）"

@@ -18,7 +18,7 @@ import time
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from backend.app.agent.ports import AuditSink, EventSink
 from backend.app.api.app import get_audit, get_bus
@@ -127,12 +127,15 @@ async def llm_health(
 @router.get(
     "/health/events",
     summary="probe 审计 SSE 流（订阅 probe_failed audit_appended 事件）",
+    # H-4 起返回类型是 StreamingResponse | JSONResponse（超限 503），二者都不是
+    # Pydantic 可推导类型，须显式关闭 response_model 推导（同 system.py::readiness）。
+    response_model=None,
 )
 async def health_events(
     request: Request,
     _user: str = Depends(verify_token),  # noqa: ARG001
     bus: EventBus = Depends(get_bus),
-) -> StreamingResponse:
+) -> StreamingResponse | JSONResponse:
     """probe 审计 SSE 流：推送 probe 失败/超时引发的 audit_appended 事件。
 
     客户端（运维 dashboard / monitoring）订阅此 SSE 即可拿到实时 probe 失败流；
@@ -140,6 +143,16 @@ async def health_events(
 
     S8：与 /api/chat/{trace_id}/events 同样接 Request.is_disconnected 断连清理。
     """
+    # 之七十五 H-4：连接数上限（口径与 routers/chat.py 的 SSE 端点一致）。
+    # 缺这道闸时本端点可被无限开连接——每条连接都在 bus 里占一个消费者、
+    # 长期持 uvicorn worker，是 DoS 面。与 chat.py 同为软上限（不涉鉴权/哈希链），
+    # asyncio 单线程下 check→create 的竞态窗口可忽略，不引入 Lock。
+    max_conn = int(os.environ.get("KYLIN_SSE_MAX_CONN", "100") or "100")
+    if bus.active_count >= max_conn:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "SSE connection limit reached", "active_count": bus.active_count},
+        )
     # probe 事件统一 trace_id 前缀，方便客户端订阅过滤
     # 但当前 SSEEventSink(bus, trace_id) 是单 trace 单队列，运维 dashboard 要收所有
     # probe 事件，需要新建一个聚合队列。简化：用固定 trace_id "probe-watch" 作 channel。
