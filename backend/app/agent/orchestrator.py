@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
@@ -115,6 +116,12 @@ class Orchestrator:
         self.state: State = INITIAL_STATE
         self._seq = 0
         self._prev_hash = GENESIS_HASH
+        # 审计链的读-改-写互斥：compute_curr_hash 读 _prev_hash/_seq，落库 await 之后
+        # 才写回，中间跨了一次事件循环让出。同一 trace 可被多个 task 驱动（chat 起跑
+        # 与 approval 恢复各起一个 create_task），无锁时两者会读到同一份 _prev_hash、
+        # 领到同一个 seq，产出分叉的两条记录——verify_chain 只沿一条走，另一条从审计
+        # 上消失。锁是 per-orchestrator（= per-trace），不同 trace 之间不互相阻塞。
+        self._audit_lock = asyncio.Lock()
         # 观测→re-plan 多轮上限（有界，防死循环）
         self._max_observation_rounds = max(1, max_observation_rounds)
         # L-M3：审计 actor 溯源（运行时由 chat.py 装配时调 set_actor 注入，
@@ -174,26 +181,29 @@ class Orchestrator:
             actor = self._actor
         if actor is not None:
             payload = {**payload, "actor": actor}
-        curr_hash = compute_curr_hash(self._prev_hash, payload)
-        record = AuditRecord(
-            trace_id=self.trace_id,
-            seq=self._seq,
-            phase=phase if phase is not None else self.state.value,
-            payload=payload,
-            prev_hash=self._prev_hash,
-            curr_hash=curr_hash,
-        )
-        # C1：审计 append 延迟埋点（gauge，反映最近一次落库耗时，毫秒）
-        _t0 = time.monotonic()
-        # H-7：交给 dedicated executor（未装配时同步落库，见该模块 docstring）。
-        # 之六十七 H15 的 asyncio.to_thread 方案已废弃——默认 executor 的生命周期
-        # 绑在 loop 上，asyncio.run() 退出时不等在途写线程，在 CI Linux Python 3.11
-        # 触发 threading._is_owned C 级 segfault。本方案由 lifespan shutdown(wait=True)
-        # 保证线程先排空、事件循环后关闭，从根上消除该竞态。
-        await submit_append(self._audit, record)
-        get_metrics().set_gauge("audit.append_latency_ms", (time.monotonic() - _t0) * 1000)
-        self._prev_hash = curr_hash
-        self._seq += 1
+        # 锁的范围必须覆盖"算哈希 → 落库 → 写回 _prev_hash/_seq"整段：
+        # 只锁写回不够，因为 curr_hash 是用锁外读到的 _prev_hash 算的。
+        async with self._audit_lock:
+            curr_hash = compute_curr_hash(self._prev_hash, payload)
+            record = AuditRecord(
+                trace_id=self.trace_id,
+                seq=self._seq,
+                phase=phase if phase is not None else self.state.value,
+                payload=payload,
+                prev_hash=self._prev_hash,
+                curr_hash=curr_hash,
+            )
+            # C1：审计 append 延迟埋点（gauge，反映最近一次落库耗时，毫秒）
+            _t0 = time.monotonic()
+            # H-7：交给 dedicated executor（未装配时同步落库，见该模块 docstring）。
+            # 之六十七 H15 的 asyncio.to_thread 方案已废弃——默认 executor 的生命周期
+            # 绑在 loop 上，asyncio.run() 退出时不等在途写线程，在 CI Linux Python 3.11
+            # 触发 threading._is_owned C 级 segfault。本方案由 lifespan shutdown(wait=True)
+            # 保证线程先排空、事件循环后关闭，从根上消除该竞态。
+            await submit_append(self._audit, record)
+            get_metrics().set_gauge("audit.append_latency_ms", (time.monotonic() - _t0) * 1000)
+            self._prev_hash = curr_hash
+            self._seq += 1
         # 审计增长本身是一个流事件（与状态无关，统一推送）
         self._emit("audit_appended", {"seq": record.seq, "curr_hash": record.curr_hash})
         return record
