@@ -1,7 +1,7 @@
-# deploy/app — app 侧部署（L 域）
+# deploy/app — app 侧部署
 
-本目录为 Kylin SafeOps Agent **后端 app** 的部署产物（L 侧）。
-反代配置（Nginx / Apache）在 `deploy/proxy/`（X 域）；沙箱配置在 `deploy/sandbox/`（D 域）。
+本目录为 Kylin SafeOps Agent **后端 app** 的部署产物。
+反代配置（Nginx / Apache）在 `deploy/proxy/`；沙箱配置在 `deploy/sandbox/`。
 
 ---
 

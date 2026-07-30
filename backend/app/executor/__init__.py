@@ -1,6 +1,6 @@
-"""特权执行器（D）：命令模板白名单 + subprocess list 框架 + systemd 瞬态 service 沙箱（PR2b-v2）。
+"""特权执行器：命令模板白名单 + subprocess list 框架 + systemd 瞬态 service 沙箱（PR2b-v2）。
 
-沙箱默认关闭（sandbox_enabled=False）；麒麟 VM 上由 L 在 app.py lifespan 显式启用。
+沙箱默认关闭（sandbox_enabled=False）；麒麟 VM 上在 app.py lifespan 显式启用。
 安全属性唯一事实来源在 deploy/sandbox/kylin-safeops-run.sh wrapper。
 """
 

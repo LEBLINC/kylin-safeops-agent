@@ -11,7 +11,7 @@ engine = DefaultRCAEngine()
 report = engine.analyze(evidence)
 ```
 
-兼容 L 的接入点：
+兼容接入点：
 
 ```python
 RCAEngine.analyze(evidence: Sequence[ToolResult]) -> dict

@@ -1,4 +1,4 @@
-"""D11-d 解析器分派骨架测试（约定 stdout=raw 文本；TODO(BLOCKED-ON-D) 待确认真实格式）。"""
+"""D11-d 解析器分派骨架测试（约定 stdout=raw 文本；TODO(BLOCKED-ON-EXECUTOR) 待确认真实格式）。"""
 
 from __future__ import annotations
 

@@ -39,7 +39,7 @@ from mcp_servers.rca import DefaultRCAEngine
 
 logger = logging.getLogger(__name__)
 
-#: 审计库落库路径（L 域配置常量，决策⑪ 3a）。
+#: 审计库落库路径（配置常量，决策⑪ 3a）。
 #: proxy 模式（生产）：KYLIN_AUDIT_DB 必须是绝对路径，否则 fail-closed（拒启动）。
 #: dev 模式：未设 env 则默认 ./data/audit.db（零回归）。
 _require_abs = os.environ.get("KYLIN_AUTH_MODE", "proxy").strip().lower() == "proxy"
@@ -110,7 +110,7 @@ def get_llm() -> LLMAdapter:
 
 
 def get_audit() -> AuditSink:
-    """获取 AuditSink 单例（已接 D 的真 SqliteAuditSink，lifespan 初始化）。
+    """获取 AuditSink 单例（已接真 SqliteAuditSink，lifespan 初始化）。
 
     **必须单例**：真 sink 持 DB 句柄 + 链状态（_seq/_prev_hash 由 orchestrator 实例内存续写，
     但落库连接全局共享），per-request 新建会丢链/重复建连接。
@@ -121,7 +121,7 @@ def get_audit() -> AuditSink:
 
 
 def get_rca() -> RCAEngine:
-    """获取 RCAEngine（已接 X 的 mcp_servers/rca.DefaultRCAEngine）。
+    """获取 RCAEngine（已接 mcp_servers/rca.DefaultRCAEngine）。
 
     非单例：DefaultRCAEngine 是无状态确定性规则引擎（不执行命令、不改系统、不持句柄），
     每请求新建即可。注入 Orchestrator 后，一条 chat 链跑完若产非空报告即 emit "rca" 事件；
@@ -209,7 +209,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _gateway = build_gateway()
     _session_store = SessionStore()
     # 审计落库单例：真 SqliteAuditSink 持 DB 句柄 + 链状态，必须单例（决策2：真执行=真审计同批）。
-    # fail_closed 接线（D 域 7b74404/94bdac9 已就位 connect(fail_closed=...) + 测试）：
+    # fail_closed 接线（安全层 7b74404/94bdac9 已就位 connect(fail_closed=...) + 测试）：
     #   - proxy 模式（生产）→ fail_closed=True（chmod 失败 raise，拒启动）；
     #   - dev 模式（联调）→ fail_closed=False（chmod 失败仅 log，不抛）。
     # 复用模块级 _AUDIT_DB_PATH（conftest 可 setattr 钉 :memory:；文件路径时由模块级

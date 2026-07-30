@@ -1,10 +1,10 @@
 """Orchestrator 的依赖注入端口（运行时接口，非数据契约）。
 
 这些是 orchestrator 与其协作者之间的**行为接口**，与 contracts/ 的数据模型分层：
-- PolicyEngine 已在 contracts/policy.py（D 实现），此处再导出方便集中引用。
+- PolicyEngine 已在 contracts/policy.py，此处再导出方便集中引用。
 - Executor 定义在 mcp 层（gateway 的直接依赖），此处再导出，保持单一引用点
   并避免 agent→mcp→agent 循环导入。
-- AuditSink 由 D 实现（backend/app/audit）；此处仅给 Protocol，依赖注入空跑。
+- AuditSink 由审计层实现（backend/app/audit）；此处仅给 Protocol，依赖注入空跑。
 - EventSink 由 orchestrator/API 层提供（推流给前端 X）。
 
 放在 agent/ 而非 contracts/：这些是运行时协作接口，非冻结的数据事实来源，
@@ -25,9 +25,9 @@ __all__ = ["PolicyEngine", "Executor", "AuditSink", "EventSink"]
 
 @runtime_checkable
 class AuditSink(Protocol):
-    """审计落库接口（D 的 audit_logger 实现）。
+    """审计落库接口（audit_logger 实现）。
 
-    orchestrator 在每个状态转移点产 AuditRecord 并 append；落库与哈希链校验归 D。
+    orchestrator 在每个状态转移点产 AuditRecord 并 append；落库与哈希链校验归审计层。
 
     历史查询扩展（commit 2 增量）：list_traces / get_trace_records / count_traces /
     verify_chain 由 SqliteAuditSink 实现（具体返回 schema 在 routers/audit.py 处理）。

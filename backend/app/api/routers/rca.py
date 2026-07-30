@@ -3,7 +3,7 @@
 POST /api/rca/analyze：建 trace_id，按 problem_type/description 产报告并暂存。
 GET /api/rca/{trace_id}：取回该 trace 的 RCA 报告。
 
-已接 X 的 mcp_servers/rca.DefaultRCAEngine（确定性 playbook 规则引擎，不执行命令、
+已接 mcp_servers/rca.DefaultRCAEngine（确定性 playbook 规则引擎，不执行命令、
 不改系统，只据不可信证据产报告）。独立端点空证据 + 明确 problem_type → 产"采集建议"
 型非空报告，前端 RCA 页可对真后端联调。
 """
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api/rca", tags=["rca"])
 # TODO: 报告生命周期/持久化待定；本轮内存版让前端能拉取。
 _reports: dict[str, dict] = {}
 
-# RCA 引擎（X 的 DefaultRCAEngine：无状态确定性规则引擎）。
+# RCA 引擎（DefaultRCAEngine：无状态确定性规则引擎）。
 _rca_engine = DefaultRCAEngine()
 
 
@@ -41,7 +41,7 @@ async def _produce_llm_summary(
     调 llm_rewrite_summary 改 report['summary'] 字段 + emit llm_summary 给前端.
     失败/None/凭据命中 → llm_summary 为 None(前端零感知兼容).
     独立端点无 AuditSink,但 routers/chat 路径的 _emit_rca_summary 会落 audit rca_llm_summary;
-    本路径用 logger 警告兜底,不重复落审计(D 域审计表零侵入).
+    本路径用 logger 警告兜底,不重复落审计(审计表零侵入).
     """
     if llm is None:
         return None

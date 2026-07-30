@@ -1,4 +1,4 @@
-"""L 域 /api/policy/* 3 接口（commit 3 增量）。
+"""/api/policy/* 3 接口（commit 3 增量）。
 
 覆盖：rules / events / risk-levels。
 认证：require_proxy_identity（决策⑨ mode-aware，proxy fail-closed 401 / dev 放行）。

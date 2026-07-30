@@ -5,7 +5,7 @@
 
 全部【跑在 fake 上】（D/X 真件到位后翻真三处，见各剧本文末）：
 - 策略 → backend.app.security 的 PolicyEngine(DEFAULT_POLICY, registry)；
-- Executor → D 的特权代理 Executor；
+- Executor → 特权执行器；
 - LLM → 真实端点（backend.app.llm.adapter 默认 httpx 实现 + LLMConfig）。
 
 铁律：剧本只用 all_specs() 已注册工具，工具名/参数严格按各 ToolSpec.input_schema（C1/S2）。

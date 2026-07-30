@@ -1,6 +1,6 @@
 """日志感知工具的 ToolSpec（D8）。
 
-只读采集；命令执行由 D 的 Executor 经命令模板白名单完成（本模块不跑命令）。
+只读采集；命令执行由特权执行器经命令模板白名单完成（本模块不跑命令）。
 解析见 parsers.parse_journal_lines / parse_log_size_scan。
 unit/priority/since/transport 收紧为 enum 或 pattern，避免 args 偷渡注入参数。
 """
@@ -82,7 +82,7 @@ LOG_LARGE_LOG_SCAN = ToolSpec(
     reversible=True,
 )
 
-# ---- 变更工具（D10）：只声明契约，执行只经 D 的特权代理 + 策略 + 审批 ----
+# ---- 变更工具（D10）：只声明契约，执行只经特权执行器 + 策略 + 审批 ----
 
 # log.compress_rotate：压缩并轮转日志（变更类）→ R2。
 # 可逆性：压缩件保留可还原，标 reversible=True；但属写操作，必经策略放行（R2 通常 confirm）。

@@ -39,7 +39,7 @@ def resolve_audit_db_path(raw: str | None, *, require_absolute: bool) -> str:
       「dev 默认路径，生产须设 KYLIN_AUDIT_DB 绝对路径」。
     - raw == ":memory:" → 原样返回（短路，不做绝对路径校验；保护测试夹具）。
     - require_absolute=True 且 raw 非绝对 → raise ValueError（fail-closed，拒启动，
-      绝不静默落 cwd）。require_absolute 由 L 按 KYLIN_AUTH_MODE=="proxy" 计算后传入。
+      绝不静默落 cwd）。require_absolute 按 KYLIN_AUTH_MODE=="proxy" 计算后传入。
     - 其余 → os.path.realpath 规范化返回。
     """
     if raw is None or not raw.strip():
@@ -98,7 +98,7 @@ def connect(
 
     fail_closed：传 True 时（生产模式，KYLIN_AUTH_MODE=proxy）chmod 失败会
     raise PermissionError；开发模式保持默认 False（只 log 不抛）。
-    由 L 在 api.py lifespan 按 auth_mode 计算后传入。
+    在 api.py lifespan 按 auth_mode 计算后传入。
     """
     if db_path != ":memory:":
         parent = Path(db_path).parent

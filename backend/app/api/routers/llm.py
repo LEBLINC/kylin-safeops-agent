@@ -135,7 +135,7 @@ async def health_events(
 ) -> StreamingResponse:
     """probe 审计 SSE 流：推送 probe 失败/超时引发的 audit_appended 事件。
 
-    客户端（X 的运维 dashboard / monitoring）订阅此 SSE 即可拿到实时 probe 失败流；
+    客户端（运维 dashboard / monitoring）订阅此 SSE 即可拿到实时 probe 失败流；
     与 /api/audit/traces/{trace_id} 联用：先在 SSE 收 trace_id → 拉详情。
 
     S8：与 /api/chat/{trace_id}/events 同样接 Request.is_disconnected 断连清理。

@@ -6,7 +6,7 @@ confirm/admin → 审批 → 执行 → VERIFIED（一键跑）。
 
 跑在 fake 上（公共装配见 scripts/_demo_common.py）。D/X 真件到位后翻真三处：
 - 策略 → backend.app.security 的 PolicyEngine(DEFAULT_POLICY, registry)；
-- Executor → D 的特权代理 Executor；
+- Executor → 特权执行器；
 - LLM → 真实端点（backend.app.llm.adapter 默认 httpx 实现 + LLMConfig）。
 
 运行：python -m scripts.demo_zombie_process_playbook   （仓库根目录下执行）

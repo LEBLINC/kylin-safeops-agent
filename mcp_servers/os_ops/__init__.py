@@ -3,7 +3,7 @@
 改造范围以 NOTICE 为准：仅 parsers.py / models.py 改造自 linux-mcp-server，
 其余（各 tools_*.py 的 ToolSpec、dispatch、fallback 等）为本项目自写。
 按 D6+ 逐批增长。提供 all_specs() 供 MCP Gateway 注册表加载。
-本包只产 ToolSpec（risk + input_schema）+ 纯解析器；命令执行委托 D 的 Executor。
+本包只产 ToolSpec（risk + input_schema）+ 纯解析器；命令执行委托特权执行器。
 """
 
 from __future__ import annotations

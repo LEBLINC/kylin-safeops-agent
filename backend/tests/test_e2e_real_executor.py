@@ -1,25 +1,25 @@
 """任务 A — Executor 维度 fake→real 集成验证哨兵（端到端，预置待命）。
 
-与 L1 哨兵（test_e2e_real_policy.py）同源的成功模式：在 D 的 PR2 真 Executor 合入前
+与 L1 哨兵（test_e2e_real_policy.py）同源的成功模式：在执行层 PR2 真特权执行器合入前
 预置完整集成脚手架，**合入即自动激活**，前置 PR2 集成风险。
 
 当前安全闭环"后半条"（策略放行 → 沙箱内最小权限执行 → 真实兜底）全靠 FakeExecutor 罐头，
 零真实覆盖；"即便 LLM 生成 rm -rf / 也无法造成实际损害"目前无法端到端证明。本哨兵在
-D 合入后用真 Executor 跑通只读链、真实非零退出、deny 链未触达三条断言，并把 symlink/
+执行层合入后用真 Executor 跑通只读链、真实非零退出、deny 链未触达三条断言，并把 symlink/
 TOCTOU 两个占位升级为**编排层真断言**（真 symlink + 真 PrivilegeExecutor realpath 兜底，
-win32 跳过、CI ubuntu 真跑；与 D 的执行层用例 test_executor.py 分层互补）。
+win32 跳过、CI ubuntu 真跑；与执行层用例 test_executor.py 分层互补）。
 
 【精确待命，非裸 except ImportError（L-2 教训）】：
 backend.app.executor 当前是"空命名空间包"（仅 .gitkeep，import 成功但无任何 Executor
 符号）——故**不能**用 pytest.importorskip("backend.app.executor")（命名空间包导入会成功，
 不会 skip）。改为精确检查 D 将导出的真 Executor 符号是否存在：未合入则整文件优雅 skip，
-D 的 PR2 导出真 Executor 类/工厂后本哨兵自动激活。若 D 合入后该包 import 抛错（如缺依赖），
+执行层 PR2 导出真特权执行器类/工厂后本哨兵自动激活。若执行层合入后该包 import 抛错（如缺依赖），
 import_module 会如实抛出（fail loud），不被静默 skip 掩盖。
 
-【与 D 的接线约定】（仿 L1 的 _make_engine 单点适配）：
+【策略引擎接线约定】（仿 L1 的 _make_engine 单点适配）：
 - Executor.execute(tool) -> ToolResult（async；方案B：普通失败用 exit_code != 0 承载，
   仅系统级故障 raise）。
-- _make_executor() 是唯一构造适配点：D 合入若工厂名/构造签名不同，**只改这一处**。
+- _make_executor() 是唯一构造适配点：执行层合入若工厂名/构造签名不同，**只改这一处**。
 - _EXECUTOR_SYMBOLS 列出候选导出名；D 实际命名不在其中时，在此追加即可激活。
 """
 
@@ -45,9 +45,9 @@ from backend.app.mcp.registry import ToolRegistry
 from backend.app.security import DEFAULT_POLICY, PolicyEngine
 from mcp_servers.os_ops import all_specs
 
-# ---- 精确待命：定位 D 的真 Executor（PR2 合入即激活）----------------------
+# ---- 精确待命：定位真特权执行器（PR2 合入即激活）----------------------
 
-#: D 的 PR2 可能导出的真 Executor 工厂/类名（实际命名不在此列时，在此追加即激活）。
+#: 执行层 PR2 可能导出的真特权执行器工厂/类名（实际命名不在此列时，在此追加即激活）。
 #: GAP-3：本列表是"尽量广覆盖"的安全网，但**根治**靠与 D 在 集成对齐备忘 §1/§3 约定一个
 #: 冻结导出名（建议 build_executor()），并在 PR2 接线清单加一条"确认本哨兵已转激活（非 skip）"，
 #: 避免 D 命名不在列时 PR2 合入后哨兵静默不激活（L-2 静默下线反模式的变体）。
@@ -71,7 +71,7 @@ def _find_executor_factory() -> object | None:
     """在 backend.app.executor 包内精确查找真 Executor 工厂/类；未合入返回 None。
 
     import_module 成功但包为空命名空间包（仅 .gitkeep）时无任何候选符号 → None → 整文件
-    skip。D 合入真件后命中候选符号 → 返回工厂 → 激活。
+    skip。执行层合入真件后命中候选符号 → 返回工厂 → 激活。
     """
     mod = importlib.import_module("backend.app.executor")
     for name in _EXECUTOR_SYMBOLS:
@@ -85,14 +85,14 @@ _EXECUTOR_FACTORY = _find_executor_factory()
 
 if _EXECUTOR_FACTORY is None:
     pytest.skip(
-        "待 D 的 PR2 真 Executor 合入（backend.app.executor 暂为空命名空间包，仅 .gitkeep）；"
+        "待执行层 PR2 真特权执行器合入（backend.app.executor 暂为空命名空间包，仅 .gitkeep）；"
         "合入并导出真 Executor 后本哨兵自动激活",
         allow_module_level=True,
     )
 
 
 def _make_executor() -> object:
-    """构造 D 的真 Executor（单点适配；D 合入若构造需参数则只改这一处）。"""
+    """构造真特权执行器（单点适配；执行层合入若构造需参数则只改这一处）。"""
     factory = _EXECUTOR_FACTORY
     assert factory is not None  # skip 守卫已保证
     return factory()  # type: ignore[operator]  # 假定无参可构造；如需参数在此适配
@@ -102,9 +102,9 @@ def _make_executor() -> object:
 
 
 class _RecordingProxy:
-    """包裹 D 的真 Executor，记录被调用的工具名（用于断言 deny 链未触达执行）。
+    """包裹真特权执行器，记录被调用的工具名（用于断言 deny 链未触达执行）。
 
-    仅做透传 + 记录，不改变执行语义——真命令仍由 D 的 Executor 跑。
+    仅做透传 + 记录，不改变执行语义——真命令仍由特权执行器跑。
     """
 
     def __init__(self, inner: object) -> None:
@@ -166,10 +166,10 @@ def _action_plan(tools: list[dict], *, risk_hint: str = "low") -> dict:
     }
 
 
-# ---- 适配点：一个"真实会非零退出"的只读场景（D 合入后按真 Executor 行为校准）----
+# ---- 适配点：一个"真实会非零退出"的只读场景（执行层合入后按真 Executor 行为校准）----
 # 约定：只读工具扫描一个不存在的绝对路径 → 命令非零退出（方案B 用 exit_code 承载）。
 # 路径非保护路径、绝对、无 ..，策略放行（只读工具不触发 forbid_modify）。
-# 若 D 的真命令对不存在路径返回 0，本断言会抓出偏差（这正是哨兵的意义）。
+# 若真命令对不存在路径返回 0，本断言会抓出偏差（这正是哨兵的意义）。
 _NONZERO_TOOL = "log.large_log_scan"
 _NONZERO_ARGS = {"path": "/nonexistent_kylin_executor_sentinel_zzz"}
 

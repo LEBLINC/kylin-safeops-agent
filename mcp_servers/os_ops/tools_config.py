@@ -1,6 +1,6 @@
 """配置漂移感知工具的 ToolSpec（D9，本项目自写——原仓 linux-mcp-server 无此能力）。
 
-只读采集（sha256sum）；命令执行由 D 的 Executor 经命令模板白名单完成。
+只读采集（sha256sum）；命令执行由特权执行器经命令模板白名单完成。
 解析见 parsers.parse_sha256sum_output / diff_config_snapshots。
 config.diff 的"基线快照"存取属运行时/D 职责，本模块只定义工具契约与纯 diff 逻辑。
 """

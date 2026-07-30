@@ -6,7 +6,7 @@ GUARD_PROMPT 定界 + detect_tool_output_injection 注入扫描均已闭合；�
 （幻觉/复述残留）在输出里带出凭据模式。本模块在 summary 发前端 SSE 前再扫一遍，
 命中 → redact，让 orchestrator.py 里恒 False 的 sensitive_filtered 死标志变活。
 
-放在 agent/ 而非 security/：本工单 C3 边界不含 backend/app/security（D 域相邻但非
+放在 agent/ 而非 security/：本工单 C3 边界不含 backend/app/security（相邻但非
 本工单授权改动范围）；纯正则扫描零外部依赖，放调用方（orchestrator）同域最小化改动面。
 """
 

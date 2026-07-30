@@ -1,4 +1,4 @@
-"""L 域 4 Router 联调测试（commit 5 增量）。
+"""4 Router 联调测试（commit 5 增量）。
 
 验证：
 1. 4 router 全挂载（approvals/audit/policy/demo 都注册到 api_router）

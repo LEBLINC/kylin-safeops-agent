@@ -3,14 +3,14 @@
 tools/list 与 tools/call。tools/call 的执行**强制**经过三道闸，顺序不可调换：
   1. 注册校验：工具必须已注册（未注册即拒，防影子工具）。
   2. 结构校验：args 按 ToolSpec.input_schema 过 schema_validator（策略前第一道闸）。
-  3. 策略放行：过 D 的 PolicyEngine；非 allow 一律不执行。
+  3. 策略放行：过策略引擎；非 allow 一律不执行。
 放行后才交注入的 Executor 执行；结果一律包成契约4 ToolResult(is_untrusted=True)。
 
-特例：``config.diff`` 在三道闸通过后于 **mcp 层聚合**（决策⑤），不落 D 的单命令执行器——
+特例：``config.diff`` 在三道闸通过后于 **mcp 层聚合**（决策⑤），不落单命令特权执行器——
 复用 ``config.hash_snapshot`` 取真实快照后与基线对比（见 ``config_diff`` 模块），保 D 执行器
 "单命令模板"纯粹。
 
-本层不直接跑命令、不拼 shell（铁律2）；执行委托 Executor（D 实现）。
+本层不直接跑命令、不拼 shell（铁律2）；执行委托 Executor（由 backend/app/executor 实现）。
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from mcp_servers.os_ops.parsers import parse_sha256sum_output
 
 @runtime_checkable
 class Executor(Protocol):
-    """特权代理执行器接口（D 实现）。
+    """特权代理执行器接口（由 backend/app/executor 实现）。
 
     定义在 mcp 层（gateway 的直接依赖），避免 agent→mcp→agent 循环导入；
     agent.ports 从此处再导出，对上层保持单一引用点。
@@ -74,7 +74,7 @@ READ_ONLY_RISKS: frozenset[str] = frozenset({"R0", "R1"})
 class MCPGateway:
     """工具网关：列举与受控调用。
 
-    policy/executor 注入（D 实现）。本类只编排三道闸 + 结果闸，不实现它们。
+    policy/executor 由外部注入。本类只编排三道闸 + 结果闸，不实现它们。
     """
 
     def __init__(

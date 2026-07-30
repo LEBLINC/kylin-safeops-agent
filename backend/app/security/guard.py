@@ -1,10 +1,10 @@
-"""规则驱动 PolicyEngine 实现（D）。
+"""规则驱动 PolicyEngine 实现。
 
 核心校准：主力是结构化参数危险值 + ProtectedPaths + ToolSpec.risk；
 CMD001-003 等 shell 文本匹配仅作防御纵深。
 
 构造签名：RuleBasedPolicyEngine(policy: PolicySet, registry: ToolRegistry)
-  - policy 在前（L 的接线点 policy=... 关键字注入）。
+  - policy 在前（接线点 policy=... 关键字注入）。
   - registry 注入必须与 gateway 使用同一实例，否则注册表漂移。
   - 导出 PolicyEngine = RuleBasedPolicyEngine 别名，L 直接 import PolicyEngine。
 """
@@ -49,7 +49,7 @@ class _Hit:
 
 
 class RuleBasedPolicyEngine:
-    """D 的首版策略引擎。
+    """首版策略引擎。
 
     构造签名：(policy: PolicySet, registry: ToolRegistry)。
     registry 必须与 gateway 注入的是同一实例，否则注册表漂移导致判执不一致。
@@ -191,5 +191,5 @@ def _dedupe(values: list[str]) -> list[str]:
     return out
 
 
-#: L 接线别名：from backend.app.security import PolicyEngine
+#: 接线别名：from backend.app.security import PolicyEngine
 PolicyEngine = RuleBasedPolicyEngine

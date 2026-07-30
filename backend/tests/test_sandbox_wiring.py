@@ -1,6 +1,6 @@
 """沙箱启用接线 — build_gateway 按平台 + env 传 sandbox_enabled（默认关）。
 
-覆盖（不真跑沙箱；真验证在麒麟 VM 由 D 的 verify-sandbox-on-vm.sh 做）：
+覆盖（不真跑沙箱；真验证在麒麟 VM 由 verify-sandbox-on-vm.sh 做）：
 - 默认（无 env）：executor.sandbox_enabled is False（零回归证据）。
 - Linux + KYLIN_SANDBOX_ENABLED=1 → True（启用证据）。
 - Windows + env=1 → False（平台护栏证据）。

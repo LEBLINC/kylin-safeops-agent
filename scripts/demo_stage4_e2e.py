@@ -19,8 +19,8 @@
   G 真端点模式（--use-real-llm）：RealLLMClient 产 intent → 五道闸全链跑通
 
 不做什么：
-- 不动 D 域实现（只 import 既有真件）；
-- 不动 X 域；
+- 不动安全/执行层实现（只 import 既有真件）；
+- 不动 RCA/前端模块；
 - 真端点 api_key/base_url 走 env 注入，**禁止**硬编码（S9 红线）；
 - 本机无密钥时 fixture 模式顶替，标"待 VM 验证"。
 """

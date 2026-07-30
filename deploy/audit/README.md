@@ -11,7 +11,7 @@
 | 开发 | 非 `proxy` | `False` | 允许相对路径；未设时回退默认 `./data/audit.db`（并 log WARN） |
 
 - 路径解析由 `backend/app/db/session.py::resolve_audit_db_path(raw, *, require_absolute)` 纯函数完成。
-- `require_absolute` 绑定 `KYLIN_AUTH_MODE=="proxy"`，由 `app.py` 计算后传入（D 侧函数不读环境变量）。
+- `require_absolute` 绑定 `KYLIN_AUTH_MODE=="proxy"`，由 `app.py` 计算后传入（安全层函数不读环境变量）。
 - `:memory:` 为测试夹具专用，经短路原样返回，不触发绝对路径校验，也不做权限加固。
 
 生产建议把审计库放在归 agent 运行用户所有、且在 systemd `ReadWritePaths` 内的目录，例如：

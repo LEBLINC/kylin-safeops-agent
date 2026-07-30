@@ -1,6 +1,6 @@
 # ⚠️ DEPRECATED（L-5）——权威 CI 见 .github/workflows/ci.yml，本文件停止维护。
 #   GitLab 已弃用（免费版私库 CI/CD 受限）；远端为 GitHub。保留仅作历史/可选迁移参考，
-#   不在任何活跃流水线中执行。如需彻底移除由 L 决定。
+#   不在任何活跃流水线中执行。如需彻底移除另行决定。
 #
 # GitLab CI —— 与 .github/workflows/ci.yml 四道闸完全对齐（ruff/ruff-format/mypy/pytest）。
 # 仅 x86。LoongArch + 麒麟 V11 兼容性以真机另验，CI 不覆盖（见 README / 手册 §2.3）。

@@ -1,4 +1,4 @@
-"""L 域 /api/approvals router 5 用例（commit 1 增量）。
+"""/api/approvals router 5 用例（commit 1 增量）。
 
 覆盖：
 1. GET /api/approvals?status=pending → 列（空状态返 []）

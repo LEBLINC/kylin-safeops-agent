@@ -1,4 +1,4 @@
-"""L 域 X 联调 P1 增量：PolicyRuleOut.safer_alternative 字段补全（commit 1）。
+"""前后端联调 P1 增量：PolicyRuleOut.safer_alternative 字段补全（commit 1）。
 
 覆盖：
 1. T1：seed 规则含 safer_alternative → /api/policy/rules response 含该字段且值正确。

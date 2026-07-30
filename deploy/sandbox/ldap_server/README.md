@@ -15,7 +15,7 @@
 sudo dnf install -y openldap-servers openldap-clients
 ```
 
-> 不走 docker。`osixia/openldap` 等公共镜像无 LoongArch 构建，且 D 域不引入 docker 依赖。
+> 不走 docker。`osixia/openldap` 等公共镜像无 LoongArch 构建，且本项目不引入 docker 依赖。
 > 直接用麒麟仓库的 `openldap-servers` 即可（slapd 主程序）。
 
 ## 2. 设置测试口令（仅 shell export，不进任何文件）

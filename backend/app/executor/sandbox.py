@@ -1,4 +1,4 @@
-"""systemd 瞬态 service 沙箱（D）— wrapper 唯一执行入口。
+"""systemd 瞬态 service 沙箱 — wrapper 唯一执行入口。
 
 机制：systemd-run 瞬态 service（非 scope）。scope 只做 cgroup 登记、不经 fork/exec，
 所有依赖 mount namespace 的保护属性（ProtectSystem/ReadOnlyPaths/PrivateTmp/...）

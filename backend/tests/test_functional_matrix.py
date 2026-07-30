@@ -7,7 +7,7 @@ F006 SSE 端到端真行为（详见下方各节注释）。
 原则：happy-path 管道断言（终态/执行序/关键事件）；不硬编"安全拦截"断言。
 
 任务B 整改：
-- F001–F004 原跑在 scripts._demo_common.RiskBasedPolicy **桩**上，现统一注入 D 的真
+- F001–F004 原跑在 scripts._demo_common.RiskBasedPolicy **桩**上，现统一注入真
   PolicyEngine(DEFAULT_POLICY, registry)（真件已合入，top-level import，**不加待命守卫**）。
   断言已核对真裁决：F001 只读→allow→FINISHED；F002 log.compress_rotate(R2,/var/log)→
   operator 审批；F004 service.restart(R3)→admin 审批；F003 多只读(R0,/etc 配置)→allow 原子执行
@@ -84,7 +84,7 @@ def _llm(*intents: str) -> LLMAdapter:
 def _build(*intents: str) -> tuple[Orchestrator, _Audit, _Events, _Executor]:
     registry = ToolRegistry(all_specs())
     executor = _Executor()
-    # 任务B：注入 D 的真 PolicyEngine（同一 registry 防漂移），脱离 RiskBasedPolicy 桩。
+    # 任务B：注入真策略引擎（同一 registry 防漂移），脱离 RiskBasedPolicy 桩。
     gateway = MCPGateway(registry, PolicyEngine(DEFAULT_POLICY, registry), executor)
     audit, events = _Audit(), _Events()
     orch = Orchestrator(

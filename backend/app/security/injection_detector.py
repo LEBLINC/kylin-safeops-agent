@@ -3,7 +3,7 @@
 定位（与 PI001 区分）：
 - 现有 `policy_loader.py` 的 `PI001` 是扫 `tool_args` 的【结构化参数闸】，归策略引擎。
 - 本模块是【user_input 输入闸】：在 LLM 看到用户输入【之前】做确定性判定，
-  与 PI001 维度不同、不替换、不重叠。接线由 L 在 orchestrator 首次 `plan()` 前接，
+  与 PI001 维度不同、不替换、不重叠。接线在 orchestrator 首次 `plan()` 前接，
   本模块只提供纯函数检测器，不接任何 orchestrator/router。
 
 实现纪律：

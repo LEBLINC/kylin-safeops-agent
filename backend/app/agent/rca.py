@@ -1,7 +1,7 @@
 """RCA（Root Cause Analysis）编排接入点（手册 D15）。
 
 L 只定义【接口/Protocol】+ stub 占位 + orchestrator 调起点；真实 RCA playbook
-（证据采集模板、根因推断）归 X 的 mcp_servers/rca/，由 X 落地。
+（证据采集模板、根因推断）归 RCA 引擎 mcp_servers/rca/。
 
 约定：
 - 输入：执行后的不可信观测/结果列表（已经 gateway 结果闸密封）。
@@ -20,7 +20,7 @@ from backend.app.contracts.untrusted import ToolResult
 
 @runtime_checkable
 class RCAEngine(Protocol):
-    """RCA 编排器接口（X 实现，本模块不实现）。
+    """RCA 编排器接口（由 mcp_servers/rca 实现，本模块不实现）。
 
     输入：本次请求收集到的所有 ToolResult（含观测+执行结果，全部 is_untrusted=True）。
     输出：rca report dict；空 dict {} 表示无可报告（orchestrator 据此跳过 emit）。

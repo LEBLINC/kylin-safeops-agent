@@ -1,4 +1,4 @@
-"""L 域 /api/audit/* 4 用例（commit 2 增量）。
+"""/api/audit/* 4 用例（commit 2 增量）。
 
 覆盖：
 1. GET /api/audit/traces → 空库返空 list

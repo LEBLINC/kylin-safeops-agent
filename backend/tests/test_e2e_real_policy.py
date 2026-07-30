@@ -1,13 +1,13 @@
 """L1 — fake→real 策略集成验证哨兵（端到端）。
 
-D 的真 PolicyEngine 已合入并从 backend.app.security 导出，本哨兵**已激活**（实跑非 skip）。
+真策略引擎已合入并从 backend.app.security 导出，本哨兵**已激活**（实跑非 skip）。
 装配方式：真 ToolRegistry(os_ops all_specs()) + 真 DEFAULT_POLICY + 真 PolicyEngine，
-Executor 仍用 FakeExecutor（不实现 D 的执行层；C3 红线）。端到端断言策略实质成立。
+Executor 仍用 FakeExecutor（不实现执行层；C3 红线）。端到端断言策略实质成立。
 
 注（L-2 整改）：原有 try/except ImportError 待命守卫已删除——真件已合入，import 失败
 应如实 ERROR（守卫只会在环境损坏时伪装成 "1 skipped" 静默下线，是风险而非保护）。
 
-【与 D 的接线契约】：PolicyEngine(policy: PolicySet, registry: ToolRegistry)；
+【策略引擎接线契约】：PolicyEngine(policy: PolicySet, registry: ToolRegistry)；
 evaluate(tool) -> PolicyVerdict（contracts.policy 冻结）。构造若变更，改 _make_engine()。
 """
 
@@ -69,7 +69,7 @@ def _llm(intent_obj: dict) -> LLMAdapter:
 
 
 def _make_engine(registry: ToolRegistry) -> object:
-    """构造 D 的真 PolicyEngine（接线约定见模块头：(policy, registry)）。"""
+    """构造真策略引擎（接线约定见模块头：(policy, registry)）。"""
     return PolicyEngine(DEFAULT_POLICY, registry)
 
 

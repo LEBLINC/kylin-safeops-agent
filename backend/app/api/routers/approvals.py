@@ -134,7 +134,7 @@ def _to_item(session: object) -> schemas.ApprovalItem:
     """SessionRegistry 内存对象 → ApprovalItem 序列化。
 
     字段口径：
-    - user_intent: 取 orchestrator.user_intent（L 域 run() 入口存的），
+    - user_intent: 取 orchestrator.user_intent（run() 入口存的），
       兼容旧实现没存则空串
     - risk_level: 取 orchestrator.state 派生（R0=read-only / R2=confirm_operator /
       R3=confirm_admin），WAIT_APPROVAL 时取 pending_approval_role 反推

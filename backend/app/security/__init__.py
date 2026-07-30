@@ -1,4 +1,4 @@
-"""安全护栏（D）：策略引擎、注入检测、风险评分、路径策略。
+"""安全护栏：策略引擎、注入检测、风险评分、路径策略。
 
 实现 contracts.policy.PolicyEngine 三态裁决（allow/deny/confirm）。
 铁律：evaluate 必须确定性、无副作用——gateway 会调两次（防御纵深），裁决须一致。

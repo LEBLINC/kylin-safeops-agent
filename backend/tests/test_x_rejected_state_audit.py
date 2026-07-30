@@ -1,6 +1,6 @@
-"""L 增量守门 commit 1.5: byte-verify X 修复 REJECTED 路径后端行为.
+"""增量守门 commit 1.5: byte-verify 前端修复后 REJECTED 路径后端行为.
 
-X 修复 (795db41) 后端不需改动; L 域守门:
+前端修复 (795db41) 后端不需改动; 编排层守门:
   T16 user_intent 高风险 → 终态 REJECTED + 不 emit natural_language
   T17 hash chain 不破 (REJECTED 路径)
 """

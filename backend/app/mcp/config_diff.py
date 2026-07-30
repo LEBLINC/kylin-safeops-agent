@@ -1,6 +1,6 @@
 """config.diff 的 mcp 层聚合（决策⑤：聚合在 mcp 层，不进 D 执行器）。
 
-config.diff 无单命令模板（语义是"当前快照 × 基线对比"），故**不**落 D 的单命令 Executor
+config.diff 无单命令模板（语义是"当前快照 × 基线对比"），故**不**落单命令特权执行器
 （落进去会 127）。gateway.call 在三道闸通过后特判 config.diff，调本模块聚合：
 复用 config.hash_snapshot（真单命令工具，经 Executor 做路径 canonicalize/沙箱）取当前快照
 → 与基线对比 → 返回结构化 ConfigDiff。决策⑤铁律：D 执行器保持"单命令模板"纯粹，聚合只在 mcp 层。

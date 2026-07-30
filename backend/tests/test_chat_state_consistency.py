@@ -1,4 +1,4 @@
-"""L 增量守门 commit 1.5: chat state 一致性 - 已有 test_x_rejected_state_audit.py 守门.
+"""增量守门 commit 1.5: chat state 一致性 - 已有 test_x_rejected_state_audit.py 守门.
 
 本文件保留空以备未来扩展. 阶段5 P4 commit 1 (90fdce2) + T16+T17 已覆盖核心场景.
 """

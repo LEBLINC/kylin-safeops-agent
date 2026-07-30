@@ -1,4 +1,4 @@
-"""风险等级工具与参数规则匹配（D）。
+"""风险等级工具与参数规则匹配。
 
 重心：结构化 args 的危险值 + ToolSpec.risk。shell 文本规则仅作防御纵深。
 本模块无 IO、无状态，供 RuleBasedPolicyEngine.evaluate() 纯函数式调用。
@@ -68,7 +68,7 @@ def default_decision_for_risk(risk: RiskLevel) -> tuple[str, str | None, str]:
     """按静态风险给默认三态、审批角色、规则 ID。
 
     内部 approval_role 先遵循 L 口径小写 operator/admin；面向前端的大写 required_role
-    由 L 在 API/事件层映射（CLAUDE.md §8/§9）。
+    在 API/事件层映射（CLAUDE.md §8/§9）。
     """
     if risk in ("R0", "R1"):
         return "allow", None, f"risk:{risk}"

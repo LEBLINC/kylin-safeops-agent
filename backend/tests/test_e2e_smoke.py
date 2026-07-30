@@ -1,8 +1,8 @@
 """D12 端到端 smoke：观测→二次规划→多工具逐裁决→审批→批量执行→审计链完整。
 
 含【参考 PolicyEngine stub】RiskBasedPolicy（按 ToolSpec.risk 给默认三态）。
-TODO(BLOCKED-ON-D): 这是给 D 的参考实现，真实 PolicyEngine（规则/角色/上下文裁决）
-归 backend/app/security，由 D 落地；此处仅为联调占位，不实现 D 的模块。
+TODO(BLOCKED-ON-EXECUTOR): 这是参考实现，真实 PolicyEngine（规则/角色/上下文裁决）
+归 backend/app/security；此处仅为联调占位，不实现该模块。
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ class RiskBasedPolicy:
     """参考 PolicyEngine stub：按注册表里工具的 risk 给默认三态裁决。
 
     R0/R1 → allow；R2 → confirm(operator)；R3/R4 → confirm(admin)。
-    TODO(BLOCKED-ON-D): 真实策略引擎按 shieldset 规则/角色/参数上下文裁决，归 D。
+    TODO(BLOCKED-ON-EXECUTOR): 真实策略引擎按 shieldset 规则/角色/参数上下文裁决，归安全层。
     """
 
     def __init__(self, registry: ToolRegistry) -> None:

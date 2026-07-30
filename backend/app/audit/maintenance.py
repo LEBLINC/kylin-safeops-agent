@@ -6,7 +6,7 @@
 - 按 trace 整批搬迁，绝不按 record 删（删一条破哈希链）。
 - 先验后删：export → 归档库 verify_chain valid → 才从主库 DELETE；verify 失败保守不删。
 - 确定性：now 由 CLI 注入（now_iso），run_retention / _archive_db_path 不在函数内取 now，
-  使单测可钉死时间（符合 D 的确定性铁律）。
+  使单测可钉死时间（符合确定性铁律）。
 - 不改 append 的 hash 语义（S7）、不改 verify_chain 复算逻辑、不改 schema。
 """
 

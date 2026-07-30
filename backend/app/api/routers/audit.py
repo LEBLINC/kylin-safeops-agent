@@ -1,4 +1,4 @@
-"""L 域 /api/audit/* 4 接口（commit 2 增量）。
+"""/api/audit/* 4 接口（commit 2 增量）。
 
 覆盖：list / detail / verify / export。
 认证：require_proxy_identity（决策⑨ mode-aware，proxy fail-closed 401 / dev 放行）。

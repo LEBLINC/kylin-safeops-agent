@@ -1,6 +1,6 @@
 """工具名 → 解析器 分派（把 ToolResult.stdout 转结构化观测）。
 
-约定（TODO(BLOCKED-ON-D): 待确认 Executor.execute() 的 stdout_truncated 真实格式）：
+约定（TODO(BLOCKED-ON-EXECUTOR): 待确认 Executor.execute() 的 stdout_truncated 真实格式）：
 - 本骨架假定 ToolResult.stdout_truncated 为对应命令的**原始文本 stdout**
   （df/ps/ss/journalctl/sha256sum 等的直接输出）。
 - parse_tool_result 按工具名分派到 os_ops/parsers 的对应纯解析器，所需可选参数
@@ -62,7 +62,7 @@ def parse_tool_result(result: ToolResult) -> BaseModel | None:
         return parsers.parse_sha256sum_output(stdout)
 
     # 以下无单步解析器，返回 None 让调用方回退原始 stdout：
-    # - system.info：需多命令聚合 dict（TODO(BLOCKED-ON-D): 约定多命令输出格式）
+    # - system.info：需多命令聚合 dict（TODO(BLOCKED-ON-EXECUTOR): 约定多命令输出格式）
     # - config.diff：需基线快照对比（运行时/D 职责）
     # - log.compress_rotate / service.restart：变更类，结果为动作回执非可解析采集
     return None

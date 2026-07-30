@@ -1,7 +1,7 @@
 """RBAC 审批角色校验纯函数（D-3，security 侧）。
 
 只提供"调用者角色能否批准某 approval_role"的确定性判定；认证态（JWT/Token →
-调用者角色）的解析与 FastAPI 依赖接线在 api/deps.py，归 L（D 不碰 api/）。
+调用者角色）的解析与 FastAPI 依赖接线在 api/deps.py，归 API 层（安全层不碰 api/）。
 
 角色口径（与 L 对齐）：内部统一小写 operator / admin。
 - admin 可批准 approval_role ∈ {operator, admin} 的 confirm；
@@ -22,7 +22,7 @@ def can_approve(caller_role: str | None, approval_role: str | None) -> bool:
     """判定 caller_role 是否有权批准要求 approval_role 的 confirm 裁决。
 
     确定性、无状态、无副作用。任何一侧缺失/未知 → False（失败关闭）。
-    大小写不归一：上游（L 的 deps.py / 事件层）负责把前端大写 Operator/Admin
+    大小写不归一：上游（deps.py / 事件层）负责把前端大写 Operator/Admin
     映射为内部小写；本函数收到非小写口径值视为未知角色，拒绝。
     """
     if not caller_role or not approval_role:
@@ -54,7 +54,7 @@ def require_role(role_set: frozenset[str] | set[str]):  # type: ignore[no-untype
             principal: Principal = Depends(require_role({"auditor", "admin"})),
         ): ...
 
-    注意：本文件为 security 纯函数层（L 域 deps.py 不能依赖 security 但
+    注意：本文件为 security 纯函数层（deps.py 不能依赖 security 但
     security 可依赖 api deps）。本 helper 仅作**计算工具**暴露；调用方在 router
     里串 ``Depends(verify_token)`` 取得 principal 后再做手动校验或本 helper。
     直接作 Depends() 用法保留以备后端 API 层演进（commit 2 不启用，避免打破

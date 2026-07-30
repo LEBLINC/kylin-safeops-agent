@@ -4,7 +4,7 @@ D 在 VM 真端点首跑暴露：qwen3-max "查看磁盘占用" → disk.usage �
 拦死。根因 = prompt 喂了 Intent 信封 schema 但**没喂工具清单** + few-shot 给
 disk.usage（无参工具）塞了 path。
 
-本文件固化 L 域修复：
+本文件固化后端修复：
 - build_system_prompt(specs=...) 注入"可用工具清单 + 各自 input_schema"
 - few-shot 改：disk.usage 用空 args + disk.large_files 演示"按 schema 填参"
 - LLMAdapter(tool_specs=...) 在 plan() 时把工具清单带进 system prompt

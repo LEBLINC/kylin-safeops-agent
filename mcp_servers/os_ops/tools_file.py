@@ -1,6 +1,6 @@
 """文件检查感知工具的 ToolSpec（D8）。
 
-只读采集（lsof）；命令执行由 D 的 Executor 经命令模板白名单完成。
+只读采集（lsof）；命令执行由特权执行器经命令模板白名单完成。
 解析见 parsers.parse_lsof_output。
 """
 

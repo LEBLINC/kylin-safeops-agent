@@ -1,7 +1,7 @@
-"""L 域步骤 0：lifespan fail_closed 接线回归。
+"""步骤 0：lifespan fail_closed 接线回归。
 
-D 域 7b74404 / 94bdac9 已给 `connect(..., fail_closed=...)` 加上参数 + 测试；
-L 域直到阶段5 才在 `app.py lifespan` 把 `KYLIN_AUTH_MODE=="proxy"` 接到
+安全层 7b74404 / 94bdac9 已给 `connect(..., fail_closed=...)` 加上参数 + 测试；
+编排层直到阶段5 才在 `app.py lifespan` 把 `KYLIN_AUTH_MODE=="proxy"` 接到
 `connect(fail_closed=True)`。本文件固化此接线。
 
 - proxy 模式（生产）→ fail_closed=True（chmod 失败 raise，拒启动）；

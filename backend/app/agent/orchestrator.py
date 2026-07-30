@@ -144,7 +144,7 @@ class Orchestrator:
         payload = 结构化推理摘要 (手册固定字段子集).
         actor = {user, roles} 三段由调用方注入 (L-M3 决策⑨ traceability).
 
-        之六十七 H15: 落库走 asyncio.to_thread 释放主协程（D 调研 md 第三章，
+        之六十七 H15: 落库走 asyncio.to_thread 释放主协程（见 H15 调研，
         SqliteAuditSink 线程安全 + session.py check_same_thread=False 双确认）。
         compute_curr_hash 仍在主协程（哈希链顺序不变量），record 入线程池只做 IO。
         """
@@ -520,17 +520,17 @@ class Orchestrator:
         await self._emit_natural_language(results)
 
         # RCA 接入点（手册 D15）：把累积证据交给注入的 RCAEngine（默认 NullRCA→空报告），
-        # 非空则 emit 契约6 "rca" 事件。RCA 真实编排归 X，本处仅调起。
+        # 非空则 emit 契约6 "rca" 事件。RCA 真实编排归 RCA 引擎，本处仅调起。
         from mcp_servers.rca import DefaultRCAEngine
 
         def _is_default_rca_engine(engine: RCAEngine) -> bool:
-            """之六十八 Task 1: 仅当注入的是 X 的真引擎时才走场景模板二次采证路径.
+            """之六十八 Task 1: 仅当注入的是真 RCA 引擎时才走场景模板二次采证路径.
             NullRCA / 桩 / 测试 mock 路径零侵入.
             """
             return isinstance(engine, DefaultRCAEngine)
 
         report = self._rca.analyze(self._evidence)
-        # 之六十八 Task 1：当 RCA 引擎是 X 的 DefaultRCAEngine 时，按场景模板二次采证
+        # 之六十八 Task 1：当 RCA 引擎是 DefaultRCAEngine 时，按场景模板二次采证
         # （get_scenario_plan → evidence_steps → gateway.call），把追加 evidence 重新
         # 分析以得增强报告。NullRCA/桩/mock RCA 路径零侵入（rca_drive 默认分支不调）。
         if report and _is_default_rca_engine(self._rca):

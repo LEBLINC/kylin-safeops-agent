@@ -1,4 +1,4 @@
-"""L 域 SSE Content-Type charset 守门（X A7 修复）。
+"""SSE Content-Type charset 守门（前端 A7 修复）。
 
 回归用例：SSE 响应 Content-Type 必须含 charset=utf-8，
 避免浏览器按 Latin-1 解码中文（justification / reason / natural_language.text）。

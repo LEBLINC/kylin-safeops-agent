@@ -1,7 +1,7 @@
-"""L 域步骤 1：fake planner 解析 user_intent 回归。
+"""步骤 1：fake planner 解析 user_intent 回归。
 
-D 域 94bdac9 把 `target_service` / `target_log_path` 参数化（默认仍 cron.service /
-/var/log/app.log）。本文件固化 L 域 fake planner 解析规则：
+安全层 94bdac9 把 `target_service` / `target_log_path` 参数化（默认仍 cron.service /
+/var/log/app.log）。本文件固化编排层 fake planner 解析规则：
 - `重启 sshd` / `restart cron.service` → service.restart + 解析 service_name
 - `压缩 /var/log/app.log` / `轮转 <path>` → log.compress_rotate + 解析 path
 - `查 /etc/shadow` / `lsof <path>` → file.lsof_check + 解析 path

@@ -68,7 +68,7 @@ class DefaultRCAEngine:
         )
 
     def get_scenario_plan(self, problem_type: str) -> dict | None:
-        """读取一个场景的采证模板，供 L 的 API/编排层使用。"""
+        """读取一个场景的采证模板，供 API/编排层使用。"""
 
         plan = get_scenario_plan(problem_type)
         return dict(plan) if plan is not None else None

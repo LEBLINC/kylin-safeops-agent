@@ -1,4 +1,4 @@
-"""ADR-0004 lifespan fail-fast 测试（L 域部署硬阻断收口）。
+"""ADR-0004 lifespan fail-fast 测试（部署硬阻断收口）。
 
 覆盖：
 1. proxy + KYLIN_LDAP_MOCK=true → lifespan 启动期 RuntimeError（拒启动）

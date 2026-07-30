@@ -1,4 +1,4 @@
-"""特权执行器（D）— subprocess list 框架 + systemd 瞬态 service 沙箱（PR2b-v2）。
+"""特权执行器 — subprocess list 框架 + systemd 瞬态 service 沙箱（PR2b-v2）。
 
 铁律：
 - 绝不 shell=True；绝不拼命令字符串。
@@ -71,7 +71,7 @@ SAFE_ENV: dict[str, str] = {
 
 
 class PrivilegeExecutor:
-    """D 的 Executor 首版：subprocess list + 命令模板白名单。
+    """特权执行器首版：subprocess list + 命令模板白名单。
 
     构造无状态依赖；execute() 可并发调用（每次独立子进程）。
     policy 仅用于 symlink 解析后对真实路径重跑保护路径校验（与 evaluate 同一份配置）。

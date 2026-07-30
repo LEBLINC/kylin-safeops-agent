@@ -140,7 +140,7 @@ async def sse_stream(bus: EventBus, trace_id: str) -> AsyncIterator[str]:
     已知限制:
         - 当前无 Last-Event-ID 事件回放，SSE 断线重连不能续传中间事件。
         - 单消费者约束：同一 trace 若开多条 SSE 会瓜分事件（queue.get 互斥消费）。
-        重连续传方案待 L 决策（X 的 Q-X3 需求）。
+        重连续传方案待定（前端 Q-X3 需求）。
     """
     queue = bus.get(trace_id)
     if queue is None:

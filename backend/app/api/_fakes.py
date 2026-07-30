@@ -5,14 +5,14 @@
 ═══════════════════════════════════════════════════════════════════
 注入点替换清单（接线状态留痕）
 ═══════════════════════════════════════════════════════════════════
-三个协作者件，真实现均归 D（C3 越界红线：L 侧不实现 evaluate/execute/append）：
+三个协作者件，真实现均归安全/执行/审计层（C3 越界红线：本层不实现 evaluate/execute/append）：
 
   ① PolicyEngine（策略裁决）✅ 已切真
-     现状：build_gateway() 已注入 D 的真 PolicyEngine(DEFAULT_POLICY, registry)。
+     现状：build_gateway() 已注入真策略引擎(DEFAULT_POLICY, registry)。
      桩 FakePolicyEngine 保留供测试按需注入 allow-all 场景。
 
   ② Executor（特权代理执行）✅ 已切真
-     现状：build_gateway() 已注入 D 的真 PrivilegeExecutor（无参构造）。
+     现状：build_gateway() 已注入真 PrivilegeExecutor（无参构造）。
      桩 FakeExecutor 保留供测试按需注入（dependency_overrides）成功罐头场景。
 
   ③ AuditSink（哈希链审计落库）✅ 已切真
@@ -51,8 +51,8 @@ logger = logging.getLogger(__name__)
 #: 沙箱启用 env 开关名（值为 "1" 且平台非 Windows 才生效；默认关）。
 _SANDBOX_ENV = "KYLIN_SANDBOX_ENABLED"
 
-#: app 注册集中暂缓注册的工具（L 域 registry 装配过滤，不碰 os_ops 工具声明本身）。
-#: config.diff 已由 L 在 mcp 层聚合接回（决策⑤，见 backend/app/mcp/config_diff.py +
+#: app 注册集中暂缓注册的工具（registry 装配过滤，不碰 os_ops 工具声明本身）。
+#: config.diff 已在 mcp 层聚合接回（决策⑤，见 backend/app/mcp/config_diff.py +
 #: gateway._aggregate_config_diff）——故不再在此摘除，registry/`/api/tools/registry` 重新含它。
 #: 本集合保留为空 + 过滤机制（future-proof：若再有"无单命令模板需 mcp 层特判"的工具可在此暂缓）。
 _DEFERRED_TOOLS: set[str] = set()
@@ -61,7 +61,7 @@ _DEFERRED_TOOLS: set[str] = set()
 class FakePolicyEngine:
     """注入桩：永远 allow。
 
-    注：默认 app 装配已切换为 D 的真 PolicyEngine（见 build_gateway）；
+    注：默认 app 装配已切换为真策略引擎（见 build_gateway）；
     本桩保留供测试按需注入（dependency_overrides）构造 allow-all 场景。
     """
 
@@ -105,14 +105,14 @@ def build_gateway() -> MCPGateway:
 
     现状（全真，config.diff 经 mcp 层聚合接回）：
     - registry：真 os_ops 工具集 all_specs()（_DEFERRED_TOOLS 现为空，全量注册含 config.diff）。
-    - policy：D 的真 PolicyEngine(DEFAULT_POLICY, registry)——同一 registry 实例防漂移。
-    - executor：D 的真 PrivilegeExecutor，sandbox_enabled 按平台 + env 接通（见下）。
+    - policy：真策略引擎(DEFAULT_POLICY, registry)——同一 registry 实例防漂移。
+    - executor：真 PrivilegeExecutor，sandbox_enabled 按平台 + env 接通（见下）。
 
     沙箱启用（L 仅接"开关"，不碰 executor/sandbox 实现）：
     - sandbox_enabled = (非 Windows) 且 env KYLIN_SANDBOX_ENABLED=="1"；
     - **默认关**（未设 env 或 Windows → False → 零行为改变、现有测试零回归）；
     - 仅 Linux + 显式 KYLIN_SANDBOX_ENABLED=1 才开（麒麟部署由 systemd unit/env 设），
-      开时命令经 wrapper 跑 systemd 瞬态 service（D 的实现）。
+      开时命令经 wrapper 跑 systemd 瞬态 service（执行层实现）。
 
     切真后运行中的 app 会经特权代理跑真命令（方案B：失败用 exit_code 承载，仅系统级故障 raise）。
     LLM/审计经各自 provider（get_llm/get_audit）注入，不在本装配点。

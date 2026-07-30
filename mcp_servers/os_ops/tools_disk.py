@@ -1,6 +1,6 @@
 """磁盘感知工具的 ToolSpec（D6）。
 
-只读采集；命令执行由 D 的 Executor 经命令模板白名单完成（本模块不跑命令）。
+只读采集；命令执行由特权执行器经命令模板白名单完成（本模块不跑命令）。
 解析见 parsers.parse_df_output / parse_find_size_output。
 路径参数交 schema_validator 兜底（绝对路径 + 禁 ..）。
 """

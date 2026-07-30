@@ -1,6 +1,6 @@
 """之六十八 Task 1: orchestrator 驱动 RCA 场景模板采证(按 X 接口消费).
 
-X 的 mcp_servers/rca/ 已交付 DefaultRCAEngine 含 get_scenario_plan(problem_type)
+RCA 引擎 mcp_servers/rca/ 已交付 DefaultRCAEngine 含 get_scenario_plan(problem_type)
 返回场景模板(RcaScenarioPlan dict,含 evidence_steps 列表,每步描述 tool/args/
 purpose/required/expected_signal).本模块提供 collect_rca_evidence: 在 RCA 阶段
 按场景模板跑 evidence_steps,每个 step 经 gateway.call() 收集 ToolResult.
@@ -33,7 +33,7 @@ log = logging.getLogger(__name__)
 def _infer_problem_type_from_intent(user_intent: str) -> str | None:
     """从 user_intent 文本推断 problem_type(简易关键词匹配,精确优先级:显式参数 > 关键词).
 
-    与 X 的 mcp_servers/rca/models.normalize_problem_type 同口径别名表（disk/disk_usage/
+    与 mcp_servers/rca/models.normalize_problem_type 同口径别名表（disk/disk_usage/
     disk_full → disk_full; zombie/process_zombie → zombie_process; io/iowait → io_high;
     config/drift → config_drift; service/service_failure → service_failure）.
     """

@@ -1,4 +1,4 @@
-"""真 LLM 客户端（L 域，阶段 5 核心）。
+"""真 LLM 客户端（阶段 5 核心）。
 
 提供两种模式（默认 = 不联网测试桩，CI 友好），**由 `KYLIN_LLM_PROVIDER` env 切换**：
 
@@ -7,7 +7,7 @@
   包含**间接注入（日志投毒）**模式——验"真 LLM 被投毒也被地板拦死"。
 - `KYLIN_LLM_PROVIDER=real`：**真端点**。
   env 注入 base_url / api_key / model，调真 OpenAI 兼容 /chat/completions。
-  生产化由 L 域后续接 SSO/LDAP 后做。
+  生产化由后续接 SSO/LDAP 后做。
 
 > 历史口径 `KYLIN_LLM_TEST_FIXTURE`（true/false）只是 docstring 残留，**不是实际开关**——
 > 实际开关是 `KYLIN_LLM_PROVIDER`（fixture/real）。本文件已统一为 `KYLIN_LLM_PROVIDER`。

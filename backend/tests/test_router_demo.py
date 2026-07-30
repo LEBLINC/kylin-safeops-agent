@@ -1,4 +1,4 @@
-"""L 域 /api/demo/* 3 用例（commit 4 增量）。
+"""/api/demo/* 3 用例（commit 4 增量）。
 
 覆盖：
 1. POST /api/demo/{scenario}/prepare → admin 调 A 场景返 ready=True

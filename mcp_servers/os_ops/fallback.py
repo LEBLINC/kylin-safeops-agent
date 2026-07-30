@@ -5,7 +5,7 @@
 约定 / 占位：
 - 本模块只做【声明】（哪个工具可用哪些命令、何顺序）+ 解析侧兼容（parsers 能解析
   各候选命令的输出，见 parse_listening_ports 自动检测 ss/netstat）。
-- TODO(BLOCKED-ON-D): "探测命令是否存在并选择实际命令"属执行期行为，归 D 的 Executor
+- TODO(BLOCKED-ON-EXECUTOR): "探测命令是否存在并选择实际命令"属执行期行为，归特权执行器
   （如 `command -v ss || command -v netstat`）。Executor 据本声明决定实际运行哪个命令。
 - 解析器对各候选输出格式均兼容；命令全缺失/空输出时解析器返回空结构，不崩。
 """

@@ -1,7 +1,7 @@
 """Kylin SafeOps Agent - RCA playbook 包。
 
-本包归 X（xizi-9527）负责，放在 ``mcp_servers/rca/``，不触碰
-``backend/app/contracts/`` 和 L/D 的后端内核。
+本包为 RCA 引擎，放在 ``mcp_servers/rca/``，不触碰
+``backend/app/contracts/`` 和后端内核。
 
 本版严格对齐文档中的五个 RCA 场景：
 - disk_full：磁盘满 / 大日志；

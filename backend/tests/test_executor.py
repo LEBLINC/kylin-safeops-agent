@@ -1,4 +1,4 @@
-"""Executor 首版测试（D）。
+"""Executor 首版测试。
 
 Windows 上无法真跑 Linux 命令，用 mock 验证：
 - 模板白名单拦截
@@ -587,7 +587,7 @@ def test_e2e_policy_deny_before_executor() -> None:
     验证命题：'LLM 建议访问 /etc/shadow → PolicyEngine deny → Executor 不被调用'。
     当前在策略层验证 evaluate 返回 deny；Executor 执行层验证通过 calls==[] 侧证。
 
-    NOTE(D-1d-UPGRADE): PR2 合入 L 接线后，此测试需追加：
+    NOTE(D-1d-UPGRADE): PR2 合入并完成接线后，此测试需追加：
       - FakeExecutor 换真 PrivilegeExecutor，确认危险命令未被真实执行
       - 真实 ToolResult.exit_code != 0，stdout 经结果闸密封
     """

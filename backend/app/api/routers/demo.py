@@ -1,4 +1,4 @@
-"""L 域 /api/demo/* 3 接口（commit 4 增量）。
+"""/api/demo/* 3 接口（commit 4 增量）。
 
 覆盖：prepare / run / cleanup。
 认证：admin-only（决策⑨ mode-aware + RBAC 二次校验）。

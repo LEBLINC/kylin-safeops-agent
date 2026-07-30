@@ -1,4 +1,4 @@
-"""SqliteAuditSink（D）：哈希链审计落库 + verify_chain 链校验。
+"""SqliteAuditSink：哈希链审计落库 + verify_chain 链校验。
 
 铁律：
 - S7：append 不重算 hash——orchestrator 已用 compute_curr_hash 构造好 AuditRecord，

@@ -1,4 +1,4 @@
-"""L 域 /api/policy/* 3 用例（commit 3 增量）。
+"""/api/policy/* 3 用例（commit 3 增量）。
 
 覆盖：
 1. GET /api/policy/rules → DEFAULT_POLICY 非空（CMD001 等规则）

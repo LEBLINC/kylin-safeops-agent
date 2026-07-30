@@ -1,4 +1,4 @@
-"""L 域修复工单：v2 签名收尾 2 bug 守门（D 反馈 P1 实证抓到）。
+"""后端修复工单：v2 签名收尾 2 bug 守门（P1 实证抓到）。
 
 Bug1（routers/auth.py::whoami）：proxy 模式下 whoami 只传 4 个 v1 字段调
 verify_proxy_identity，_canonical 走 v1(3 字段)分支，与反代签的 v2(7 字段)串
