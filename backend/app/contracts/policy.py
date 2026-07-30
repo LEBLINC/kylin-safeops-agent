@@ -1,7 +1,7 @@
 """契约 3：策略裁决（手册 §1.3）。
 
-策略引擎(D)产出 / orchestrator 消费 / 前端(X)渲染。
-本文件含 PolicyEngine 最小桩：仅为让 orchestrator 能空跑，不写实现（实现归 D）。
+策略引擎产出 / orchestrator 消费 / 前端渲染。
+本文件含 PolicyEngine 最小桩：仅为让 orchestrator 能空跑，不写实现（实现归 backend/app/security）。
 三态决策：allow / deny / confirm（shield 的 warn 归并入 allow）。
 """
 
@@ -37,8 +37,8 @@ class PolicyVerdict(BaseModel):
 class PolicyEngine(Protocol):
     """策略引擎接口（桩）。
 
-    实现由 D 在 backend/app/security 提供；此处仅定义契约，
-    使 orchestrator 可依赖注入并空跑。L 不实现本接口。
+    实现在 backend/app/security；此处仅定义契约，
+    使 orchestrator 可依赖注入并空跑。契约层不实现本接口。
     """
 
     def evaluate(self, tool: CandidateTool) -> PolicyVerdict:

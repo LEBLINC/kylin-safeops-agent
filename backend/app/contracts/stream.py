@@ -1,6 +1,6 @@
 """契约 6：前端事件流 WS/SSE（手册 §1.3）。
 
-orchestrator 推送 / 前端(X)订阅。
+orchestrator 推送 / 前端订阅。
 data 字段按 type 对应固定 schema；各 type 的 data 约定见下方注释，
 后续随状态机细化在此补全（改动须走 contract: 单独 commit）。
 """

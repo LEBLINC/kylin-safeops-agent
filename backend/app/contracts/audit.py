@@ -1,6 +1,6 @@
 """契约 5：审计记录 + 哈希链（手册 §1.3）。
 
-orchestrator 在每个状态转移点产出 / D 的 audit_logger 落库。
+orchestrator 在每个状态转移点产出 / audit_logger 落库。
 
 哈希链定义：H_i = SHA256(H_{i-1} || D_i)
 其中 D_i 为第 i 条记录 payload 的规范化 JSON，H_{i-1} 为前一条链值；

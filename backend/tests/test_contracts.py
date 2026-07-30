@@ -114,3 +114,40 @@ def test_stream_event_rejects_bad_type() -> None:
     StreamEvent(trace_id="t1", type="intent_parsed", ts=1.0, data={})
     with pytest.raises(ValidationError):
         StreamEvent(trace_id="t1", type="bogus", ts=1.0)  # type: ignore[arg-type]
+
+
+def test_contract_value_domains_frozen() -> None:
+    """6 份契约的值域冻结守门（之七十五 H-6 contracts 窄例外的防回归闸）。
+
+    H-6 曾获授权改 contracts/ 的 docstring 散文（去协作者代号）。授权边界是
+    "只改散文、契约语义零变更"——本用例把该边界钉成可执行断言：任何一次改动
+    只要碰到值域/常量/hash 口径就会红。
+
+    GENESIS_HASH 与 compute_curr_hash 的期望值是**字节级**写死的：S3 哈希链
+    一旦口径漂移，已落库的历史审计链会整条失效且无法追溯，故此处不容许"重算
+    期望值让测试变绿"——期望值变了就是事故。
+    """
+    from typing import get_args
+
+    from backend.app.contracts.policy import Decision
+    from backend.app.contracts.stream import EventType
+    from backend.app.contracts.tool import RiskLevel
+
+    # 契约6 EventType：13 值（新增终态信号须复用既有 error，不得扩这个枚举）
+    assert len(get_args(EventType)) == 13
+
+    # 契约3 Decision：三态，不多不少（shield 的 warn 归并入 allow）
+    assert sorted(get_args(Decision)) == ["allow", "confirm", "deny"]
+
+    # 契约1 RiskLevel：R0-R4
+    assert sorted(get_args(RiskLevel)) == ["R0", "R1", "R2", "R3", "R4"]
+
+    # 契约5 哈希链口径：创世值 + 复算结果均字节级冻结
+    assert GENESIS_HASH == "0" * 64
+    assert (
+        compute_curr_hash(GENESIS_HASH, {"a": 1})
+        == "fc6cee09194dd2578bd7664604fcb72a539066fd34544cea0009c43eb6cdc289"
+    )
+
+    # 契约4 不可信定界符
+    assert UNTRUSTED_WRAP_TOKEN == "<<UNTRUSTED_TOOL_OUTPUT>>"
