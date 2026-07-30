@@ -136,7 +136,12 @@ async def proxy_route(request: Request, path: str):
         }
     )
     is_sse = "text/event-stream" in request.headers.get("accept", "")
-    async with httpx.AsyncClient(timeout=None) as client:
+    # 之七十五 H-9：client 不能用 async with——StreamingResponse 的 body 是在本函数
+    # return 之后才被 ASGI 层消费的，async with 会在 return 时就关掉 client，
+    # 流还没读完连接就断。改为手工持有，由 BackgroundTask 在响应发完后依次
+    # aclose(resp) → aclose(client)（顺序不能颠倒：先关 client 会掐断 resp 的流）。
+    client = httpx.AsyncClient(timeout=None)
+    try:
         req = client.build_request(
             request.method,
             f"{UPSTREAM}/{path}",
@@ -145,17 +150,27 @@ async def proxy_route(request: Request, path: str):
             params=dict(request.query_params),
         )
         resp = await client.send(req, stream=True)
-        if is_sse:
-            return StreamingResponse(
-                _sse_heartbeat(resp.aiter_bytes()),
-                media_type="text/event-stream",
-                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-                background=BackgroundTask(resp.aclose),
-            )
-        body_bytes = b"".join([chunk async for chunk in resp.aiter_bytes()])
+    except BaseException:
+        await client.aclose()
+        raise
+
+    async def _release() -> None:
         await resp.aclose()
+        await client.aclose()
+
+    if is_sse:
         return StreamingResponse(
-            iter([body_bytes]),
-            status_code=resp.status_code,
-            media_type=resp.headers.get("content-type", "application/json"),
+            _sse_heartbeat(resp.aiter_bytes()),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            background=BackgroundTask(_release),
         )
+    # H-9：非 SSE 也流式透传，不再 b"".join 整体缓冲。
+    # 原实现把整个响应读进内存才回发，大响应（审计导出、工具调用列表）内存翻倍
+    # 且首字节延迟 == 上游总耗时；透传后内存恒定、首字节即到即发。
+    return StreamingResponse(
+        resp.aiter_bytes(),
+        status_code=resp.status_code,
+        media_type=resp.headers.get("content-type", "application/json"),
+        background=BackgroundTask(_release),
+    )
