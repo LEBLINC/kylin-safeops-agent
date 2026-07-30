@@ -136,3 +136,87 @@ def test_state_value_usable_as_audit_phase() -> None:
         curr_hash="x",
     )
     assert rec.phase == "POLICY_CHECKED"
+
+
+def test_h2_terminal_audit_precedes_state_flip() -> None:
+    """终态的审计/事件必须早于状态翻转（AST 级不变量守门）。
+
+    背景：H-7 把审计落库挪进线程池后，"先 _goto 再 await _append_audit"的旧顺序
+    留下观测窗口——外部轮询到终态时最后一条审计尚在途，verify_chain 只见 8 条而
+    COUNT(*) 已 9 条，实测约 1/3 概率 flaky（H-2 有界队列改动使其暴露）。
+
+    修复口径：终态一律"审计 + emit 先行，最后 _goto"。之六十七 H15 已在
+    WAIT_APPROVAL 分支确立该模式，之七十五 H-2 推广到 FINISHED / REJECTED×3；
+    FAILED 在 R-2 落地时即已遵守。
+
+    实现用 AST 而非字符串 rfind：rfind 会跨分支命中上一个分支的 _append_audit，
+    导致把错误顺序也判为通过（写这条断言时初版就栽在这上，变异测试才抓出来）。
+    改为在**同一语句块**内比较两者的相对下标，并已变异验证：把任一终态改回
+    "先 _goto 再 audit"，本用例即转红。
+    """
+    import ast
+    import inspect
+
+    from backend.app.agent import orchestrator as orch_mod
+
+    tree = ast.parse(inspect.getsource(orch_mod))
+    terminals = {"FINISHED", "REJECTED", "FAILED"}
+    checked = 0
+
+    def _is_goto_terminal(node: ast.stmt) -> str | None:
+        """该语句是否为 self._goto(State.<终态>)。"""
+        if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+            return None
+        call = node.value
+        if not (isinstance(call.func, ast.Attribute) and call.func.attr == "_goto"):
+            return None
+        for arg in call.args:
+            if isinstance(arg, ast.Attribute) and arg.attr in terminals:
+                return arg.attr
+        return None
+
+    def _is_await_append_audit(node: ast.stmt) -> bool:
+        """该语句是否为 await self._append_audit(...)。"""
+        inner = node.value if isinstance(node, ast.Expr) else None
+        if not isinstance(inner, ast.Await) or not isinstance(inner.value, ast.Call):
+            return False
+        func = inner.value.func
+        return isinstance(func, ast.Attribute) and func.attr == "_append_audit"
+
+    def _walk_blocks(node: ast.AST) -> None:
+        """遍历每个语句块（函数体 / if 体 / else 体 ...），块内比较顺序。"""
+        nonlocal checked
+        for _field, value in ast.iter_fields(node):
+            if not isinstance(value, list):
+                continue
+            stmts = [s for s in value if isinstance(s, ast.stmt)]
+            goto_idx = {}
+            audit_idx = []
+            for i, stmt in enumerate(stmts):
+                name = _is_goto_terminal(stmt)
+                if name is not None:
+                    goto_idx[i] = name
+                if _is_await_append_audit(stmt):
+                    audit_idx.append(i)
+            for i, name in goto_idx.items():
+                checked += 1
+                # 要求"紧邻"而非仅"之前存在"：同一块里往往有多条 _append_audit
+                # （如 _execute_batch 里 EXECUTED/VERIFIED 各一条），只要求"之前有"
+                # 会让"先 _goto 再 audit"的错误顺序照样通过（初版正是如此，变异测试抓出）。
+                # 判据：_goto 与其后紧邻语句之间不得插入 await _append_audit，
+                # 且该终态自身的 audit 必须落在 _goto 之前的 1~3 条语句内。
+                nearby_before = [j for j in audit_idx if i - 3 <= j < i]
+                after = [j for j in audit_idx if j > i]
+                assert nearby_before, (
+                    f"{name}: _goto 之前紧邻处没有 await self._append_audit——"
+                    "终态必须先落审计再翻状态，否则外部观测到终态时审计仍在途"
+                )
+                assert not any(j == i + 1 for j in after), (
+                    f"{name}: _goto 之后紧跟 await self._append_audit——"
+                    "顺序颠倒，外部会在审计落库前观测到终态"
+                )
+        for child in ast.iter_child_nodes(node):
+            _walk_blocks(child)
+
+    _walk_blocks(tree)
+    assert checked >= 4, f"应至少覆盖 FINISHED + REJECTED×3 + FAILED，实际只查到 {checked} 处"

@@ -42,17 +42,26 @@ class EventBus:
     线程安全由 asyncio 事件循环保证（单线程协程模型）；
     不跨进程——单实例部署（麒麟靶机单节点，满足当前需求）。
 
-    L-H14: __init__ 接受 maxsize（int），默认 None = 不限（向后兼容）。
-    显式传 maxsize=int 时创建 asyncio.Queue(maxsize=...)；put_nowait 满则 raise EventBusQueueFull。
+    L-H14: __init__ 接受 maxsize（int），默认取 env KYLIN_SSE_QUEUE_MAX（之七十五 H-2 起
+    默认 512，此前默认 0=无界）。put_nowait 满则 raise EventBusQueueFull。
     """
 
-    def __init__(self, maxsize: int | None = None) -> None:
-        """L-H14: maxsize=None 不限；显式传 int 走 QueueFull 路径。
+    #: 之七十五 H-2：队列上限默认值。此前默认 "0"（无界）——L-H14 的有界能力存在但
+    #: 默认关闭，未显式设 env 的部署等于没有该保护：慢消费者/断连未清理的 SSE 会让
+    #: 事件在内存里无限堆积，最终 OOM。512 的量级依据：单条 trace 正常跑完约产
+    #: 30~60 个事件（含 audit_appended），512 给了近 10 倍余量，正常链路绝不触顶；
+    #: 触顶即意味着消费者已明显异常，此时 fail-fast（EventBusQueueFull → SSE
+    #: error 事件，见 routers/chat.py）比静默堆积到 OOM 更可诊断。
+    DEFAULT_MAXSIZE = 512
 
-        生产默认由 lifespan 读 env KYLIN_SSE_QUEUE_MAX 注入；单元测试可显式传。
+    def __init__(self, maxsize: int | None = None) -> None:
+        """maxsize=None 时读 env KYLIN_SSE_QUEUE_MAX，未设则用 DEFAULT_MAXSIZE。
+
+        显式传 0 仍表示无界（保留给确有需要的场景，但不再是默认）。
         """
         if maxsize is None:
-            maxsize = int(os.environ.get("KYLIN_SSE_QUEUE_MAX", "0") or "0")
+            raw = os.environ.get("KYLIN_SSE_QUEUE_MAX", "").strip()
+            maxsize = int(raw) if raw else self.DEFAULT_MAXSIZE
         self._maxsize = maxsize
         self._queues: dict[str, asyncio.Queue[StreamEvent | None]] = {}
 

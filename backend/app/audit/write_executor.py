@@ -74,6 +74,11 @@ async def submit_append(sink: _Appendable, record: AuditRecord) -> None:
 
     同步回退不是降级容错，而是显式设计：非 lifespan 环境（单测、脚本）下
     没有谁负责 join 线程池，此时同步落库才是安全的。
+
+    **顺序保证**：max_workers=1 且此处 await 到写入完成才返回，故调用方
+    看到 submit_append 返回即意味着该条已落库——审计链的"写后可读"不变量
+    与同步版一致（这是 H-7 不能用 fire-and-forget 的原因：状态机推进到
+    FINISHED 时，最后一条审计必须已经可查，否则 verify_chain 会漏记录）。
     """
     ex = _executor
     if ex is None:

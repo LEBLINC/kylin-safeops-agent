@@ -207,19 +207,22 @@ class Orchestrator:
         finding = detect_injection(user_intent)
         if finding is not None and finding.severity == "high":
             # high → 输入闸 deny：拦在 LLM plan 之前，转 REJECTED 终态（原文入审计）。
-            self._goto(State.REJECTED)
+            # 顺序同 FINISHED/WAIT_APPROVAL：先审计 + emit，最后翻状态——外部轮询
+            # 到终态时，该终态的审计与事件必已就位（见 _execute_batch 末尾注释）。
             await self._append_audit(
                 {
                     "input_gate": "deny",
                     "category": finding.category,
                     "pattern_id": finding.pattern_id,
                     "user_intent": user_intent,
-                }
+                },
+                phase=State.REJECTED.value,
             )
             self._emit(
                 "rejected",
                 {"reason": finding.reason, "cause": "injection", "denied_tools": []},
             )
+            self._goto(State.REJECTED)
             return self.state
         if finding is not None and finding.severity == "medium":
             # medium → 仅标记审计，继续正常流程（不拦、不改裁决）。
@@ -386,9 +389,10 @@ class Orchestrator:
         """
         if batch_verdict.decision == "deny":
             denied = [t.name for t, v in per_tool if v.decision == "deny"]
-            self._goto(State.REJECTED)
+            # 顺序同其它终态：审计 + emit 先行，最后翻状态（消除观测窗口）。
             await self._append_audit(
-                {"decision": "deny", "approval_required": False, "denied_tools": denied}
+                {"decision": "deny", "approval_required": False, "denied_tools": denied},
+                phase=State.REJECTED.value,
             )
             # L-6 方案B：REJECTED 终态显式结论事件（策略 deny），让前端/任意消费者收尾。
             self._emit(
@@ -399,6 +403,7 @@ class Orchestrator:
                     "denied_tools": denied,
                 },
             )
+            self._goto(State.REJECTED)
             return self.state
 
         # 非 deny：批次内不含 deny 工具，执行集 = 全部候选工具
@@ -438,8 +443,11 @@ class Orchestrator:
         if self.state is not State.WAIT_APPROVAL:
             raise RuntimeError(f"resume only valid in WAIT_APPROVAL, got {self.state.value}")
         if not approved:
-            self._goto(State.REJECTED)
-            await self._append_audit({"decision": "deny", "approval_required": True})
+            # 顺序同其它终态：审计 + emit 先行，最后翻状态（消除观测窗口）。
+            await self._append_audit(
+                {"decision": "deny", "approval_required": True},
+                phase=State.REJECTED.value,
+            )
             # L-6 方案B：REJECTED 终态显式结论事件（用户拒批）。
             self._emit(
                 "rejected",
@@ -449,6 +457,7 @@ class Orchestrator:
                     "denied_tools": [],
                 },
             )
+            self._goto(State.REJECTED)
             return self.state
         return await self._execute_batch(approved=True)
 
@@ -567,8 +576,16 @@ class Orchestrator:
                 rca_payload["llm_summary"] = llm_summary
             self._emit("rca", rca_payload)
 
+        # 之七十五 H-2/H-7：审计先落库、最后才翻 FINISHED——与之六十七 H15 在 confirm
+        # 分支确立的顺序一致。原顺序（先 _goto 再 await）留下观测窗口：外部轮询到
+        # state==FINISHED 时最后一条审计尚在途，此刻 verify_chain 只见 8 条而
+        # COUNT(*) 已是 9 条（H-7 把落库挪进线程池后该窗口被放大成 ~1/3 概率 flaky）。
+        # phase 显式钉 FINISHED，保留原审计语义（此时 self.state 仍是 VERIFIED）。
+        await self._append_audit(
+            {"verify_result": "ok" if all_ok else "non_zero"},
+            phase=State.FINISHED.value,
+        )
         self._goto(State.FINISHED)
-        await self._append_audit({"verify_result": "ok" if all_ok else "non_zero"})
         return self.state
 
     async def _fail(self, *, cause: str, message: str, tool_name: str) -> None:
