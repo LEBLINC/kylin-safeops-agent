@@ -25,9 +25,26 @@ STRIP_HEADERS = {
 }
 
 
+#: 占位密钥前缀（与 backend/app/api/auth.py 同口径）。install.sh 写 env 骨架时的
+#: `CHANGE_ME_...` 是仓库内公开字符串——反代若用它签名，任何人都能伪造出 app 端
+#: 验签通过的身份头。故视同未配置，与"未设 env"同样 fail-fast。
+_PLACEHOLDER_PREFIX = "CHANGE_ME"
+
+
 def get_secret() -> str:
-    """每次读 env（不模块级 capture），避免 monkeypatch 在测试里失效。"""
-    return os.environ["KYLIN_PROXY_AUTH_SECRET"]
+    """每次读 env（不模块级 capture），避免 monkeypatch 在测试里失效。
+
+    未配置或仍为占位值 → KeyError/RuntimeError，让反代**起不来**而不是用公开
+    常量对外签名（起不来是可见故障，裸奔签名是静默的认证失效）。
+    """
+    secret = os.environ["KYLIN_PROXY_AUTH_SECRET"]
+    if secret.strip().startswith(_PLACEHOLDER_PREFIX):
+        raise RuntimeError(
+            "KYLIN_PROXY_AUTH_SECRET 仍为占位值（CHANGE_ME...）：该串是仓库内公开常量，"
+            "用它签名等于任何人都能伪造身份。请用 `openssl rand -hex 32` 生成真值后填入 "
+            "/etc/kylin/proxy.env，并与 app 侧 /etc/kylin-safeops/agent.env 保持一致。"
+        )
+    return secret
 
 
 def sign(

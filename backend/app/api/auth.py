@@ -45,10 +45,29 @@ class Principal:
     roles: frozenset[str]
 
 
+#: 占位密钥前缀。install.sh 写入 env 骨架时用 `CHANGE_ME_...` 作占位，等运维填真值。
+#: 该常量是**仓库内公开字符串**——若被当作真密钥接受，任何拿到本仓库的人都能伪造
+#: 合法签名身份（HMAC 全链路验签通过），认证等于没有。故一律视同"未配置"。
+_PLACEHOLDER_PREFIX = "CHANGE_ME"
+
+
 def _get_secret() -> str | None:
-    """读取共享密钥（每次读，便于测试 monkeypatch env）；未配置返回 None。"""
+    """读取共享密钥（每次读，便于测试 monkeypatch env）；未配置或仍为占位值返回 None。
+
+    返回 None 后由既有 fail-closed 路径接管（proxy 模式拒绝一切请求）——
+    这正是"忘填密钥"应有的表现：起不来好过用公开常量裸奔。
+    """
     secret = os.environ.get(_SECRET_ENV)
-    return secret or None
+    if not secret:
+        return None
+    if secret.strip().startswith(_PLACEHOLDER_PREFIX):
+        logger.error(
+            "KYLIN_PROXY_AUTH_SECRET 仍为占位值（CHANGE_ME...），视同未配置。"
+            "该占位串是仓库内公开常量，接受它等于任何人都能伪造签名身份；"
+            "请用 `openssl rand -hex 32` 生成真值后填入 env 文件。"
+        )
+        return None
+    return secret
 
 
 class NonceStore(Protocol):

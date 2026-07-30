@@ -9,6 +9,9 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # 之七十五 R-3：app 单元收敛为 deploy/app/kylin-safeops-agent.service（完整版）。
 SERVICE_NAME="kylin-safeops-agent"
 INSTALL_DIR="/opt/kylin-safeops"
+# 与 deploy/nginx.conf 的 `root /var/www/kylin-safeops;` 保持一致——此前脚本既不建
+# 该目录也不提它，nginx 配好了也只会 404。
+WEB_ROOT="/var/www/kylin-safeops"
 VENV_DIR="${INSTALL_DIR}/.venv"
 PYTHON_BIN="python3.11"
 
@@ -56,8 +59,16 @@ run sudo chown "$(whoami):$(whoami)" "${INSTALL_DIR}"
 echo "[3/6] 部署后端"
 run cp -r "${PROJECT_DIR}/backend" "${INSTALL_DIR}/"
 run cp -r "${PROJECT_DIR}/mcp_servers" "${INSTALL_DIR}/"
-run cp -r "${PROJECT_DIR}/deploy/proxy" "${INSTALL_DIR}/deploy_proxy"
-run cp -r "${PROJECT_DIR}/deploy/sso" "${INSTALL_DIR}/deploy_sso"
+# 目录名必须是 deploy/proxy 与 deploy/sso（不是 deploy_proxy/deploy_sso）：
+# sidecar 单元的 ExecStart 是 `uvicorn deploy.proxy.proxy:app`，proxy.py 内部又
+# `from deploy.proxy._sign import ...` / `from deploy.sso.ldap_client import ...`，
+# 三者必须同名。下划线目录名无法被 `deploy.proxy` 这个点分模块路径找到，
+# 结果是 sidecar 起不来（ModuleNotFoundError: No module named 'deploy'），
+# 而 app 只绑 127.0.0.1 无旁路 → nginx 443→8080 全 502，产品对外完全不可用。
+# deploy/ 下无需 __init__.py：PEP 420 命名空间包即可被 import。
+run mkdir -p "${INSTALL_DIR}/deploy"
+run cp -r "${PROJECT_DIR}/deploy/proxy" "${INSTALL_DIR}/deploy/"
+run cp -r "${PROJECT_DIR}/deploy/sso" "${INSTALL_DIR}/deploy/"
 run cp "${PROJECT_DIR}/pyproject.toml" "${INSTALL_DIR}/"
 
 # [需人工复核] 创建虚拟环境并安装依赖
@@ -148,15 +159,33 @@ run sudo systemctl daemon-reload
 run sudo systemctl enable "${SERVICE_NAME}"
 run sudo systemctl enable kylin-proxy
 
-# 前端构建说明
-echo "[6/6] 前端部署 (手动)"
-echo "  前端为静态文件，构建后由 Nginx 直接服务。步骤："
-echo "  1. cd ${PROJECT_DIR}/frontend && npm ci && npm run build"
-echo "  2. 将 dist/ 目录复制到 Nginx 静态文件路径"
-echo "  3. 配置 Nginx（参考 deploy/nginx.conf，443/TLS → proxy sidecar:8080 → app:8000）"
-echo "  4. 编辑 /etc/kylin/proxy.env 填真实密钥/LDAP 配置（占位值不可用于生产）"
-echo "  5. 编辑 /etc/kylin-safeops/agent.env 填 KYLIN_PROXY_AUTH_SECRET 真值"
-echo "     （须与 /etc/kylin/proxy.env 的同名密钥完全一致，否则签名校验必失败）"
+# 前端静态文件部署
+# 铁律：前端在 x86 侧预构建，**绝不在 LoongArch 目标机跑 npm build**
+# （见 README 开发约定第 5 条与部署文档）。故此处只做拷贝，不调 npm。
+echo "[6/6] 部署前端静态文件"
+if [[ -d "${PROJECT_DIR}/frontend/dist" ]]; then
+  run sudo install -d -m 0755 "${WEB_ROOT}"
+  run sudo cp -r "${PROJECT_DIR}/frontend/dist/." "${WEB_ROOT}/"
+  echo "  [OK] 已部署到 ${WEB_ROOT}（与 deploy/nginx.conf 的 root 一致）"
+else
+  echo "  [WARN] 未找到 ${PROJECT_DIR}/frontend/dist"
+  echo "         前端须在 x86 构建机执行 npm ci && npm run build 后，将 frontend/dist"
+  echo "         随安装包一并带到目标机，再重跑本脚本（或手工拷贝到 ${WEB_ROOT}）。"
+fi
+
+echo ""
+echo "=== 部署后人工步骤（脚本不代劳）==="
+echo "1. Nginx 主配置：把 deploy/nginx-http-snippet.conf 放进 /etc/nginx/conf.d/"
+echo "   （或将其两行粘进 nginx.conf 的 http{} 块）——它声明 limit_req_zone kylin_api"
+echo "   与 server_names_hash_bucket_size 64；缺任一都会让 nginx -t 失败、拒绝启动："
+echo "     limit_req_zone \$binary_remote_addr zone=kylin_api:10m rate=20r/s;"
+echo "     server_names_hash_bucket_size 64;"
+echo "2. Nginx 站点配置：参考 deploy/nginx.conf（443/TLS → sidecar:8080 → app:8000），"
+echo "   替换 YOUR_DOMAIN 与证书路径后 nginx -t && systemctl reload nginx"
+echo "3. 编辑 /etc/kylin/proxy.env 填真实密钥/LDAP 配置（占位值 CHANGE_ME 会被拒绝启动）"
+echo "4. 编辑 /etc/kylin-safeops/agent.env 填 KYLIN_PROXY_AUTH_SECRET 真值"
+echo "   （须与 /etc/kylin/proxy.env 的同名密钥完全一致，否则签名校验必失败）"
+echo "5. 沙箱 wrapper 与 sudoers：见 deploy/sandbox/ 与 deploy/sudoers.example"
 
 echo "=== 部署完成 ==="
 echo "启动服务: sudo systemctl start ${SERVICE_NAME} kylin-proxy"

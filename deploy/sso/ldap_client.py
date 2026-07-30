@@ -161,7 +161,11 @@ class LdapClient:
         if not self.mock:
             for k in _REQUIRED_REAL_ENV:
                 v = os.environ.get(k, "").strip()
-                if not v:
+                # 占位值（install.sh 写的 CHANGE_ME...）与"未设"同等对待：
+                # 带着占位串去 bind 只会连到不存在的主机 / 用错口令，报错形态还
+                # 五花八门；判为"未配置"能直接走既有的 LDAP 不可用软降级分支，
+                # 故障表现清晰。与 auth.py / _sign.py 的占位处置同口径。
+                if not v or v.startswith("CHANGE_ME"):
                     self._real_cfg = {}  # 标记为未配置
                     break
                 self._real_cfg[k] = v
