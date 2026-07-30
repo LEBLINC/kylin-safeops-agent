@@ -16,8 +16,11 @@ WorkingDirectory=/opt/kylin-safeops
 EnvironmentFile=/etc/kylin-safeops/agent.env
 
 # ADR-0004：生产 KYLIN_LDAP_MOCK 必须 false（mock 仅 demo/单测）。
-# 刻意置于 EnvironmentFile= 之后——systemd 按出现顺序覆盖，后者胜；
-# 即便 agent.env 被误填成 true，本行仍能把它压回 false（第二道保险）。
+# 本行为 unit 侧声明；agent.env 亦由 install.sh 写入 false，两处同值。
+# 注：systemd 中 EnvironmentFile= 与 Environment= 的优先级以 systemd.exec(5) 为准，
+# 本注释不对覆盖顺序作保证——真正的 fail-closed 兜底在 backend/app/api/app.py
+# （proxy 模式检出 KYLIN_LDAP_MOCK=true 直接 RuntimeError 拒启动）。
+# 部署时用 `systemctl show kylin-safeops-agent -p Environment` 核对实际取值。
 Environment=KYLIN_LDAP_MOCK=false
 
 # app 绑 127.0.0.1：只反代可达，杜绝直接对外暴露

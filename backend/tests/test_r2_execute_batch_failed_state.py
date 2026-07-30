@@ -148,7 +148,9 @@ def test_r2_5_no_new_event_type_and_not_disguised_as_rejected() -> None:
 
     from backend.app.contracts.stream import EventType
 
-    assert len(get_args(EventType)) == 13, "R2-5: 契约6 EventType 必须仍是 13 值（stream.py 零改动）"
+    assert (
+        len(get_args(EventType)) == 13
+    ), "R2-5: 契约6 EventType 必须仍是 13 值（stream.py 零改动）"
 
     orch, _audit, sink = _build(mock.AsyncMock(side_effect=RuntimeError("boom")))
     asyncio.run(orch._execute_batch(approved=False))
