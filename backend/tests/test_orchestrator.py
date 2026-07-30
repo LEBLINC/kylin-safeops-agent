@@ -365,7 +365,9 @@ def test_llm_network_error_emits_error_and_stops() -> None:
 
     orch, _audit, events, _ex = _build(LLMAdapter(completion_fn=fn), _verdict("allow"))
     end = asyncio.run(orch.run([{"role": "user", "content": "x"}]))
-    assert end is State.RECEIVED  # 规划即失败，停在初态
+    # P1-9：规划期系统故障与执行期同口径进 FAILED 终态。此前停在 RECEIVED
+    # 这一非终态，retention 与 SessionRegistry 都把它当 in-flight 永不回收。
+    assert end is State.FAILED
     assert "error" in events.types()
 
 

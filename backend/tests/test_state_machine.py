@@ -66,9 +66,17 @@ def test_r2_executing_two_branches() -> None:
     assert is_valid_transition(State.EXECUTING, State.FAILED)
     # FAILED 是终态，不得回流
     assert not is_valid_transition(State.FAILED, State.EXECUTING)
-    # FAILED 只能由 EXECUTING 到达（系统故障仅发生在执行期）
-    sources = [s for s in State if is_valid_transition(s, State.FAILED)]
-    assert sources == [State.EXECUTING], f"FAILED 只应由 EXECUTING 可达，实际 {sources}"
+    # FAILED 的入边集合：系统故障可发生在执行期与规划期（P1-9 增补后两者）。
+    # 这里钉的是精确集合而非"只有 EXECUTING"——后者把 R-2 当时的局部事实
+    # 当成了永久契约，与规划期故障同样需要闭合终态相冲突。
+    # 仍然钉死集合本身：FAILED 只承载系统故障，安全拒绝一律走 REJECTED，
+    # 若有人把 POLICY_CHECKED/WAIT_APPROVAL 接上 FAILED，这条会红。
+    sources = {s for s in State if is_valid_transition(s, State.FAILED)}
+    assert sources == {
+        State.RECEIVED,
+        State.CONTEXT_COLLECTED,
+        State.EXECUTING,
+    }, f"FAILED 入边集合漂移，实际 {sorted(s.value for s in sources)}"
 
 
 def test_r2_audit_retention_terminal_phases_in_sync() -> None:

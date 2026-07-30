@@ -57,12 +57,15 @@ class State(str, Enum):
 #   EXECUTING 两出口（R-2）：
 #       正常        → EXECUTED
 #       系统级故障   → FAILED（gateway 抛异常 / 二次过闸拦下）
+#   RECEIVED / CONTEXT_COLLECTED 增补 → FAILED（P1-9）：
+#       LLM 规划期系统故障（网关不可达 / rate-limit / token-cap）。R-2 只覆盖了
+#       执行期，规划期的两处此前 emit error 后裸 return，状态停在非终态。
 #
 # 终态（无出边）：REJECTED、FINISHED、FAILED。
 _TRANSITIONS: dict[State, frozenset[State]] = {
-    State.RECEIVED: frozenset({State.INTENT_PARSED, State.REJECTED}),
+    State.RECEIVED: frozenset({State.INTENT_PARSED, State.REJECTED, State.FAILED}),
     State.INTENT_PARSED: frozenset({State.CONTEXT_COLLECTED, State.PLAN_GENERATED}),
-    State.CONTEXT_COLLECTED: frozenset({State.PLAN_GENERATED}),
+    State.CONTEXT_COLLECTED: frozenset({State.PLAN_GENERATED, State.FAILED}),
     State.PLAN_GENERATED: frozenset({State.POLICY_CHECKED}),
     State.POLICY_CHECKED: frozenset({State.EXECUTING, State.WAIT_APPROVAL, State.REJECTED}),
     State.WAIT_APPROVAL: frozenset({State.EXECUTING, State.REJECTED}),

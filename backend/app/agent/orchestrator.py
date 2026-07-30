@@ -273,8 +273,7 @@ class Orchestrator:
             intent = await self._llm.plan(messages)
         except (httpx.HTTPError, RuntimeError) as exc:
             get_metrics().inc("llm.failures")
-            await self._append_audit({"error": str(exc), "phase": self.state.value})
-            self._emit("error", {"message": str(exc), "phase": self.state.value})
+            await self._fail(cause="llm_plan_exception", message=str(exc))
             return self.state
 
         self._goto(State.INTENT_PARSED)
@@ -306,8 +305,7 @@ class Orchestrator:
                     current = await self._llm.plan(convo)
                 except (httpx.HTTPError, RuntimeError) as exc:
                     get_metrics().inc("llm.failures")
-                    await self._append_audit({"error": str(exc), "phase": self.state.value})
-                    self._emit("error", {"message": str(exc), "phase": self.state.value})
+                    await self._fail(cause="llm_replan_exception", message=str(exc))
                     return self.state
                 action_intent = current
                 # 终止条件（任一即停，进入规划）：
@@ -631,13 +629,22 @@ class Orchestrator:
         self._goto(State.FINISHED)
         return self.state
 
-    async def _fail(self, *, cause: str, message: str, tool_name: str) -> None:
-        """执行期系统故障收尾：审计留痕 + 转 FAILED 终态 + emit error（之七十五 R-2）。
+    async def _fail(
+        self, *, cause: str, message: str, tool_name: str | None = None
+    ) -> None:
+        """系统故障收尾：审计留痕 + 转 FAILED 终态 + emit error（R-2 / P1-9）。
 
-        R-2 前两个故障分支只 emit error 就 return，留下三个洞：
+        R-2 前故障分支只 emit error 就 return，留下三个洞：
         ① 审计链缺这一条——事后无从判定 trace 因何中断（S3 链本身仍 valid，但少一环事实）；
-        ② 状态永久停在 EXECUTING——retention 的终态闸把它当 in-flight 永不清理；
+        ② 状态永久停在非终态——retention 的终态闸把它当 in-flight 永不清理，
+           SessionRegistry.is_finished 也恒 False，会话永不释放；
         ③ SSE 靠 runner 的通用兜底关闭，而非终态语义收尾。
+
+        P1-9：R-2 只覆盖了执行期（EXECUTING），规划期的 LLM 故障
+        （RECEIVED 首次 plan / CONTEXT_COLLECTED re-plan）是同一个病，一并收敛到此。
+        failed_phase 取转移前的当前状态而非写死 EXECUTING——它要回答的是
+        "故障发生在哪一阶段"，写死会让规划期故障在审计里谎报成执行期。
+        tool_name 仅执行期有意义，规划期无工具上下文，故可空。
 
         与 REJECTED 严格区分：REJECTED 承载安全决策拒绝（策略/审批/注入），
         FAILED 承载系统故障。终态信号复用既有 error 事件（契约6 stream.py 零改动，
@@ -648,7 +655,7 @@ class Orchestrator:
         """
         redacted, hit = scan_and_redact(message)
         redacted = redacted[:500]  # S9：长异常截断，防审计/SSE 载荷失控
-        failed_phase = State.EXECUTING.value  # 故障发生时所处阶段（转移前）
+        failed_phase = self.state.value  # 故障发生时所处阶段（转移前）
         # 审计先落库再翻状态：与 confirm 分支同款顺序，保证观测到 FAILED 时留痕已在
         await self._append_audit(
             {
