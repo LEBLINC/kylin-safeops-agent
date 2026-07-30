@@ -99,8 +99,13 @@ def patched_client(monkeypatch: pytest.MonkeyPatch):
     real_cls = httpx.AsyncClient
 
     def _factory(*args, **kwargs):
-        kwargs.pop("transport", None)
-        return real_cls(*args, transport=httpx.MockTransport(_mock_upstream), **kwargs)
+        # 只在调用方没自带 transport 时才塞 MockTransport。
+        # 原实现无条件 pop 掉 transport——H9-2 自己构造的 ASGITransport(P.app)
+        # 被丢弃后，请求直接打到假上游，压根不经过反代路由：
+        # 清空 P.app.router.routes 该用例仍全绿（已实测），断言恒真。
+        if "transport" not in kwargs or kwargs["transport"] is None:
+            kwargs["transport"] = httpx.MockTransport(_mock_upstream)
+        return real_cls(*args, **kwargs)
 
     monkeypatch.setattr(P.httpx, "AsyncClient", _factory)
 

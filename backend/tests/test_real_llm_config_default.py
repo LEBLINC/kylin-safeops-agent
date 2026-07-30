@@ -1,7 +1,8 @@
-"""B5 commit 4 + 之七十五 M-5: RealLLMConfig 默认 warning + readiness 阈值语义。
+"""B5 commit 4 + 之七十五 M-5: LLM 配置 fail-closed 默认 + readiness 阈值语义。
 
 覆盖:
-  T1 RealLLMConfig() 实例化 → 不 crash（默认 base_url 是示例 placeholder）
+  T1  未配 env 时 fail-closed 到 fixture 态（不静默联真网）
+  T1b 显式配 real 时确实切到 real（防 T1 被"永远 fixture"糊弄）
   M5-1 readiness 阈值随 KYLIN_SSE_MAX_CONN 变化（真调端点，非只读 env）
   M5-2 readiness 阈值**不受** KYLIN_SSE_QUEUE_MAX 影响（语义解耦守门）
   M5-3 未达阈值 → 200 ready=True
@@ -22,13 +23,60 @@ import asyncio
 from backend.app.api.event_bus import EventBus
 
 
-def test_t1_real_llm_config_default_warns(caplog) -> None:
-    """T1: RealLLMConfig() 默认 base_url 是示例 placeholder，实例化不得 crash。"""
-    from backend.app.llm.real_client import RealLLMConfig
+def test_t1_env_defaults_fail_closed_to_fixture() -> None:
+    """T1: 未配 env 时装配出的配置必须 fail-closed 到不联网的 fixture 态。
 
-    with caplog.at_level("WARNING"):
-        cfg = RealLLMConfig(api_key="")
-    assert cfg is not None
+    原断言是 `assert cfg is not None`——构造成功即恒真，无为假分支；
+    函数名还叫 ..._warns，但 RealLLMConfig 是纯 dataclass，从不 warn，
+    docstring 说的"默认 base_url 是示例 placeholder"也与实际不符
+    （默认值是真实 dashscope 地址）。名实、断言三处皆不对。
+
+    这里改断真正该守的不变量：**没给 env 就绝不能默认联真网**。
+    provider 默认 fixture、api_key 默认空——任一被改成"真端点"型默认值，
+    都会让未配置的部署静默出网，本用例即为该回归的守门。
+    """
+    import os
+
+    from backend.app.llm.real_client import load_real_llm_config_from_env
+
+    saved = {
+        k: os.environ.pop(k, None)
+        for k in ("KYLIN_LLM_PROVIDER", "KYLIN_LLM_API_KEY", "KYLIN_LLM_BASE_URL")
+    }
+    try:
+        cfg = load_real_llm_config_from_env()
+    finally:
+        for k, v in saved.items():
+            if v is not None:
+                os.environ[k] = v
+
+    assert cfg.provider == "fixture", (
+        f"T1: 未配 KYLIN_LLM_PROVIDER 时应 fail-closed 到 fixture，实际 {cfg.provider!r}"
+        "——未配置的部署会静默联真网"
+    )
+    assert cfg.api_key == "", "T1: 默认不得内置 api_key"
+    assert (
+        "localhost" in cfg.base_url
+    ), f"T1: 默认 base_url 应指向本地而非外网，实际 {cfg.base_url!r}"
+
+
+def test_t1b_explicit_real_provider_is_honored() -> None:
+    """T1b: 显式配 real 时必须真的切到 real——防上一条被"永远返回 fixture"糊弄过去。"""
+    import os
+
+    from backend.app.llm.real_client import load_real_llm_config_from_env
+
+    saved = os.environ.get("KYLIN_LLM_PROVIDER")
+    os.environ["KYLIN_LLM_PROVIDER"] = "real"
+    try:
+        cfg = load_real_llm_config_from_env()
+    finally:
+        if saved is None:
+            os.environ.pop("KYLIN_LLM_PROVIDER", None)
+        else:
+            os.environ["KYLIN_LLM_PROVIDER"] = saved
+
+    assert cfg.provider == "real", "T1b: 显式配置未生效"
 
 
 class _StubAudit:
