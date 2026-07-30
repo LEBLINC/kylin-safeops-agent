@@ -95,6 +95,10 @@ class ProtectedPaths(BaseModel):
     按以下层级取最严：
     - forbid_modify:       禁修改（变更类工具命中即 deny）
     - forbid_delete:       禁删除（变更类工具命中即 deny）
+    - db_critical_dirs:    关键库数据目录（变更类工具命中 → confirm + admin）
+    - db_critical_names:   关键库文件名模式（WAL/binlog/redo/数据文件），
+                           按 basename 匹配、**不依赖父目录前缀**——库日志常被
+                           部署到 /var/log/mysql/ 等目录，只按目录前缀判会漏
     - confirm_required:    需要确认（命中即 confirm）
     - rotate_only:         可轮转/压缩，禁直接删（删除工具命中 → deny；轮转工具 → allow/confirm）
     """
@@ -103,6 +107,8 @@ class ProtectedPaths(BaseModel):
 
     forbid_modify: list[str] = Field(default_factory=list)
     forbid_delete: list[str] = Field(default_factory=list)
+    db_critical_dirs: list[str] = Field(default_factory=list)
+    db_critical_names: list[str] = Field(default_factory=list)
     confirm_required: list[str] = Field(default_factory=list)
     rotate_only: list[str] = Field(default_factory=list)
 

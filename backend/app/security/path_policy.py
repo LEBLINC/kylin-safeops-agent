@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Literal
 
 from backend.app.contracts.tool import RiskLevel, ToolSpec
@@ -77,6 +78,31 @@ def _tool_is_change(tool_name: str, spec: ToolSpec | None = None) -> bool:
     if spec is not None:
         return risk_ge(spec.risk, "R2") or spec.reversible is False
     return tool_name in _CHANGE_TOOLS or any(h in tool_name for h in _DELETE_HINTS)
+
+
+def _is_db_critical(path: str, protected: ProtectedPaths) -> bool:
+    """判定路径是否触及关键数据库文件或审计日志（P1-12）。
+
+    两条独立判据，任一命中即算：
+    ① 落在 db_critical_dirs 下（数据目录，含国产库）；
+    ② basename 或任一路径段命中 db_critical_names 的命名模式。
+
+    ② 之所以不依赖父目录前缀：库日志常被部署到 /var/log/mysql/、/srv/backup/
+    等目录，只按目录前缀判会漏——这正是 P1-12 报的那条
+    /var/log/mysql/mysql-bin.000001 的成因。路径段（而非仅 basename）也参与
+    匹配，是为了让 pg_wal/ 这类"目录名即语义"的模式对目录下的段文件同样生效。
+    """
+    for base in protected.db_critical_dirs:
+        if _is_under(path, base):
+            return True
+    if not protected.db_critical_names:
+        return False
+    segments = [s for s in path.split("/") if s]
+    return any(
+        re.search(pattern, segment)
+        for pattern in protected.db_critical_names
+        for segment in segments
+    )
 
 
 def classify_paths(
@@ -151,6 +177,21 @@ def classify_paths(
                     )
                     break
             else:
+                if _tool_is_change(tool_name, spec) and _is_db_critical(path, protected):
+                    findings.append(
+                        PathFinding(
+                            raw,
+                            path,
+                            "confirm",
+                            "R3",
+                            "PATH_DB_CRITICAL",
+                            f"路径 {path} 命中关键数据库/审计日志保护清单，需要管理员确认。",
+                            "改用数据库原生的归档/清理命令，或通知 DBA 处置；"
+                            "审计日志的留存调整须走审计留存策略，不要直接压缩。",
+                            "admin",
+                        )
+                    )
+                    continue
                 for base in protected.rotate_only:
                     if _is_under(path, base) and _tool_is_change(tool_name, spec):
                         findings.append(

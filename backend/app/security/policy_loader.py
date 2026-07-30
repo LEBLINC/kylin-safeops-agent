@@ -37,6 +37,51 @@ DEFAULT_POLICY_DICT: dict = {
             "/opt/kylin-safeops",
         ],
         "forbid_delete": ["/var/lib/mysql", "/var/lib/pgsql"],
+        # P1-12 关键库/审计日志：此前 log.compress_rotate 作用于
+        # /var/log/mysql/mysql-bin.000001 只命中 rotate_only=["/var/log"]
+        # → R2/operator 一次点击即以 root 压掉 binlog。赛题原文"误删数据库日志"
+        # 的正面失分点。审计日志同理（/var/log/audit/audit.log）。
+        #
+        # 目录清单：各产品官方文档的默认数据目录（未在本机实测，部署时以
+        # 现场 my.cnf / postgresql.conf / dm.ini 的实际 data 路径为准，
+        # 站点自定义目录需运维在 policy.json 内追加）。
+        "db_critical_dirs": [
+            # 主流开源库
+            "/var/lib/mysql",
+            "/var/lib/mysql-files",
+            "/var/lib/pgsql",
+            "/var/lib/postgresql",  # Debian/Ubuntu 系默认，原清单缺
+            "/var/lib/mongodb",
+            "/var/lib/redis",
+            "/var/lib/mariadb",
+            # 国产库默认安装/数据目录
+            "/opt/dmdbms",  # 达梦 DM8
+            "/opt/kingbase",  # 人大金仓 KingbaseES
+            "/var/lib/opengauss",  # openGauss
+            "/opt/opengauss",
+            "/opt/gaussdb",
+            # 审计日志：被审计者不得压掉审计面
+            "/var/log/audit",
+        ],
+        # 命名模式按 basename 匹配，不依赖父目录——库日志常被部署到
+        # /var/log/mysql/、/srv/backup/ 等目录，只按目录前缀判必漏。
+        "db_critical_names": [
+            r"^mysql-bin\.\d+$",  # MySQL binlog
+            r"^mysql-relay-bin\.\d+$",
+            r"^binlog\.\d+$",  # MySQL 8 默认命名
+            r"^ib_logfile\d+$",  # InnoDB redo
+            r"^ibdata\d+$",  # InnoDB 共享表空间
+            r"\.ibd$",  # InnoDB 独立表空间
+            r"\.frm$",
+            r"\.myd$",
+            r"\.myi$",
+            r"^redo\d*\.redo$",  # 达梦 redo
+            r"\.dbf$",  # 通用数据文件（达梦/Oracle 系）
+            r"^pg_wal$",  # PG WAL 目录本身
+            r"^pg_xlog$",  # PG 旧版 WAL 目录名
+            r"^[0-9A-F]{24}$",  # PG WAL 段文件名（24 位十六进制）
+            r"^audit\.log(\.\d+)?$",  # 审计日志（含轮转后缀）
+        ],
         "confirm_required": ["/home"],
         "rotate_only": ["/var/log"],
     },
