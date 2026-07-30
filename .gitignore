@@ -26,6 +26,23 @@ _reference/
 !/docs/figures/
 /docs/figures/*
 !/docs/figures/*.png
+# 交付文档内嵌的实测截图（六份 docs/v2 文档共引用 56 处，全部落在本目录）。
+# 此前整批被忽略，导致《功能测试报告》《性能测试报告》里的 VM 验证与性能证据
+# 在源码包内全为破图——而这些恰是最需要随包留存的实测证据。
+# 目录内 61 张中 5 张未被任何文档引用（改名前的重复副本 + 一版备选打码图），
+# 由 F-2 用例钉住"未引用者不入库"，避免无出处的图混进交付面。
+!/docs/screenshots/
+/docs/screenshots/*
+!/docs/screenshots/*.png
+# 未被任何交付文档引用的 5 张，逐条排除（不是"漏引用"，已逐张核实）：
+# 3 张与被引用图 md5 完全相同，是改名前的旧文件名副本；
+# 09-rca（100%）与 acc-09-redacted 内容不同，是同一页面的另一次截图/另一版打码，
+# 文档已各自选定其中一版，另一版不入交付面。
+/docs/screenshots/09-rca（100%）.png
+/docs/screenshots/09-rca（全部内容显示）.png
+/docs/screenshots/14-line2-approval（R2）.png
+/docs/screenshots/14-line2-approval（R3）.png
+/docs/screenshots/acc-09-llm-health-redacted.png
 # 竞赛交付文档（根级 软件*系列）经 /*.md 屏蔽，终稿以比赛提交包为准，不走本仓。
 /文档_GPT/
 /文档_claude/
