@@ -231,7 +231,7 @@ export interface RejectedEventData {
   denied_tools: string[]
 }
 
-/** natural_language 事件 data 结构（L 新增，dev=154f767）。 */
+/** natural_language 事件 data 结构（dev=154f767 起）。 */
 export interface NaturalLanguageData {
   /** LLM 生成的最终自然语言回复文本。 */
   text: string

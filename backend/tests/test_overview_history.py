@@ -1,4 +1,4 @@
-"""X D1+D3+D5 概览接口测试。
+"""概览接口测试（/api/system/overview/history + /api/system/stats）。
 
 覆盖 4 用例：
   - T3：/api/system/overview 真填 services / tool_calls_today / denied_today（从审计库真采）

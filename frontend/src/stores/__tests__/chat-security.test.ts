@@ -1,5 +1,5 @@
 /**
- * chat-security.test.ts — X 执行窗口额外B：前端关键安全逻辑单测脚手架
+ * chat-security.test.ts — 前端关键安全逻辑单测脚手架
  *
  * 覆盖可信展示红线回归护栏：
  * - 角色审批能力判断 (canRoleApprove)

@@ -1,7 +1,6 @@
 # ADR-0004：KYLIN_LDAP_MOCK 默认 false，部署硬阻断 mock
 
-- 状态：**已接受（Accepted）** — L 拍板，2026-06-19
-- 决策者：L（集成/架构/审阅）
+- 状态：**已接受（Accepted）** — 2026-06-19
 - 关联：决策⑨（RBAC 反代签名）、[ADR-0003](0003-real-llm-demo-only-scope.md)（真 LLM 接入 demo-only 范围）、P1 SSO/LDAP 工单（`feat/x-sso-ldap` 25c66bf）
 
 ## 背景（Context）

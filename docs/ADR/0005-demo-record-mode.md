@@ -1,7 +1,6 @@
 # ADR-0005：KYLIN_LLM_RECORD 录制模式（demo-record-mode）
 
-- 状态：**已接受（Accepted）** — L 拍板，2026-07-13
-- 决策者：L（集成/架构/审阅）
+- 状态：**已接受（Accepted）** — 2026-07-13
 - 关联：[ADR-0003](0003-real-llm-demo-only-scope.md)（demo-only 默认锁死）、[ADR-0002](0002-stage5-real-llm-kylin-vm-closure.md)（阶段5 真 LLM 接入）、`backend/app/api/app.py:88 get_llm()`、`backend/tests/test_get_llm_record_mode.py`（新建）
 
 ## 背景（Context）

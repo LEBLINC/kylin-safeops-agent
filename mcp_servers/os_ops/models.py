@@ -1,5 +1,5 @@
 # adapted from rhel-lightspeed/linux-mcp-server (Apache-2.0), modified by team
-"""os_ops 采集结果的结构化模型（D6 起，按需增长）。
+"""os_ops 采集结果的结构化模型（按需增长）。
 
 字段结构借鉴 linux-mcp-server 的 models.py（Apache-2.0），裁剪为本项目所需子集。
 这些是**解析输出**模型，非冻结契约（与 backend/app/contracts 分层）；

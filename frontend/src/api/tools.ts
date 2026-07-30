@@ -56,7 +56,7 @@ export function getToolCallDetail(callId: string) {
   return request.get<ToolCallLog, ToolCallLog>(`/api/tools/calls/${callId}`)
 }
 
-/** 按工具名查历史调用列表。D7 新增。 */
+/** 按工具名查历史调用列表。 */
 export function listToolCalls(tool: string, limit = 10) {
   return request.get('/api/tools/calls', { params: { tool, limit } })
 }

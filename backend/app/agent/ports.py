@@ -60,7 +60,7 @@ class AuditSink(Protocol):
         tool: str,
         limit: int = 10,
     ) -> list[dict]:
-        """按工具名列历史调用（commit 2 D7 /api/tools/calls 用）。
+        """按工具名列历史调用（/api/tools/calls 用）。
 
         数据源：phase IN ('EXECUTING','EXECUTED') + json_extract(payload, '$.tool') = tool。
         返回每条：{trace_id, seq, phase, payload, created_at}；S9 敏感字段过滤。

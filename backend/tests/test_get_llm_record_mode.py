@@ -5,7 +5,7 @@
 - T2 KYLIN_LLM_RECORD=true   → RealLLMClient.completion_fn（ADR-0005 录制模式）
 - T3 KYLIN_LLM_RECORD=false  → fake 桩 completion_fn（明确"未启用"语义）
 
-不破坏 ADR-0003 默认 fixture 强钉（D2 §5 红线另由 test_d2_chat_always_fixture.py
+不破坏 ADR-0003 默认 fixture 强钉（§5 红线另由 test_d2_chat_always_fixture.py
 守门）。仅录视频场景使用；生产 KYLIN_LLM_RECORD 永远 false。
 
 实现说明：build_fake_llm 返 ``LLMAdapter(completion_fn=<local fake>)``，

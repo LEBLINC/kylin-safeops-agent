@@ -1,4 +1,4 @@
-"""B2 授权层 10 个守门测试（补架构者 P2 backlog）。
+"""B2 授权层 10 个守门测试（补 P2 backlog）。
 
 覆盖 L-H1 IDOR / L-H2 audit role / L-M3 audit actor + SoD / L-M4 policy role。
 """

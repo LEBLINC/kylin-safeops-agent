@@ -1,6 +1,6 @@
 """RuleBasedPolicyEngine.evaluate() 测试（D — PR1）。
 
-期望修正（L 拍板）：
+期望修正（已拍板）：
   A. 大小写敏感：/etc/PASSWD ≠ /etc/passwd；不做大写归一；
      /etc/PASSWD 只读工具不触发 forbid_modify，变更工具触发 /etc 前缀保护。
   B. 全角斜杠不被识别为绝对路径，不触发路径保护。

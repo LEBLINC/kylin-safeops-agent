@@ -82,7 +82,7 @@ def test_chat_smoke_real_executor_sealed() -> None:
 def test_config_diff_intent_aggregated_not_degraded() -> None:
     """intent 提议 config.diff → 已注册、经三道闸 + mcp 层聚合（不再 gate1 降级 REJECTED）。
 
-    决策⑤：config.diff 经 gateway 聚合复用 config.hash_snapshot，不落 D 单命令执行器。
+    决策⑤：config.diff 经 gateway 聚合复用 config.hash_snapshot，不落单命令特权执行器。
     win32 下内部快照可能 127（方案 B 原样上抛仍 executed），故断言"未被 REJECTED + 产 tool_result"，
     跨平台稳健（结构化 diff 的确定性断言见 test_config_diff_aggregation）。
     """

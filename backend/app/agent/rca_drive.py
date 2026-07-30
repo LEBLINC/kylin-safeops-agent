@@ -1,4 +1,4 @@
-"""之六十八 Task 1: orchestrator 驱动 RCA 场景模板采证(按 X 接口消费).
+"""之六十八 Task 1: orchestrator 驱动 RCA 场景模板采证(消费 RCA 引擎接口).
 
 RCA 引擎 mcp_servers/rca/ 已交付 DefaultRCAEngine 含 get_scenario_plan(problem_type)
 返回场景模板(RcaScenarioPlan dict,含 evidence_steps 列表,每步描述 tool/args/
@@ -6,7 +6,7 @@ purpose/required/expected_signal).本模块提供 collect_rca_evidence: 在 RCA 
 按场景模板跑 evidence_steps,每个 step 经 gateway.call() 收集 ToolResult.
 
 约束:
-- 仅消费 X 接口,不修 mcp_servers/rca/ 代码(守 C3 边界)
+- 仅消费 RCA 引擎接口,不修 mcp_servers/rca/ 代码(守 C3 边界)
 - 仅 R0/R1 工具被采纳(非只读工具经 gateway.is_read_only 过滤跳过)
 - gateway.evaluate schema 不匹配 / 工具未注册 / execute 抛错 → 跳过该 step
   (S8 fail-closed 不杀状态机,S9 is_untrusted=True 由 gateway call 路径自动密封)

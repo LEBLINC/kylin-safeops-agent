@@ -1,7 +1,7 @@
 """D16 — 四场景演示剧本回归测试：保证一键剧本跑通，防演示当天翻车。
 
 仅断言终态与执行序（happy-path 管道串联）；不写"安全拦截"硬断言——
-那由 L1 哨兵(test_e2e_real_policy.py)在 D 真 evaluate 合入后验证。
+那由哨兵 1(test_e2e_real_policy.py)在真 evaluate 合入后验证。
 事件打印交给脚本本身（此处不校验 stdout）。
 """
 

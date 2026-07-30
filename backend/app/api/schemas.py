@@ -280,7 +280,7 @@ class ToolCallResponse(BaseModel):
 
 
 class ToolCallDetail(BaseModel):
-    """GET /api/tools/calls/{call_id} 响应体（X D6 新增）。
+    """GET /api/tools/calls/{call_id} 响应体。
 
     call_id 在 MVP 阶段视为 trace_id：返回该 trace 最后一条 EXECUTING/EXECUTED
     记录的派生物（tool 名 + args + exit_code + timestamp）。
@@ -297,13 +297,13 @@ class ToolCallDetail(BaseModel):
 
 
 class ToolCallSummary(BaseModel):
-    """GET /api/tools/calls 单条工具调用摘要（X D7 新增）。
+    """GET /api/tools/calls 单条工具调用摘要。
 
     派生自审计库 phase IN ('EXECUTING','EXECUTED') + payload.tool 精确匹配；
     按 trace_id 聚合：该 trace 全部 EXECUTING/EXECUTED 记录里取首条（最早）作为
     摘要——既体现"该工具首次被调用的那一条"，又便于前端按时间倒序展示历史调用。
     S9：duration_ms / risk_level / args 不在此 schema 暴露（避免泄密/扩张字段）；
-    后续若需要可单独加 /api/tools/calls/{call_id} 详情（已存在 D6）。
+    后续若需要可单独加 /api/tools/calls/{call_id} 详情（已存在）。
     """
 
     call_id: str = Field(..., description="call_id（MVP=trace_id；与 ToolCallDetail 同口径）")
@@ -325,7 +325,7 @@ class ToolCallSummary(BaseModel):
 
 
 class ToolCallListResponse(BaseModel):
-    """GET /api/tools/calls 响应体（X D7 新增）。
+    """GET /api/tools/calls 响应体。
 
     按工具名（query param tool）查询历史调用列表；limit 上限 100。
     total 与 items 数量一致（MVP 无分页）。
@@ -396,15 +396,15 @@ class SystemOverview(BaseModel):
     zombie_processes: int = Field(..., description="僵尸进程数；任务戊由 ps 真实统计（未采集时 0）")
     tool_calls_today: int = Field(
         default=0,
-        description="今日工具调用次数（X D3 真填）：审计 EXECUTING/EXECUTED + 今天 00:00 起 COUNT",
+        description="今日工具调用次数：审计 EXECUTING/EXECUTED + 今天 00:00 起 COUNT",
     )
     denied_today: int = Field(
         default=0,
-        description="今日被拒绝次数（X D3 真填）：审计 phase=REJECTED + 今天 00:00 起 COUNT",
+        description="今日被拒绝次数：审计 phase=REJECTED + 今天 00:00 起 COUNT",
     )
     services: list[ServiceStatus] = Field(
         default_factory=list,
-        description="关键服务状态列表（X D3 真填）：从审计 phase=EXECUTED 派生，"
+        description="关键服务状态列表：从审计 phase=EXECUTED 派生，"
         "按 tool_name LIKE 'service.%' 前缀过滤 + 去重",
     )
     # 任务D/戊：数据来源态显式标注（防桩数据冒充真数据，审计/诚实红线）。
@@ -436,7 +436,7 @@ class OverviewHistoryPoint(BaseModel):
 
 
 class OverviewHistoryResponse(BaseModel):
-    """GET /api/system/overview/history 响应体（X D1 新增）。
+    """GET /api/system/overview/history 响应体。
 
     按小时聚合最近 N 小时（默认 24 / max 168）的 cpu/mem/disk 指标；
     当前审计库未落 overview 探针 → series 通常为空（前端 sparkline 显示"暂无数据"）。
@@ -452,7 +452,7 @@ class OverviewHistoryResponse(BaseModel):
 
 
 class SystemStats(BaseModel):
-    """GET /api/system/stats 响应体（X D5 新增）。
+    """GET /api/system/stats 响应体。
 
     来自审计库聚合：by_tool / by_risk / by_status 三个维度。
     """

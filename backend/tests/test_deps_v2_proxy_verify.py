@@ -1,7 +1,7 @@
 """D 阻断修复: deps.py v2 proxy verify 同步守门 (4 用例 T1-T4).
 
-D 报告: 生产反代链路 100% 401 (所有转发流量 fail).
-架构者亲核: deps.py verify_token + require_proxy_identity 仍传 4 旧参数,
+实证反馈: 生产反代链路 100% 401 (所有转发流量 fail).
+复核发现: deps.py verify_token + require_proxy_identity 仍传 4 旧参数,
 反代 v2 7 字段签名与后端 v1 串不匹配 → 401.
 
 覆盖 4 用例:

@@ -157,7 +157,7 @@ def test_f003_multi_tool_atomic_all_allow() -> None:
     end = asyncio.run(orch.run([{"role": "user", "content": "查配置漂移"}]))
     assert end is State.FINISHED
     # 决策⑤：config.diff 在 mcp 层聚合，executor 实际收到的是其内部复用的 config.hash_snapshot
-    # （绝不把 config.diff 落给 D 单命令执行器）；故 executor 见两次 config.hash_snapshot。
+    # （绝不把 config.diff 落给单命令特权执行器）；故 executor 见两次 config.hash_snapshot。
     assert ex.calls == ["config.hash_snapshot", "config.hash_snapshot"]
     tr = [e for e in events.events if e.type == "tool_result"]
     # tool_result 的 tool 名仍是原计划工具（聚合结果回填 tool="config.diff"）。

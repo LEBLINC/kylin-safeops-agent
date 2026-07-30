@@ -1,6 +1,6 @@
 """D bug 修复守门补: /api/llm/health_events 显式调 bus.create(trace_id).
 
-D 报告 bug: probe-watch SSE 端点之前漏 bus.create("probe-watch") →
+实证 bug: probe-watch SSE 端点之前漏 bus.create("probe-watch") →
 前端 SettingsView 真 EventSource 订阅后立即 queue closed。
 da8072a 已修;本文件显式守门此行为。
 """

@@ -146,7 +146,7 @@ class MCPGateway:
                 executed=False, verdict=verdict, reason="policy: confirm (needs approval)"
             )
 
-        # config.diff：mcp 层聚合（决策⑤）。三道闸已过，但**不**落 D 单命令执行器
+        # config.diff：mcp 层聚合（决策⑤）。三道闸已过，但**不**落单命令特权执行器
         # （config.diff 无单命令模板→127）；改复用 config.hash_snapshot 取真快照后与基线对比。
         if spec.name == "config.diff":
             return await self._aggregate_config_diff(tool, verdict)
@@ -161,7 +161,7 @@ class MCPGateway:
     ) -> CallOutcome:
         """config.diff mcp 层聚合：复用 config.hash_snapshot 取真快照 → 与基线对比 → ConfigDiff。
 
-        决策⑤：聚合只在 mcp 层，**绝不**把 config.diff 交给 D 单命令执行器（会 127）。
+        决策⑤：聚合只在 mcp 层，**绝不**把 config.diff 交给单命令特权执行器（会 127）。
         config.hash_snapshot 经真 Executor（路径 canonicalize/沙箱照常）；快照失败（exit≠0）
         按方案 B 原样上抛该 ToolResult（密封后返回），不吞错、不伪造空 diff。
         """

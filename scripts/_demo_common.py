@@ -9,7 +9,7 @@
 - LLM → 真实端点（backend.app.llm.adapter 默认 httpx 实现 + LLMConfig）。
 
 铁律：剧本只用 all_specs() 已注册工具，工具名/参数严格按各 ToolSpec.input_schema（C1/S2）。
-仅串联 happy-path 管道；不写"安全拦截"硬断言（待 L1 哨兵在 D 真 evaluate 合入后验证）。
+仅串联 happy-path 管道；不写"安全拦截"硬断言（待哨兵 1 在真 evaluate 合入后验证）。
 """
 
 from __future__ import annotations

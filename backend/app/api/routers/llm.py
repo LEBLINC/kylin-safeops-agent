@@ -144,7 +144,7 @@ async def health_events(
     # 但当前 SSEEventSink(bus, trace_id) 是单 trace 单队列，运维 dashboard 要收所有
     # probe 事件，需要新建一个聚合队列。简化：用固定 trace_id "probe-watch" 作 channel。
     trace_id = "probe-watch"
-    # D 报告 bug fix：缺 bus.create() 导致 SSE 一直断开；同时去掉 finally bus.remove() —
+    # bug fix：缺 bus.create() 导致 SSE 一直断开；同时去掉 finally bus.remove() —
     # probe-watch 是 long-life channel（多 SSE 客户端共享），lifespan shutdown 由 drain_all()
     # 统一清理（avoid 连接互踢）。
     bus.create(trace_id)

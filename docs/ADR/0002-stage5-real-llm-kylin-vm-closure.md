@@ -1,7 +1,6 @@
 # ADR-0002：阶段5 真实 LLM 接入麒麟 V11 实机收口
 
-- 状态：**已接受（Accepted）** — L 拍板，2026-06-19；基于 D 麒麟 V11 实机真端点实证
-- 决策者：L（集成/架构/审阅）、D（VM 实证 + 沙箱/审计/db 负责人）、X（前端/反代）
+- 状态：**已接受（Accepted）** — 2026-06-19；基于麒麟 V11 实机真端点实证
 - 关联：决策⑨（RBAC 反代签名）、决策⑫（D-10 输入闸口径）、[ADR-0001](0001-audit-store-sqlite-not-pg.md)（审计库 SQLite）
 - 基线：dev=`e2bd033`（阶段5 收尾三件套全合）
 
@@ -37,8 +36,8 @@
 
 五道闸逐条坐实：
 
-1. **输入闸**：真 LLM 被注入「rm -rf /」→ `cause=injection`，**仅 2 条审计记录**（received + rejected）。审阅窗口代码复核确证：`orchestrator.py:155-176` 注入 high 路径在 `plan()`（line 190）**之前** return，LLM 根本没产计划。**"判定靠地板不靠 LLM 自觉"的字节级铁证。**
-2. **策略闸**：`/etc/shadow` → `policy_deny`，**5 条记录**——说明这次过了 gateway schema 校验、真正走到 D 的 PolicyEngine 才被拦（与 O18 那种 gateway schema 短路不同，是策略引擎实裁）。
+1. **输入闸**：真 LLM 被注入「rm -rf /」→ `cause=injection`，**仅 2 条审计记录**（received + rejected）。代码复核确证：`orchestrator.py:155-176` 注入 high 路径在 `plan()`（line 190）**之前** return，LLM 根本没产计划。**"判定靠地板不靠 LLM 自觉"的字节级铁证。**
+2. **策略闸**：`/etc/shadow` → `policy_deny`，**5 条记录**——说明这次过了 gateway schema 校验、真正走到策略引擎才被拦（与 O18 那种 gateway schema 短路不同，是策略引擎实裁）。
 3. **确认闸**：R3（service.restart）/ R2（log.compress_rotate）均 WAIT_APPROVAL → 批准 → 沙箱内真执行。
 4. **结果闸**：每个执行工具 `is_untrusted=true`（密封不可信 + wrap_token 归一）。
 5. **审计闸**：5 次跑 `verify_chain.valid` 全 true。
@@ -53,10 +52,10 @@
 ## 待办 / Revisit
 
 - **真端点连通性探测**：`GET /api/llm/health?probe=true`（backlog，本次只做配置态）。
-- **反代 Basic Auth → SSO/LDAP**：X 域 P1，阶段6。
+- **反代 Basic Auth → SSO/LDAP**：P1，阶段6。
 - Revisit：更换 LLM 端点 / 模型时，重跑本 ADR 的 5 条实证表确认地板行为不变（地板与模型解耦，预期不变）。
 
-## 附：审阅窗口对 D 实证报告的核验结论
+## 附：实证与代码的一致性核验
 
-- D 实证表 5 条叙事**与 dev 合入的 orchestrator/gateway 代码字节级自洽**（注入 2 条 / 策略 5 条记录数均可由代码解释通）；无密钥不可本机复现，采信为实机论据。
-- **更正 D 报告一处过时信息**：D 称"L 的 fail_closed 接线（步骤0）仍待接"——经审阅窗口实测，`backend/app/api/app.py:182` 早已接（`_fail_closed = _auth_mode_now == "proxy"` → `connect(fail_closed=...)`，commit `8f77240`，在 `3c0bdca` 阶段5 合入），且 `backend/tests/test_api_lifespan.py:47` `test_lifespan_proxy_passes_fail_closed_true()` 已固化。**此项非 backlog，已完成。**
+- 上表 5 条实证叙事与 dev 合入的 orchestrator / gateway 代码字节级自洽（注入 2 条、策略 5 条的记录数均可由代码路径解释）。
+- 审计库 `fail_closed` 接线已完成：`backend/app/api/app.py` 按 `KYLIN_AUTH_MODE=="proxy"` 计算后传入 `connect(fail_closed=...)`（commit `8f77240`，阶段5 随 `3c0bdca` 合入），并由 `backend/tests/test_api_lifespan.py::test_lifespan_proxy_passes_fail_closed_true` 固化，非 backlog。

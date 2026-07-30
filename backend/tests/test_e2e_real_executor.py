@@ -1,6 +1,6 @@
 """任务 A — Executor 维度 fake→real 集成验证哨兵（端到端，预置待命）。
 
-与 L1 哨兵（test_e2e_real_policy.py）同源的成功模式：在执行层 PR2 真特权执行器合入前
+与哨兵 1（test_e2e_real_policy.py）同源的成功模式：在执行层 PR2 真特权执行器合入前
 预置完整集成脚手架，**合入即自动激活**，前置 PR2 集成风险。
 
 当前安全闭环"后半条"（策略放行 → 沙箱内最小权限执行 → 真实兜底）全靠 FakeExecutor 罐头，
@@ -16,7 +16,7 @@ backend.app.executor 当前是"空命名空间包"（仅 .gitkeep，import 成�
 执行层 PR2 导出真特权执行器类/工厂后本哨兵自动激活。若执行层合入后该包 import 抛错（如缺依赖），
 import_module 会如实抛出（fail loud），不被静默 skip 掩盖。
 
-【策略引擎接线约定】（仿 L1 的 _make_engine 单点适配）：
+【策略引擎接线约定】（仿哨兵 1 的 _make_engine 单点适配）：
 - Executor.execute(tool) -> ToolResult（async；方案B：普通失败用 exit_code != 0 承载，
   仅系统级故障 raise）。
 - _make_executor() 是唯一构造适配点：执行层合入若工厂名/构造签名不同，**只改这一处**。

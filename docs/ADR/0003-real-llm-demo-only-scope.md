@@ -1,7 +1,6 @@
 # ADR-0003：真 LLM 接入范围冻结为 demo 脚本 + D VM 实证,live API 仍 fake
 
-- 状态：**已接受（Accepted）** — L 拍板，2026-06-19
-- 决策者：L（集成/架构/审阅）
+- 状态：**已接受（Accepted）** — 2026-06-19
 - 关联：[ADR-0002](0002-stage5-real-llm-kylin-vm-closure.md)（阶段5 收口）、决策⑨（RBAC 反代签名）、`backend/app/api/app.py:91 get_llm()`
 
 ## 背景（Context）

@@ -1,4 +1,6 @@
-"""签名参考 CLI（给 X/运维测反代用）：生成 4 个 proxy 签名头，以 auth.sign_identity 为权威 oracle。
+"""签名参考 CLI（供前端联调 / 运维测反代用）。
+
+生成 4 个 proxy 签名头，以 auth.sign_identity 为权威 oracle。
 
 用法：
     python -m backend.app.api.sign_cli --user alice --roles operator --secret mysecret

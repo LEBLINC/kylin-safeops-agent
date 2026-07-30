@@ -4,7 +4,7 @@
 - 聚合器单元：首次建基线（空 diff）、检出 changed、added/removed、baseline_key 区分。
 - gateway 端到端（注入罐头 config.hash_snapshot 执行器）：首次建基线 → 改 hash 后返 changed；
   返回 ConfigDiff JSON + 结果闸密封（is_untrusted=True + 标准 wrap_token）；
-  **executor 只见 config.hash_snapshot、从不见 config.diff**（决策⑤：永不落 D 单命令执行器→127）。
+  **executor 只见 config.hash_snapshot、从不见 config.diff**（决策⑤：永不落单命令特权执行器→127）。
 - 快照失败（exit≠0）方案 B 原样上抛、不吞错。
 - config.diff 仍走三道闸：schema 非法（空 paths）→ deny、executor 从未被调。
 - build_gateway registry 含 config.diff（摘除恢复证据）。

@@ -9,8 +9,8 @@
   - zombie_processes ← process.list（ps → ProcessList，统计 STAT 以 "Z" 开头的进程数）；✅ 真
   - cpu_usage ← system.cpu_load（vmstat 1 秒采样：100-idle，CpuLoad）；✅ 真（阶段2B）
   - memory_usage ← system.mem_usage（free -b：(total-available)/total，MemUsage）；✅ 真（阶段2B）
-  - services（X D3）：审计库 phase=EXECUTED + payload.tool LIKE 'service.%' 去重
-  - tool_calls_today / denied_today（X D3）：审计 phase=EXECUTING/EXECUTED|REJECTED + 今日 COUNT
+  - services：审计库 phase=EXECUTED + payload.tool LIKE 'service.%' 去重
+  - tool_calls_today / denied_today：审计 phase=EXECUTING/EXECUTED|REJECTED + 今日 COUNT
 data_source 据实（诚实红线）：
   - "real"     —— root_disk/zombie/cpu/memory **四项全部从真实 stdout 还原**（阶段2B 起可达）；
   - "partial"  —— 部分字段已从真实 stdout 还原，其余仍缺真实源（如某探针 127/解析失败）；
@@ -20,7 +20,7 @@ data_source 据实（诚实红线）：
 ═══════════════════════════════════════════════════════════════════
 【GAP-1 审计口径 —— 已采方案 b（待 L 晨起最终签字；本方案可逆、低风险）】
 overview 只读探针经 gateway.call 直接执行只读命令、**不经 orchestrator → 不产哈希链审计**。
-Executor 切真后这是一条"绕审计的真实执行路径"。审阅窗口（代 L）拍板**方案 b：概览只读探针
+Executor 切真后这是一条"绕审计的真实执行路径"。已拍板**方案 b：概览只读探针
 显式豁免哈希链审计**，理由：
   - 概览非一次 agent 请求/trace（无 intent、无审批、无状态变更），是高频轮询的只读快照；
   - 强行塞进 per-trace 哈希链语义不符且会让审计库膨胀；
@@ -83,7 +83,7 @@ _OVERVIEW_CACHE_TTL = 5.0  # 秒
 _overview_cache: tuple[float, SystemOverview] | None = None
 
 
-#: hours clamp 上下界（X D1/D5 防单次查全库）
+#: hours clamp 上下界（防单次查全库）
 _MAX_HISTORY_HOURS = 168  # 7 天
 _MIN_HISTORY_HOURS = 1
 
@@ -204,7 +204,7 @@ async def get_overview(
     （root_disk←df、zombie←ps、cpu←vmstat、memory←free）；data_source 据实置 real/partial/stub。
     四项全真→real；部分真（探针 127/解析失败）→partial；全无→stub。诚实红线：任一缺真不标 real。
     GAP-1 方案 b：本只读概览路径显式豁免哈希链审计（见模块顶部决策）。
-    X D3 新增：services / tool_calls_today / denied_today 从审计库真填（之前是 0/[] 占位）。
+    services / tool_calls_today / denied_today 从审计库真填（早期版本为 0/[] 占位）。
     """
     global _overview_cache  # noqa: PLW0603 模块级 TTL 缓存（与 lifespan 单例同模式）
     now = time.monotonic()
@@ -254,7 +254,7 @@ async def get_overview(
     else:
         data_source = "stub_executor"
 
-    # X D3：从审计库真填 services / tool_calls_today / denied_today
+    # 从审计库真填 services / tool_calls_today / denied_today
     today_prefix = _today_iso_prefix()
     today_iso = f"{today_prefix}T00:00:00+00:00"
     conn = _audit_conn(audit)
@@ -293,7 +293,7 @@ async def get_overview_history(
     _user: str = Depends(verify_token),
     audit: AuditSink = Depends(get_audit),
 ) -> OverviewHistoryResponse:
-    """X D1 新增：按小时聚合最近 N 小时的 cpu/mem/disk 序列。
+    """按小时聚合最近 N 小时的 cpu/mem/disk 序列。
 
     当前审计库未落 overview 探针（方案 b 豁免）→ series 通常为空，
     前端 sparkline 显示"暂无数据"。一旦后续把概览探针落库（方案 a 改回 / 折中），本端点
@@ -310,7 +310,7 @@ async def get_stats(
     _user: str = Depends(verify_token),
     audit: AuditSink = Depends(get_audit),
 ) -> SystemStats:
-    """X D5 新增：按窗口聚合 by_tool / by_risk / by_status 三个维度。
+    """按窗口聚合 by_tool / by_risk / by_status 三个维度。
 
     - by_tool：EXECUTING/EXECUTED records payload.tool 字段 COUNT
     - by_risk：INTENT_PARSED records payload.risk_level 字段 COUNT（R0/R1/R2/R3）

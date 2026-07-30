@@ -1,7 +1,7 @@
 """步骤 2.6：间接注入（日志投毒）真实叙事验证。
 
-X 报告 demo/attack_prompts/README.md 已加"间接注入暂未实现"节——L 拍板
-（审阅窗口）**间接注入真验留阶段5 一并验**。本文件固化间接注入保护。
+demo/attack_prompts/README.md 已加"间接注入暂未实现"节——已拍板
+**间接注入真验留阶段5 一并验**。本文件固化间接注入保护。
 
 fixture 模式是编排层自家承诺——**不**把 user_intent 的危险 payload 透传到
 candidate_tools.args；间接注入的真防御在结果闸 `result_gate.is_untrusted` +

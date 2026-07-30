@@ -1,4 +1,4 @@
-"""X D7 /api/tools/calls 列表端点测试（commit 2 D7）。
+"""/api/tools/calls 列表端点测试。
 
 覆盖 4 用例：
   - T1：seed 多条 EXECUTING/EXECUTED records → 列表接口返按时间倒序最近条目

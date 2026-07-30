@@ -3,7 +3,7 @@
 registry：列举已注册工具；★字段适配 ToolSpec.name → 输出键名 "tool"（前端用 tool）。
 call：手动单工具调用，仍走 gateway.call 完整三道闸（注册+结构+策略）。
 
-D6 新增：GET /api/tools/calls/{call_id} — 单条工具调用详情（从审计库派生）。
+GET /api/tools/calls/{call_id} — 单条工具调用详情（从审计库派生）。
 """
 
 from __future__ import annotations
@@ -85,7 +85,7 @@ async def get_tool_call_detail(
     _user: str = Depends(verify_token),
     audit: AuditSink = Depends(get_audit),
 ) -> ToolCallDetail:
-    """D6 新增：单条工具调用详情（MVP call_id = trace_id）。
+    """单条工具调用详情（MVP call_id = trace_id）。
 
     数据来源：审计库 phase=EXECUTING|EXECUTED + 该 trace 末条记录
     （payload.tool/args/exit_code + created_at）。
@@ -150,14 +150,14 @@ async def list_tool_calls(
     audit: AuditSink = Depends(get_audit),
     _principal: Principal = Depends(require_proxy_identity),
 ) -> ToolCallListResponse:
-    """D7 新增：按工具名查历史调用列表（从 audit EXECUTING/EXECUTED 派生）。
+    """按工具名查历史调用列表（从 audit EXECUTING/EXECUTED 派生）。
 
     数据源：审计库 phase IN ('EXECUTING','EXECUTED') 且
     json_extract(payload, '$.tool') = tool_name；按 created_at DESC 排序；limit 上限 100。
     S9：payload 敏感字段已通过 SqliteAuditSink.list_tool_calls_by_tool
     _SENSITIVE_KEYS 黑名单过滤（api_key → "***REDACTED***" 等）。
 
-    用途：前端"某工具历史调用"面板；与 D6 /api/tools/calls/{call_id} 详情端点配对。
+    用途：前端"某工具历史调用"面板；与 /api/tools/calls/{call_id} 详情端点配对。
     """
     rows = audit.list_tool_calls_by_tool(tool=tool, limit=limit)
     items = [

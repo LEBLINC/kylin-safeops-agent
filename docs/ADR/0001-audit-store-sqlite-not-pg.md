@@ -1,7 +1,6 @@
 # ADR-0001：审计库选用 SQLite，不引入 PostgreSQL
 
-- 状态：**已接受（Accepted）** — L 拍板冻结，2026-06-16
-- 决策者：L（集成/架构）、D（db/audit 负责人）
+- 状态：**已接受（Accepted）** — 2026-06-16 冻结
 - 关联：决策⑪（审计库部署硬化）、`backend/app/db/session.py`、`backend/app/audit/audit_logger.py`、`deploy/audit/README.md`
 
 ## 背景（Context）

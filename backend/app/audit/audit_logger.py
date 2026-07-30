@@ -384,7 +384,7 @@ class SqliteAuditSink:
         tool: str,
         limit: int = 10,
     ) -> list[dict]:
-        """按工具名列历史调用（commit 2 D7 /api/tools/calls 用）。
+        """按工具名列历史调用（/api/tools/calls 用）。
 
         数据源：audit_records phase IN ('EXECUTING','EXECUTED') 且
         json_extract(payload, '$.tool') = tool_name；按 trace_id 聚合取首条，

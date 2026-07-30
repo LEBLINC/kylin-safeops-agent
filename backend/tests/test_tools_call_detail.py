@@ -1,4 +1,4 @@
-"""X D6 /api/tools/calls/{call_id} 详情端点测试。
+"""/api/tools/calls/{call_id} 详情端点测试。
 
 覆盖 2 用例：
   - T7：传入 trace_id（已有 EXECUTING/EXECUTED 记录）→ 返回完整 tool_name/args/exit_code/timestamp
