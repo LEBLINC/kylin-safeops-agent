@@ -98,3 +98,71 @@ async def llm_rewrite_summary(
         cleaned = cleaned[: _SUMMARY_MAX_CHARS - 3] + "..."
 
     return cleaned
+
+
+#: root_cause 单条判断的长度上限（比 summary 更短：它是一句结论，不是段落）。
+_ROOT_CAUSE_MAX_CHARS = 120
+
+
+async def llm_rewrite_root_cause(
+    llm: LLMAdapter,
+    evidence: list[dict],
+    structured_report: dict,
+) -> str | None:
+    """LLM 改写 structured_report['root_cause']；不支持/异常/拒答/命中凭据 → None。
+
+    之七十五 M-10（原 RCA Task 2b）。playbooks.py 的 root_cause 来自
+    root_cause_candidates[0].cause，是确定性硬编码字符串——对固定场景准确但不贴合
+    实际证据数值。本函数沿用 llm_rewrite_summary 的 fallback 范式：任何不确定
+    都返回 None，让调用方保留 playbook 原文案。
+
+    **为什么需要专用能力探测（踩坑记录）**：初版复用 llm.summarize 通道、把
+    "要改写 root_cause"的意图塞进 structured_report 的一个提示字段。但
+    default/fake/fixture 的 summary_fn **完全忽略** structured_report
+    （见 adapter.py::summarize 注释），于是提示被静默丢弃，返回的是通用摘要
+    （fake 实现恒返 "已完成:<tools>"）——把它写进 root_cause 等于用摘要覆盖了
+    正确的 playbook 结论，比不改写更糟。test_rca.py 立刻抓到了这一点。
+    改为显式探测 llm.summarize_root_cause：只有适配器真正提供该能力时才改写，
+    否则一律回退。这样 fake/fixture 路径行为零变化。
+
+    1) 适配器无 summarize_root_cause → None（回退，不借用通用摘要通道）
+    2) 空 / None / 异常 → None
+    3) scan_and_redact 命中凭据 → None（安全兜底优先于可读性）
+    4) >120 字 → 截断 + '...'（root_cause 是一句结论，不是段落）
+
+    **返回 None 是完全合法的正常路径**：确定性 playbook 结论永远可用，LLM 只是
+    可选增强，绝不因 LLM 不可用而让 RCA 链路崩或降级（S8 在 RCA 侧的延续）。
+    不改 structured_report 入参；调用方拿到返回后自行赋值或保留原值。
+    """
+    rewrite = getattr(llm, "summarize_root_cause", None)
+    if rewrite is None or not callable(rewrite):
+        log.debug("llm_rewrite_root_cause: adapter 无 summarize_root_cause 能力，保留 playbook")
+        return None
+
+    safe_evidence = _redact_evidence(evidence)
+    try:
+        rewritten = await rewrite(
+            evidence=safe_evidence,
+            structured_report=dict(structured_report),
+        )
+    except Exception as exc:
+        log.warning(
+            "llm_rewrite_root_cause: 调用失败 (%s); keep playbook root_cause",
+            type(exc).__name__,
+        )
+        return None
+
+    if not rewritten:
+        return None
+    text = str(rewritten).strip()
+    if not text:
+        return None
+
+    cleaned, hit = scan_and_redact(text)
+    if hit:
+        log.warning("llm_rewrite_root_cause: sensitive pattern in LLM output, drop rewrite")
+        return None
+
+    if len(cleaned) > _ROOT_CAUSE_MAX_CHARS:
+        cleaned = cleaned[: _ROOT_CAUSE_MAX_CHARS - 3] + "..."
+    return cleaned

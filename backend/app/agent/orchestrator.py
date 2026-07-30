@@ -580,16 +580,28 @@ class Orchestrator:
         if report:
             # 之六十八 Task 2a: summary 字段由 LLM 生成（playbooks 模板作为兜底）。
             # report 是 dict，in-place 改 report["summary"]，让 rca 事件携带 LLM 化版本。
-            from backend.app.agent.rca_summary_llm import llm_rewrite_summary
-
-            rewritten = await llm_rewrite_summary(
-                self._llm, [e.model_dump() for e in self._evidence], report
+            from backend.app.agent.rca_summary_llm import (
+                llm_rewrite_root_cause,
+                llm_rewrite_summary,
             )
+
+            evidence_dicts = [e.model_dump() for e in self._evidence]
+            rewritten = await llm_rewrite_summary(self._llm, evidence_dicts, report)
             if rewritten:
                 report["summary"] = rewritten
                 report["summary_source"] = "llm"
             else:
                 report["summary_source"] = "playbook"
+
+            # 之七十五 M-10（原 Task 2b）：root_cause 同样 LLM 化，失败回退 playbook 原文案。
+            # 两个字段各自独立判定——summary 成功而 root_cause 拒答（或反之）是正常组合，
+            # 故不共用 source 标记，前端可分别显示各字段的来源。
+            rewritten_cause = await llm_rewrite_root_cause(self._llm, evidence_dicts, report)
+            if rewritten_cause:
+                report["root_cause"] = rewritten_cause
+                report["root_cause_source"] = "llm"
+            else:
+                report["root_cause_source"] = "playbook"
 
             llm_summary = await self._emit_rca_summary(self._evidence, report)
             rca_payload: dict = {"report": report}

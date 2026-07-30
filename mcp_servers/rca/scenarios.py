@@ -40,7 +40,7 @@ RCA_SCENARIO_TYPES: tuple[RcaProblemType, ...] = (
 # file.lsof_check args={path? or pid?}
 # config.hash_snapshot / config.diff args={paths, baseline_id?}
 # system.info args={}
-# service.status args={unit}
+# service.status args={service_name}   ← registry 口径（之七十五 M-9 由 unit 更正）
 RCA_SCENARIOS: dict[RcaProblemType, RcaScenarioPlan] = {
     "disk_full": {
         "problem_type": "disk_full",
@@ -261,7 +261,14 @@ RCA_SCENARIOS: dict[RcaProblemType, RcaScenarioPlan] = {
         "evidence_steps": [
             {
                 "tool": "service.status",
-                "args": {"unit": ""},
+                # 之七十五 M-9：字段名统一到 registry 口径 service_name（原写 unit，
+                # 而 service.status 的 input_schema 是 required=[service_name] +
+                # additionalProperties=False → 该步必被 gateway schema 闸拒，
+                # 场景模板里这一步等于从未生效，属静默失效）。
+                # 取值也不能留空串：schema 有 minLength=1，"" 同样被拒。
+                # cron.service 与本仓其它场景默认值同源（见 disk_full/io_high 的
+                # journal_query 默认 unit），调用方按真实故障服务覆盖即可。
+                "args": {"service_name": "cron.service"},
                 "purpose": "Collect current service state, ActiveState, SubState, and last exit code.",
                 "evidence_key": "service_state",
                 "required": True,

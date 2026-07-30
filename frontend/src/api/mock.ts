@@ -4,6 +4,7 @@ import type { ChatSession, SendMessageRequest, SendMessageResponse, StreamEvent 
 const UNTRUSTED_WRAP_TOKEN = '<<UNTRUSTED_TOOL_OUTPUT>>'
 import type {
   ApprovalItem,
+  ApprovalListResponse,
   EscalateApprovalRequest,
   EscalateApprovalResponse,
   ResumeApprovalRequest,
@@ -281,9 +282,17 @@ export async function mockEscalateApproval(data: EscalateApprovalRequest): Promi
   }
 }
 
-/** Mock：GET /api/approvals?status=pending（对齐后端 ApprovalItem 6 字段）。 */
-export async function mockGetPendingApprovals(): Promise<ApprovalItem[]> {
-  return [
+/**
+ * Mock：GET /api/approvals?status=pending。
+ *
+ * 之七十五 M-8：返回**与后端同构的信封** { items, total }，不再返回裸数组。
+ * 之七十四的审批页白屏正是信封错配——后端返回 { items, total } 而前端按裸数组
+ * 消费。mock 若返回裸数组，则 approval.ts 里的 `.items` 解包在 mock 模式下
+ * 永远不被执行，这类错配无法在 mock 联调中暴露，只能等真接后端才炸。
+ * mock 与真后端信封同构是让 mock 具备"提前发现错配"能力的前提。
+ */
+export async function mockGetPendingApprovals(): Promise<ApprovalListResponse> {
+  const items: ApprovalItem[] = [
     {
       trace_id: 'mock_trace_disk_full',
       user_intent: '压缩并轮转 /var/log/app.log',
@@ -293,11 +302,13 @@ export async function mockGetPendingApprovals(): Promise<ApprovalItem[]> {
       created_at: nowIso()
     }
   ]
+  return { items, total: items.length }
 }
 
 /** Mock：GET /api/approvals/{trace_id}。 */
 export async function mockGetApprovalDetail(traceId: string): Promise<ApprovalItem> {
-  return (await mockGetPendingApprovals()).find(item => item.trace_id === traceId) || (await mockGetPendingApprovals())[0]
+  const { items } = await mockGetPendingApprovals()
+  return items.find(item => item.trace_id === traceId) || items[0]
 }
 
 /** Mock：POST /api/approvals/{trace_id}/approve。 */

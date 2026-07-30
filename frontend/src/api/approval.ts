@@ -44,8 +44,13 @@ import type {
  * - dry_run：执行前影响范围。
  */
 export async function getPendingApprovals() {
-  if (isMockEnabled()) { const { mockGetPendingApprovals } = await import("./mock"); return mockGetPendingApprovals() }
-  // 后端返回信封 {items, total}，解包 items 给 store（store 期望裸数组）
+  // 之七十五 M-8：mock 与真后端都返回信封 { items, total }，故解包路径二者共用——
+  // 这样 mock 联调就能提前暴露信封错配（之七十四审批页白屏即此类），
+  // 而不是等真接后端才炸。
+  if (isMockEnabled()) {
+    const { mockGetPendingApprovals } = await import('./mock')
+    return (await mockGetPendingApprovals()).items
+  }
   const res = await request.get<ApprovalListResponse, ApprovalListResponse>('/api/approvals', {
     params: { status: 'pending' }
   })

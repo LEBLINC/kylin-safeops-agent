@@ -102,10 +102,18 @@ class MCPGateway:
         spec = self._registry.get(tool.name)
         return spec is not None and spec.risk in READ_ONLY_RISKS
 
-    def evaluate(self, tool: CandidateTool) -> PolicyVerdict:
-        """前两道闸 + 策略裁决，**不执行**。供 orchestrator 在 POLICY_CHECKED 分支用。
+    def _validate_tool_call(self, tool: CandidateTool) -> PolicyVerdict:
+        """闸1 注册校验 + 闸2 schema 校验 + 闸3 策略裁决，返回裁决（**不执行**）。
 
-        闸1 注册校验、闸2 结构校验失败 → 合成 deny；通过则返回 D 策略引擎的裁决。
+        之七十五 M-1：从 call() 提取，供 call() 与 _aggregate_config_diff() 的内部
+        快照调用共同复用。此前后者直接 self._executor.execute(snapshot_tool)，
+        绕过三道闸——paths 来自 tool.args（模型可控），虽已随 config.diff 本身过完
+        策略闸与路径闸、executor 内仍 canonicalize，但"内部构造的调用不过闸"本身
+        就是闸链一致性缺口：日后 config.hash_snapshot 的 schema 或策略一旦收紧，
+        这条内部路径不会同步生效。
+
+        **刻意不复用 call()**：那会与"聚合只在 mcp 层"（决策⑤）冲突，并引入
+        call → _aggregate_config_diff → call 递归。故只提取校验、不提取执行。
         """
         spec = self._registry.get(tool.name)
         if spec is None:
@@ -115,6 +123,13 @@ class MCPGateway:
             return _deny_verdict("schema validation failed: " + "; ".join(sv.errors))
         return self._policy.evaluate(tool)
 
+    def evaluate(self, tool: CandidateTool) -> PolicyVerdict:
+        """前两道闸 + 策略裁决，**不执行**。供 orchestrator 在 POLICY_CHECKED 分支用。
+
+        闸1 注册校验、闸2 结构校验失败 → 合成 deny；通过则返回策略引擎的裁决。
+        """
+        return self._validate_tool_call(tool)
+
     async def call(self, tool: CandidateTool, *, approved: bool = False) -> CallOutcome:
         """tools/call：三道闸 → 执行 → 结果闸。任一闸不过则不执行。
 
@@ -122,7 +137,7 @@ class MCPGateway:
         gateway 是权威执行边界，即便 orchestrator 已先 evaluate 过，此处仍重新过闸
         （防御纵深；策略引擎须为确定性，两次裁决一致）。
         """
-        # 闸1：注册校验
+        # 闸1：注册校验（先单独取 spec——下面 config.diff 分支与执行都要用）
         spec = self._registry.get(tool.name)
         if spec is None:
             return CallOutcome(
@@ -131,16 +146,16 @@ class MCPGateway:
                 reason="unregistered tool",
             )
 
-        # 闸2：结构校验（策略前第一道；不过直接 deny）
-        sv = validate_args(tool.args, spec.input_schema)
-        if not sv.ok:
-            reason = "schema validation failed: " + "; ".join(sv.errors)
-            return CallOutcome(executed=False, verdict=_deny_verdict(reason), reason=reason)
-
-        # 闸3：策略放行。deny 永拦；confirm 仅在已审批时放行；allow 放行。
-        verdict = self._policy.evaluate(tool)
+        # 闸2+闸3：schema 校验 + 策略裁决（与内部快照调用共用同一实现，M-1）
+        verdict = self._validate_tool_call(tool)
         if verdict.decision == "deny":
-            return CallOutcome(executed=False, verdict=verdict, reason="policy: deny")
+            # 区分 schema 失败与策略 deny 的 reason 口径（保持原有对外表述）
+            reason = (
+                verdict.reason
+                if verdict.reason.startswith("schema validation failed")
+                else "policy: deny"
+            )
+            return CallOutcome(executed=False, verdict=verdict, reason=reason)
         if verdict.decision == "confirm" and not approved:
             return CallOutcome(
                 executed=False, verdict=verdict, reason="policy: confirm (needs approval)"
@@ -167,6 +182,16 @@ class MCPGateway:
         """
         paths = tool.args.get("paths", [])
         snapshot_tool = CandidateTool(name="config.hash_snapshot", args={"paths": paths})
+        # 之七十五 M-1：内部快照调用也过同一套校验（注册 + schema + 策略），
+        # 不再直接 execute。paths 来自 tool.args（模型可控）；虽已随 config.diff
+        # 过完策略闸与路径闸，但让内部构造的调用绕过闸链会埋下一致性缺口——
+        # config.hash_snapshot 的 schema/策略日后收紧时，这条路径不会同步生效。
+        # 仍不走 call()：会与决策⑤冲突并引入 call→aggregate→call 递归。
+        snap_verdict = self._validate_tool_call(snapshot_tool)
+        if snap_verdict.decision == "deny":
+            reason = f"internal config.hash_snapshot rejected: {snap_verdict.reason}"
+            return CallOutcome(executed=False, verdict=snap_verdict, reason=reason)
+
         snap = await self._executor.execute(snapshot_tool)
         if snap.exit_code != 0:
             # 方案 B：快照命令失败原样上抛（别吞错）；结果闸照常密封。

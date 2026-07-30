@@ -45,7 +45,19 @@ async def _produce_llm_summary(
     """
     if llm is None:
         return None
-    from backend.app.agent.rca_summary_llm import llm_rewrite_summary
+    from backend.app.agent.rca_summary_llm import (
+        llm_rewrite_root_cause,
+        llm_rewrite_summary,
+    )
+
+    # 之七十五 M-10：root_cause 也 LLM 化（与 chat 主链路同口径），失败回退 playbook。
+    # in-place 改 report 后由调用方一并返回给前端；两字段各自独立判定来源。
+    rewritten_cause = await llm_rewrite_root_cause(llm, evidence, report)
+    if rewritten_cause:
+        report["root_cause"] = rewritten_cause
+        report["root_cause_source"] = "llm"
+    else:
+        report["root_cause_source"] = "playbook"
 
     return await llm_rewrite_summary(llm, evidence, report)
 

@@ -112,7 +112,28 @@ def get_llm() -> LLMAdapter:
     # 默认走真接 (含 KYLIN_LLM_RECORD=true 录制场景兼容)
     # X P5 fix: summary_fn 注入 real.summarize (否则走 _default_summary_fn 兜底)
     real = RealLLMClient(load_real_llm_config_from_env())
-    return _LLMAdapter(completion_fn=real.completion_fn, summary_fn=real.summarize)
+
+    # 之七十五 M-10：注入 RCA root_cause 改写能力。
+    # 适配签名差异——SummaryFn 是 (tool_results, user_intent, *, evidence,
+    # structured_report)，而 summarize_root_cause 只要后两个关键字参数，
+    # 故用一层薄 shim 丢掉前两个位置参数（它们对根因改写无意义）。
+    async def _root_cause_fn(
+        _tool_results: list[dict],
+        _user_intent: str,
+        *,
+        evidence: list[dict] | None = None,
+        structured_report: dict | None = None,
+    ) -> str | None:
+        return await real.summarize_root_cause(
+            evidence=evidence or [],
+            structured_report=structured_report or {},
+        )
+
+    return _LLMAdapter(
+        completion_fn=real.completion_fn,
+        summary_fn=real.summarize,
+        root_cause_fn=_root_cause_fn,
+    )
 
 
 def get_audit() -> AuditSink:

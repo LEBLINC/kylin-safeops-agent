@@ -175,14 +175,20 @@ class LLMAdapter:
         stream_fn: StreamFn | None = None,
         tool_specs: list[ToolSpec] | None = None,
         summary_fn: SummaryFn | None = None,
+        root_cause_fn: SummaryFn | None = None,
     ) -> None:
         self.config = config or LLMConfig()
         self._completion_fn = completion_fn or self._default_completion
         self._stream_fn = stream_fn or self._default_stream
         # 自然语言总结函数（verified 后调，间接注入防御纵深由 orchestrator 拦）
         # 默认 _default_summary_fn：确定性 "已完成:<tool_names>"，CI 友好；真 LLM
-        # 路径通过 summary_fn=RealLLMClient.summarize_fn 注入（D VM 接入后）。
+        # 路径通过 summary_fn=RealLLMClient.summarize_fn 注入。
         self._summary_fn = summary_fn or self._default_summary_fn
+        # 之七十五 M-10：RCA root_cause 改写能力**可选**注入。
+        # 不给默认实现是刻意的——没有真 LLM 时保留 playbook 的确定性规则结论，
+        # 比编一句根因更可信；rca_summary_llm.llm_rewrite_root_cause 通过
+        # hasattr 探测本能力，未注入即整条回退（fake/fixture 路径行为零变化）。
+        self._root_cause_fn = root_cause_fn
         # 工具清单（O18）：注入 system prompt 让真 LLM 知道每个工具的 input_schema。
         # None 时退化为旧行为（仅信封 schema）；fixture 靠关键词硬编码不依赖此项。
         self._tool_specs = tool_specs
@@ -325,6 +331,30 @@ class LLMAdapter:
         return await self._summary_fn(
             tool_results,
             user_intent,
+            evidence=evidence,
+            structured_report=structured_report,
+        )
+
+    async def summarize_root_cause(
+        self,
+        *,
+        evidence: list[dict],
+        structured_report: dict,
+    ) -> str | None:
+        """RCA 根因结论改写（之七十五 M-10）；未注入 root_cause_fn 时返回 None。
+
+        与 summarize 分开而非复用同一通道：summarize 产出面向用户的一段叙述，
+        本方法产出一句可直接填进 report['root_cause'] 的结论。复用会让那些忽略
+        structured_report 的 fake/fixture 实现返回通用摘要，被误当作根因写回报告
+        （M-10 初版正是这样，test_rca.py 抓到 '已完成:disk.usage' 覆盖了真结论）。
+
+        返回 None 是合法正常路径：调用方保留 playbook 的确定性结论。
+        """
+        if self._root_cause_fn is None:
+            return None
+        return await self._root_cause_fn(
+            [],
+            "",
             evidence=evidence,
             structured_report=structured_report,
         )
