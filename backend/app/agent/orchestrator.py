@@ -62,6 +62,27 @@ def _most_restrictive_role(roles: Sequence[str | None]) -> str | None:
     return max(roles, key=lambda r: _ROLE_RANK[r])  # type: ignore[index]  # 上面已排除未知
 
 
+def _redact_tool_results(results: Sequence[ToolResult]) -> list[dict]:
+    """S9 输入侧脱敏：把 ToolResult 序列化为 dict 并扫掉 stdout 里的凭据。
+
+    之七十五 M-2。此前 summarize 的入参是裸 model_dump()，只在输出侧
+    scan_and_redact——口径不对称，凭据会原样出网到 LLM 网关，输出侧再 redact
+    也追不回来。这里在送出前先过同一套 scan_and_redact（同口径，不引新规则）。
+
+    只扫 stdout_truncated：它是唯一承载外部命令输出的自由文本字段；
+    tool/args/exit_code 是结构化受控值（args 已经过 input_schema 校验），
+    扫它们只会带来误伤而无收益。
+    """
+    redacted: list[dict] = []
+    for result in results:
+        payload = result.model_dump()
+        stdout = payload.get("stdout_truncated")
+        if isinstance(stdout, str) and stdout:
+            payload["stdout_truncated"], _ = scan_and_redact(stdout)
+        redacted.append(payload)
+    return redacted
+
+
 def most_restrictive(verdicts: Sequence[PolicyVerdict]) -> PolicyVerdict:
     """从多个裁决里取最严的一个（deny > confirm > allow）。"""
     return max(verdicts, key=lambda v: _DECISION_RANK[v.decision])
@@ -653,7 +674,11 @@ class Orchestrator:
 
         # 2) LLM.summarize 调用
         # C1（阶段6 backlog）：summarize 调用点补 llm.calls/llm.failures 埋点（与 plan() 同口径）。
-        tool_results_dict = [r.model_dump() for r in results]
+        # 之七十五 M-2：输入侧也过一遍 S9——此前只在输出侧 scan_and_redact，口径不对称。
+        # 不对称的实际后果：工具 stdout 里的凭据（如 journalctl 抓到的连接串、
+        # config 快照里的密码字段）会**原样发给外部 LLM 网关**；输出侧的 redact 只
+        # 保证不回显给前端，管不住已经出网的这一份。故在入参侧先脱敏再送出。
+        tool_results_dict = _redact_tool_results(results)
         get_metrics().inc("llm.calls")
         try:
             summary = await self._llm.summarize(

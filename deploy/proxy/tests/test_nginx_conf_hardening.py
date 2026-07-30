@@ -87,3 +87,17 @@ def test_t16_rate_limiting_wired() -> None:
     text = _nginx_text()
     assert "limit_req zone=" in text, "T16: /api/ location 必须接 limit_req 限流"
     assert "limit_req_zone" in text, "T16: 需在注释/说明中给出 limit_req_zone 声明（http{} 作用域）"
+
+
+def test_m6_server_names_hash_bucket_size_documented() -> None:
+    """M-6: server_names_hash_bucket_size 必须在注释区文档化。
+
+    麒麟 V11 + LoongArch 实机发现：该值部分平台默认 32，server_name 稍长即触发
+    "could not build server_names_hash" 启动失败（实机上 kylin-safeops.test
+    这个长度就已命中）。它与 limit_req_zone 同属"必须写进主配置 http{} 块、
+    但本 server{} 片段无法自带"的项——不文档化等于把一个必然踩到的部署阻塞
+    留给运维现场排查。
+    """
+    text = _nginx_text()
+    assert "server_names_hash_bucket_size 64;" in text, "M-6: 需注明需在 http{} 加该指令"
+    assert "could not build server_names_hash" in text, "M-6: 应给出实际报错文本便于检索"

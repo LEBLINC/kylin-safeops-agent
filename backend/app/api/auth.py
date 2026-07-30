@@ -21,11 +21,14 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
+
+logger = logging.getLogger(__name__)
 
 #: 防重放时间窗（秒）：|now - timestamp| 超过即拒。
 _MAX_CLOCK_SKEW_SECONDS = 300
@@ -114,6 +117,19 @@ def _build_redis_nonce_store() -> NonceStore:
 
         return RedisNonceStore()
     except Exception:  # noqa: BLE001  # 连接/依赖不可用不炸进程，退回内存实现
+        # 之七十五 M-3：这条降级必须留痕，且必须是 ERROR 级。
+        # 语义后果：调用方**显式**要求 redis（KYLIN_NONCE_STORE=redis），即已声明
+        # 这是多副本部署——而回退到进程内内存 store 意味着 nonce 只在单副本内唯一，
+        # 跨副本重放防护静默失效（同一签名可在副本 A 用过后再到副本 B 重放一次）。
+        # 安全能力降级但服务照常 200，无日志则运维完全无从察觉，故 ERROR + 明确后果。
+        # 仍保持 fail-soft（不 raise）：认证链本身未失效，拒启动的代价大于收益；
+        # 真正的判定留给运维据此日志决定是否下线该副本。
+        logger.error(
+            "nonce store 降级：显式要求 redis 但构造失败，已回退进程内内存实现。"
+            "后果——跨副本重放防护失效（nonce 仅单副本内唯一）；"
+            "多副本部署请检查 KYLIN_REDIS_URL 可达性与 redis 依赖是否安装。",
+            exc_info=True,
+        )
         return InMemoryNonceStore()
 
 

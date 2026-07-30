@@ -27,6 +27,23 @@ log = logging.getLogger(__name__)
 _SUMMARY_MAX_CHARS = 200
 
 
+def _redact_evidence(evidence: list[dict]) -> list[dict]:
+    """S9 输入侧脱敏（之七十五 M-2）：扫 evidence 里承载命令输出的自由文本字段。
+
+    只扫 stdout_truncated / stdout：结构化字段（tool/args/exit_code）是受控值，
+    扫它们只有误伤没有收益。不改入参（返回浅拷贝后的新 dict）。
+    """
+    safe: list[dict] = []
+    for item in evidence:
+        row = dict(item)
+        for key in ("stdout_truncated", "stdout"):
+            value = row.get(key)
+            if isinstance(value, str) and value:
+                row[key], _ = scan_and_redact(value)
+        safe.append(row)
+    return safe
+
+
 async def llm_rewrite_summary(
     llm: LLMAdapter,
     evidence: list[dict],
@@ -44,12 +61,16 @@ async def llm_rewrite_summary(
 
     不改 structured_report 入参;调用方拿到返回后自行 report['summary'] = rewritten
     或保留原值(失败兜底)。
+
+    之七十五 M-2: evidence 送出前先过 S9 脱敏（与 orchestrator._emit_natural_language
+    同口径）。此前只在输出侧扫,凭据会原样出网到 LLM 网关,输出侧再 redact 也追不回。
     """
+    safe_evidence = _redact_evidence(evidence)
     try:
         rewritten = await llm.summarize(
-            tool_results=list(evidence),
+            tool_results=safe_evidence,
             user_intent="",
-            evidence=list(evidence),
+            evidence=safe_evidence,
             structured_report=dict(structured_report),
         )
     except Exception as exc:

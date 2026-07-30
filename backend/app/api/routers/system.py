@@ -407,9 +407,23 @@ async def readiness(
     bus: EventBus = Depends(get_bus),
     registry: SessionRegistry = Depends(get_registry),
 ) -> ReadinessResponse | JSONResponse:
-    """K8s readiness 探针:DB write OK + bus 存活 + registry.active_count < 阈值.
+    """readiness 探针：审计库可写 + bus 存活 + 活跃 SSE 连接数未达上限。
 
-    Returns 200 on ready=True; raise 503 on ready=False.
+    ready=True → 200；任一不满足 → 503（K8s / 部署冒烟据此判定实例可否接流量）。
+
+    **无鉴权依赖**：本端点刻意不挂 verify_token——探针需在 dev / proxy 两种模式下
+    均可直连 127.0.0.1:8000 探测（deploy/verify.sh 即依赖这一点）。其代价与边界：
+    - 只暴露布尔健康位 + 活跃连接数，不含任何业务数据 / 身份信息 / 配置值，
+      故无鉴权不构成信息泄露面；
+    - app 只监听 127.0.0.1（见 deploy/app/kylin-safeops-agent.service），
+      外部不可直达，nginx 也不把 /api/system/ready 暴露到公网 location；
+    - active_sessions 是并发规模的粗粒度指标，属运维可观测性范畴，不视为敏感。
+
+    三项判定的边界：
+    - db：audit.ping() 探一次真实写路径（非仅连接存活），异常即 False；
+    - bus：单实例内存 EventBus，进程活着它就活着，恒 True——这一项存在的意义是
+      为多实例/外部总线预留位，当前不具备诊断价值，不应被解读为"总线已验证"；
+    - registry：活跃 SSE 连接数 < KYLIN_SSE_MAX_CONN（默认 100）。
     """
     db_ok = False
     bus_ok = False
@@ -424,7 +438,13 @@ async def readiness(
     except Exception:  # noqa: BLE001
         active = 0
     bus_ok = True  # 单实例 EventBus 必活
-    registry_ok = active < int(os.environ.get("KYLIN_SSE_QUEUE_MAX", "100") or "100")
+    # 之七十五 M-5：此处原读 KYLIN_SSE_QUEUE_MAX——语义错配。
+    # bus.active_count 是**活跃连接数**，而 KYLIN_SSE_QUEUE_MAX 是**单队列事件深度**
+    # （H-2 起默认 512）。错配的实际危害：运维一旦按 H-2 显式 export
+    # KYLIN_SSE_QUEUE_MAX=512，readiness 阈值会静默从 100 放大到 512 连接，探针失去意义。
+    # 改读语义正确且已存在的 KYLIN_SSE_MAX_CONN（默认 100）——与 chat SSE、
+    # llm probe-watch SSE 三处连接上限共用同一变量，不新增 env。
+    registry_ok = active < int(os.environ.get("KYLIN_SSE_MAX_CONN", "100") or "100")
     overall = db_ok and bus_ok and registry_ok
     if not overall:
         return JSONResponse(

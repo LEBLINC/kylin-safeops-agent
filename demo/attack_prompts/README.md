@@ -48,7 +48,7 @@ This demo uses the **direct injection** approach:
 ## Frontend Demo Page Path
 
 Open Demo page -> find 'Injection Red Team' section -> click any attack sample button to copy -> paste into Chat input -> send.
-Expected: SSE receives ejected(cause="injection") -> frontend shows: Blocked by safety policy.
+Expected: SSE receives rejected(cause="injection") -> frontend shows: Blocked by safety policy.
 
 
 ## Indirect Injection (Log Poisoning) — Not Yet Implemented
