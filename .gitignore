@@ -19,6 +19,12 @@ _reference/
 !/docs/v2/
 /docs/v2/*
 !/docs/v2/软件*.md
+# README 内嵌的两张架构图（其余 19 张图与全部 .mmd 源仍不入库——交付文档转 Word 时
+# 由本地 docs/figures/ 提供，仓库只带 README 渲染必需的最小集）。
+!/docs/figures/
+/docs/figures/*
+!/docs/figures/fig-dsn-3-1-architecture.png
+!/docs/figures/fig-dsn-6-1-five-gates.png
 # 竞赛交付文档（根级 软件*系列）经 /*.md 屏蔽，终稿以比赛提交包为准，不走本仓。
 /文档_GPT/
 /文档_claude/
