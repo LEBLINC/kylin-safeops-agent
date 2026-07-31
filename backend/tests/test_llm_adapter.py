@@ -64,7 +64,10 @@ def test_plan_degrades_after_exhausting_retries() -> None:
     fn = _fn_returning("garbage")
     adapter = LLMAdapter(config=LLMConfig(max_retries=2), completion_fn=fn)
     intent = asyncio.run(adapter.plan([{"role": "user", "content": "x"}]))
-    assert intent == OBSERVE_ONLY_INTENT
+    assert intent.model_dump(exclude={"justification"}) == OBSERVE_ONLY_INTENT.model_dump(
+        exclude={"justification"}
+    )
+    assert "[规划降级]" in intent.justification
     assert fn.calls["n"] == 3  # 1 首次 + 2 纠错
 
 
@@ -74,7 +77,10 @@ def test_plan_rejects_bare_shell_field() -> None:
     fn = _fn_returning(poisoned)
     adapter = LLMAdapter(config=LLMConfig(max_retries=1), completion_fn=fn)
     intent = asyncio.run(adapter.plan([{"role": "user", "content": "x"}]))
-    assert intent == OBSERVE_ONLY_INTENT
+    assert intent.model_dump(exclude={"justification"}) == OBSERVE_ONLY_INTENT.model_dump(
+        exclude={"justification"}
+    )
+    assert "[规划降级]" in intent.justification
 
 
 def test_parse_intent_raises_on_garbage() -> None:
@@ -167,7 +173,10 @@ def _adversarial_degrades(output: str, *, max_retries: int = 1) -> None:
         config=LLMConfig(max_retries=max_retries), completion_fn=_fn_returning(output)
     )
     intent = asyncio.run(adapter.plan([{"role": "user", "content": "x"}]))
-    assert intent == OBSERVE_ONLY_INTENT
+    assert intent.model_dump(exclude={"justification"}) == OBSERVE_ONLY_INTENT.model_dump(
+        exclude={"justification"}
+    )
+    assert "[规划降级]" in intent.justification
 
 
 def test_adversarial_injection_text_degrades() -> None:

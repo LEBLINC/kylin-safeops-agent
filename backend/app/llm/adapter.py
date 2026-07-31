@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import TypeAlias
@@ -168,6 +169,11 @@ class LLMAdapter:
     completion_fn 可注入以便测试；默认用 httpx 调 chat/completions。
     """
 
+    # 不能写模块级 logger = getLogger(__name__)：此模块被 contracts/ import 前
+    # 已导入，在 logging.dictConfig 之前构造，会拿到 root logger 的空 handler。
+    # 写成类变量，实例化时 logging 已由 lifespan 完成配置。
+    _log = logging.getLogger(__name__)
+
     def __init__(
         self,
         config: LLMConfig | None = None,
@@ -253,6 +259,7 @@ class LLMAdapter:
             *list(messages),
         ]
         last_error = ""
+        last_reason = "unknown"
         # 首次 + max_retries 次纠错
         for attempt in range(self.config.max_retries + 1):
             raw = await self._completion_fn(convo)
@@ -260,6 +267,7 @@ class LLMAdapter:
                 return parse_intent(raw)
             except (ValidationError, ValueError, KeyError) as exc:
                 last_error = str(exc)
+                last_reason = type(exc).__name__  # S9：只取类型名，不取 exc 详情
                 if attempt == self.config.max_retries:
                     break
                 # 把坏输出 + 错误回喂，要求模型自修（含工具清单，便于改对参数）
@@ -269,8 +277,24 @@ class LLMAdapter:
                     {"role": "assistant", "content": raw},
                     {"role": "user", "content": build_repair_prompt(raw, last_error)},
                 ]
-        # 重试用尽仍不合法 → 降级为仅观测、不规划
-        return OBSERVE_ONLY_INTENT.model_copy(deep=True)
+        # 重试用尽仍不合法 → 降级为仅观测、不规划。
+        # 降级本身是正确的 fail-safe（LLM 输出格式错误是常态，系统继续观测而非崩溃），
+        # 但原实现 last_error 被静默丢弃：运维看不到规划为何变成"仅观测"。
+        # 两处加法：① 日志留可见痕；② justification 写入降级标记供审计链辨识。
+        # reason 只用 exc 类型名（S9：ValidationError 详情可能回显 args 值）。
+        self._log.warning(
+            "LLM 规划降级为仅观测（重试 %d 次仍不合法）: reason=%s",
+            self.config.max_retries + 1,
+            last_reason,
+        )
+        return OBSERVE_ONLY_INTENT.model_copy(
+            deep=True,
+            update={
+                "justification": (
+                    f"[规划降级] 重试 {self.config.max_retries + 1} 次仍不合法：{last_reason}"
+                )
+            },
+        )
 
     async def stream_summary(self, messages: Sequence[Message]) -> AsyncIterator[str]:
         """流式产出过程性自然语言叙述，给前端思维链动画（手册 §3.2）。

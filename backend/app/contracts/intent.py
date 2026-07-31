@@ -33,7 +33,12 @@ class Intent(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0, description="模型自评置信度 [0,1]")
     need_observation: bool = Field(..., description="是否需先调用只读观测工具再规划")
     candidate_tools: list[CandidateTool] = Field(
-        default_factory=list, description="候选工具调用列表"
+        default_factory=list,
+        max_length=32,
+        description=(
+            "候选工具调用列表；上限 32（注册表共 15 工具，留 2 倍余量容同工具"
+            "不同参数的重复调用；超限即视为规划本身不合理，不是资源保护线）"
+        ),
     )
     risk_hint: RiskHint = Field(..., description="LLM 主观风险提示")
     justification: str = Field(..., description="选择该规划的理由")

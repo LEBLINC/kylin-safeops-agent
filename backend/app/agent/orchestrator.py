@@ -277,7 +277,15 @@ class Orchestrator:
             return self.state
 
         self._goto(State.INTENT_PARSED)
-        await self._append_audit({"user_intent": intent.intent, "risk_level": intent.risk_hint})
+        await self._append_audit(
+            {
+                "user_intent": intent.intent,
+                "risk_level": intent.risk_hint,
+                # justification 进审计链：降级时含 "[规划降级]" 标记，
+                # 与 intent.intent="observe_only" 合用让链上的降级原因可辨识。
+                "justification": intent.justification,
+            }
+        )
         self._emit("intent_parsed", {"intent": intent.model_dump()})
 
         # 观测分支（need_observation）：有界多轮 observe→re-plan（手册，防死循环）。

@@ -151,3 +151,11 @@ def test_contract_value_domains_frozen() -> None:
 
     # 契约4 不可信定界符
     assert UNTRUSTED_WRAP_TOKEN == "<<UNTRUSTED_TOOL_OUTPUT>>"
+
+    # 契约2 candidate_tools 上限（P1-3）：语义上限而非资源上限。
+    # 取值依据是"注册表 15 工具 × 2 倍余量"，不是队列深度反推——后者是
+    # 实现细节（今天 512、明天可能改），前者是领域事实。新约束自身也须被
+    # 守住：有人调大到 512 时这条会红。
+    from backend.app.contracts.intent import Intent
+
+    assert Intent.model_fields["candidate_tools"].metadata[0].max_length == 32
