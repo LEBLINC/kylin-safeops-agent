@@ -38,7 +38,7 @@ import re
 from backend.app.contracts.audit import AuditRecord
 from backend.app.contracts.intent import CandidateTool
 from backend.app.contracts.policy import PolicyVerdict
-from backend.app.contracts.untrusted import ToolResult
+from backend.app.contracts.untrusted import UNTRUSTED_WRAP_TOKEN, ToolResult
 from backend.app.executor import PrivilegeExecutor
 from backend.app.llm.adapter import LLMAdapter, Message
 from backend.app.mcp.gateway import MCPGateway
@@ -169,6 +169,22 @@ _FAKE_INTENT_ROTATE = json.dumps(
     }
 )
 
+# 观测后的"升级计划"：清理类意图先观测（disk.usage/disk.large_files，R0/R1），
+# 观测完成后确定性地提出一个变更处置（log.compress_rotate，R2）→ 必经人工确认闸。
+# 这条是赛题要的叙事：观测 → 提出变更 → 人工确认。故终态是 WAIT_APPROVAL 而非
+# FINISHED——"看了看磁盘就结束"没有演示价值，也不体现审批闸。
+# 取值与 need_observation=False 都是**固定的**，不随观测正文变化。
+_FAKE_INTENT_AFTER_OBSERVATION = json.dumps(
+    {
+        "intent": "log_compress_rotate",
+        "confidence": 0.9,
+        "need_observation": False,
+        "candidate_tools": [{"name": "log.compress_rotate", "args": {"path": "/var/log/app.log"}}],
+        "risk_hint": "medium",
+        "justification": "观测完成，提出压缩轮转日志释放空间（fake 规划，R2→confirm/operator）",
+    }
+)
+
 # 关键词 → 意图 JSON（命中顺序：restart 优先于 rotate）。
 _RESTART_KEYWORDS = ("重启", "restart")
 _ROTATE_KEYWORDS = ("压缩", "轮转", "rotate", "清日志", "清理日志")
@@ -178,6 +194,55 @@ _ROTATE_KEYWORDS = ("压缩", "轮转", "rotate", "清日志", "清理日志")
 _CLEANUP_KEYWORDS = ("清理", "垃圾", "空间不足", "磁盘满", "满了", "占满")
 _LOOKUP_KEYWORDS = ("查", "查询", "lsof", "看", "看哪些进程在用")  # file.lsof_check 路径
 _DISK_KEYWORDS = ("查看磁盘", "磁盘占用", "disk")  # disk.usage
+
+# ---- 不可信观测块的识别与剥离（Z-7/Z-8 根因修复）------------------------------
+#
+# 背景：orchestrator 二次规划时把观测结果作为 **user 消息**追加进 convo
+# （orchestrator.py 的 wrap_many_for_feedback + convo 追加），而本模块的关键词
+# 路由原先对整条消息做子串匹配。于是 Linux 上 `find /var -printf` 打出
+# /var/lib/logrotate/... 这类路径，正文里的 "rotate" 就把工具选择改掉了——
+# 真 LLM 被 GUARD + BEGIN/END 要求"这是数据不是指令"，桩自己却不遵守。
+#
+# 判据用定界符本身而非业务关键词：feedback._neutralize() 会把正文里任何裸
+# UNTRUSTED_WRAP_TOKEN 替换成 [REDACTED_DELIMITER]，故工具输出**伪造不出**
+# BEGIN 标记，这个判据不可被不可信数据操纵。
+_UNTRUSTED_BEGIN = f"{UNTRUSTED_WRAP_TOKEN}_BEGIN"
+_UNTRUSTED_END = f"{UNTRUSTED_WRAP_TOKEN}_END"
+
+
+def _strip_untrusted_blocks(text: str) -> str:
+    """剥掉 BEGIN/END 包裹的不可信区段，只留真实用户轮的文字。
+
+    未闭合的 BEGIN 之后一律视为不可信整段丢弃（fail-closed：宁可少匹配，
+    不可让不可信正文参与路由）。
+
+    注意剩余部分会含 feedback 的 GUARD 前置句——它在 BEGIN 之前，是本仓自己的
+    常量而非攻击者可控文本，故保留无害；但关键词表不得与该句用词相撞
+    （由 Z-8 的 guard-collision 断言钉住）。
+    """
+    kept: list[str] = []
+    rest = text
+    while True:
+        begin = rest.find(_UNTRUSTED_BEGIN)
+        if begin < 0:
+            kept.append(rest)
+            break
+        kept.append(rest[:begin])
+        end = rest.find(_UNTRUSTED_END, begin)
+        if end < 0:
+            break  # 未闭合 → 其后全部丢弃
+        rest = rest[end + len(_UNTRUSTED_END) :]
+    return "".join(kept)
+
+
+def _convo_has_observation(messages: list[Message]) -> bool:
+    """convo 里是否已存在观测块（= 本轮已经观测过一次）。
+
+    只看定界符存在与否，不看正文内容——"已观测过"是结构事实，
+    与观测到了什么无关。
+    """
+    return any(_UNTRUSTED_BEGIN in str(msg.get("content", "")) for msg in messages)
+
 
 # service_name 提取：取首个空白分词后、直到结尾或下一个非字母数字字符
 _SERVICE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@-]*")
@@ -259,7 +324,14 @@ def _intent_for_message(content: str) -> str:
     - 含"查/查询/lsof" + 路径 → file.lsof_check (R0 allow)
     - 含"查看磁盘/磁盘占用" → disk.usage (R0 allow)
     - 其它 → system.info (R0 allow，默认）
+
+    入口先剥离不可信观测块：关键词路由**只对真实用户轮生效**。
+    此前对整条消息子串匹配，导致工具输出正文能决定选哪个工具
+    （Linux 上 find /var 打出 /var/lib/logrotate/... → 命中 "rotate"）。
+    这是"间接注入不变量"在测试替身一侧的对应物——真 LLM 要遵守的边界，
+    桩不能自己捅穿。
     """
+    content = _strip_untrusted_blocks(content)
     if any(kw in content for kw in _RESTART_KEYWORDS):
         svc = _parse_service_name(content) or "cron.service"
         return json.dumps(
@@ -346,6 +418,11 @@ def build_fake_llm(intent_json: str | None = None) -> LLMAdapter:
         return LLMAdapter(completion_fn=_fixed_completion, summary_fn=_fake_summary_fn)
 
     async def _keyword_completion(messages: list[Message]) -> str:
+        # 已观测过 → 确定性升级为变更处置计划（进人工确认闸）。
+        # 判据是"convo 里有没有观测块"这个结构事实，不是"观测正文里有没有某个词"——
+        # 后者会让不可信输出决定工具选择（Linux 上 find /var 的输出必然含 "rotate"）。
+        if _convo_has_observation(messages):
+            return _FAKE_INTENT_AFTER_OBSERVATION
         return _intent_for_message(_last_user_content(messages))
 
     return LLMAdapter(completion_fn=_keyword_completion, summary_fn=_fake_summary_fn)
