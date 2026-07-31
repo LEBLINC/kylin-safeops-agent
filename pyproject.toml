@@ -4,6 +4,24 @@
 [tool.pytest.ini_options]
 pythonpath = ["."]              # 冻结 仓库根=导入根：backend.app.* 与 mcp_servers.os_ops 一致可导
 testpaths = ["backend/tests", "mcp_servers/rca/tests", "deploy/sso/tests", "deploy/proxy/tests"]
+# "协程建了从没跑"必须当次红，不能只是一条警告。
+# 它的含义是"你以为在跑的一段代码，一行都没跑"——断言在不在都一样绿。
+# 本仓已被这一类咬过两次：P1-2 的 pytest.mark.asyncio 未注册、
+# test_get_llm_record_mode.py 裸调 async _drive()（那条标着 "X P5 fix violation"
+# 的断言从未执行过）。
+#
+# 两条**缺一不可**（探针实测，删掉任一条都会静默退回"绿 + 一条警告"）：
+#   第 1 条把 RuntimeWarning 升成异常。但 never-awaited 是 GC 时经
+#     sys.unraisablehook 抛的、不在用例栈上，pytest 只能把它再包一层
+#     成 PytestUnraisableExceptionWarning —— 只有这条时用例照旧 pass。
+#   第 2 条把那个包装类升红。但只有这条时第 1 步不升级，压根不产生
+#     unraisable，包装警告也不出现 —— 同样照旧 pass。
+# 不整体 -W error（避免第三方 DeprecationWarning 把 CI 变成噪声闸）。
+# 第 2 条顺带覆盖 __del__ 里静默失败的清理逻辑，同属"你以为跑了其实没跑"。
+filterwarnings = [
+    "error:coroutine .* was never awaited:RuntimeWarning",
+    "error::pytest.PytestUnraisableExceptionWarning",
+]
 
 [tool.mypy]
 python_version = "3.10"         # 下限 3.10（契约用 PEP 604）；麒麟 V11 靶机实测 Python 3.11.6，按 3.10 写下限兼容

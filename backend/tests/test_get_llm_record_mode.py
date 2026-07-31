@@ -92,7 +92,11 @@ def test_get_llm_fake_opt_in_returns_fake(monkeypatch) -> None:
             ), "X P5 fix violation: KYLIN_LLM_FAKE=true 应走 fake summary_fn (非 real.summarize)"
             return llm
 
-    _drive()
+    # 必须 asyncio.run：此前是裸调 `_drive()`，只造了个协程对象、**一行都没跑**——
+    # 包括上面那条标着 "X P5 fix violation" 的断言。表现是全程绿 + 一条
+    # RuntimeWarning: coroutine ... was never awaited。同文件 T3/T2 的姊妹写法
+    # 一直是 asyncio.run(_drive())，只有这一处漏了。
+    asyncio.run(_drive())
     origin = _resolved_via_lifespan()
     assert origin == "fake_closure", f"KYLIN_LLM_FAKE=true 应返 fake_closure, got {origin!r}"
 
