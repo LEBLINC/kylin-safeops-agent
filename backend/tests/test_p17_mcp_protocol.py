@@ -192,6 +192,91 @@ def test_m11_rbac_actually_denies_insufficient_role() -> None:
     assert "result" in allowed, f"M-11: operator 有权调用却被拒：{allowed}"
 
 
+def _post_proxy_mode(payload: dict) -> tuple[int, dict]:
+    """在 **proxy 模式**下打 MCP 端点（造真签名头），返回 (status, json)。
+
+    P0-D6 的教训：其余 MCP 用例全在 dev 模式，而 dev 分支直接从 X-User-Role
+    造 Principal、根本不调 verify_proxy_identity——dev 模式测出来的东西
+    证明不了生产分支。生产默认是 proxy，故关键路径必须有 proxy 版本。
+    """
+    import hashlib
+    import hmac
+    import json
+    import time
+    import uuid
+
+    from backend.app.api._fakes import build_gateway
+    from backend.app.api.app import create_app, get_gateway, lifespan
+
+    secret = "mcp-proxy-mode-secret"
+    body = json.dumps(payload).encode()
+    user, roles, ts = "admin", "admin", str(int(time.time()))
+    body_sha = hashlib.sha256(body).hexdigest()
+    nonce = uuid.uuid4().hex
+    canonical = f"{user}\n{roles}\n{ts}\nPOST\n{_MCP_PATH}\n{body_sha}\n{nonce}"
+    sig = hmac.new(secret.encode(), canonical.encode(), hashlib.sha256).hexdigest()
+    headers = {
+        "X-Auth-User": user,
+        "X-Auth-Roles": roles,
+        "X-Auth-Timestamp": ts,
+        "X-Auth-Signature": sig,
+        "X-Auth-Method": "POST",
+        "X-Auth-Path": _MCP_PATH,
+        "X-Auth-Body-Sha": body_sha,
+        "X-Auth-Nonce": nonce,
+        "Content-Type": "application/json",
+    }
+
+    async def _scenario() -> tuple[int, dict]:
+        app = create_app()
+        app.dependency_overrides[get_gateway] = build_gateway
+        async with lifespan(app):
+            transport = httpx.ASGITransport(app=app)  # type: ignore[arg-type]
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post(_MCP_PATH, content=body, headers=headers)
+                return resp.status_code, resp.json()
+
+    old_mode = os.environ.get("KYLIN_AUTH_MODE")
+    old_secret = os.environ.get("KYLIN_PROXY_AUTH_SECRET")
+    os.environ["KYLIN_AUTH_MODE"] = "proxy"
+    os.environ["KYLIN_PROXY_AUTH_SECRET"] = secret
+    try:
+        return asyncio.run(_scenario())
+    finally:
+        for key, val in (
+            ("KYLIN_AUTH_MODE", old_mode),
+            ("KYLIN_PROXY_AUTH_SECRET", old_secret),
+        ):
+            if val is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = val
+
+
+def test_m12_tools_list_in_proxy_mode() -> None:
+    """M-12: proxy（生产默认）模式下 tools/list 必须真能打通。"""
+    status, body = _post_proxy_mode(
+        {"jsonrpc": "2.0", "id": 12, "method": "tools/list", "params": {}}
+    )
+    assert status != 401, f"M-12: proxy 模式下被 401——生产分支打不进去：{body}"
+    assert "result" in body, f"M-12: 未返回 result：{body}"
+    assert len(body["result"]["tools"]) == len(all_specs())
+
+
+def test_m13_change_tool_denied_in_proxy_mode() -> None:
+    """M-13: proxy 模式下变更类工具仍回 -32000（安全边界在生产分支同样生效）。"""
+    status, body = _post_proxy_mode(
+        {
+            "jsonrpc": "2.0",
+            "id": 13,
+            "method": "tools/call",
+            "params": {"name": "service.restart", "arguments": {"service_name": "nginx"}},
+        }
+    )
+    assert status != 401, f"M-13: proxy 模式下被 401：{body}"
+    assert body.get("error", {}).get("code") == -32000, f"M-13: 变更类工具未被拒：{body}"
+
+
 def test_m1_initialize() -> None:
     """M-1: initialize 握手返回协议版本与能力声明。"""
     r = _post({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})

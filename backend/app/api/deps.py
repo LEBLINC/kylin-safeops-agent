@@ -41,6 +41,53 @@ def _auth_mode() -> str:
     return os.environ.get(_AUTH_MODE_ENV, "proxy").strip().lower()
 
 
+#: request.state 上缓存验签结果的键。值是 (Principal | None,) 单元素元组——
+#: 用元组包一层是为了把"验过且失败(None)"与"还没验"区分开。
+_VERIFY_CACHE_ATTR = "_kylin_proxy_identity"
+
+
+async def _verify_once(
+    request: Request,
+    *,
+    user: str | None,
+    roles: str | None,
+    timestamp: str | None,
+    signature: str | None,
+    method: str | None,
+    path: str | None,
+    body_sha: str | None,
+    nonce: str | None,
+) -> Principal | None:
+    """每请求只做一次 HMAC 验签，结果（含失败的 None）缓存在 request.state。
+
+    P0-D6：nonce 是一次性的——verify_proxy_identity 验签通过后即 record(nonce)，
+    同一 nonce 第二次调用命中 seen() 直接返回 None。而 /api/tools/call 与
+    /api/mcp 各挂了两个都会验签的依赖（verify_token + principal_for_tool_call），
+    第二个必然撞上自己刚 record 的 nonce → 生产模式下这两条端点 100% 401。
+
+    缓存必须连 None 一起缓存：只缓存成功结果的话，失败路径每次重算，
+    第二个依赖照样走到 seen() 判定，等于没修。
+
+    跨请求语义不变：缓存挂在 request.state，请求结束即销毁，
+    nonce 的一次性防重放对**不同请求**照常生效。
+    """
+    cached = getattr(request.state, _VERIFY_CACHE_ATTR, None)
+    if cached is not None:
+        return cached[0]
+    principal = verify_proxy_identity(
+        user=user,
+        roles=roles,
+        timestamp=timestamp,
+        signature=signature,
+        method=method or "",
+        path=path or "",
+        body_sha=body_sha or "",
+        nonce=nonce or "",
+    )
+    setattr(request.state, _VERIFY_CACHE_ATTR, (principal,))
+    return principal
+
+
 async def _assert_request_binding(
     request: Request,
     x_auth_method: str | None,
@@ -111,15 +158,16 @@ async def verify_token(
 
     # proxy 模式（默认，fail-closed）：复用 auth.py 验签，不取角色。
     # D 阻断修复: 反代真接 v2 走通 (method/path/body_sha/nonce 入签).
-    principal = verify_proxy_identity(
+    principal = await _verify_once(
+        request,
         user=x_auth_user,
         roles=x_auth_roles,
         timestamp=x_auth_timestamp,
         signature=x_auth_signature,
-        method=x_auth_method or "",
-        path=x_auth_path or "",
-        body_sha=x_auth_body_sha or "",
-        nonce=x_auth_nonce or "",
+        method=x_auth_method,
+        path=x_auth_path,
+        body_sha=x_auth_body_sha,
+        nonce=x_auth_nonce,
     )
     if principal is None:
         raise HTTPException(status_code=401, detail="missing or invalid proxy-signed identity")
@@ -159,15 +207,16 @@ async def require_proxy_identity(
 
     # proxy 模式（默认，fail-closed）
     # D 阻断修复: 反代真接 v2 走通 (method/path/body_sha/nonce 入签).
-    principal = verify_proxy_identity(
+    principal = await _verify_once(
+        request,
         user=x_auth_user,
         roles=x_auth_roles,
         timestamp=x_auth_timestamp,
         signature=x_auth_signature,
-        method=x_auth_method or "",
-        path=x_auth_path or "",
-        body_sha=x_auth_body_sha or "",
-        nonce=x_auth_nonce or "",
+        method=x_auth_method,
+        path=x_auth_path,
+        body_sha=x_auth_body_sha,
+        nonce=x_auth_nonce,
     )
     if principal is None:
         raise HTTPException(status_code=401, detail="missing or invalid proxy-signed identity")
@@ -204,15 +253,16 @@ async def principal_for_idor(
             roles = frozenset({r.strip().lower() for r in raw.split(",") if r.strip()})
         return Principal(user="dev", roles=roles)
 
-    principal = verify_proxy_identity(
+    principal = await _verify_once(
+        request,
         user=x_auth_user,
         roles=x_auth_roles,
         timestamp=x_auth_timestamp,
         signature=x_auth_signature,
-        method=x_auth_method or "",
-        path=x_auth_path or "",
-        body_sha=x_auth_body_sha or "",
-        nonce=x_auth_nonce or "",
+        method=x_auth_method,
+        path=x_auth_path,
+        body_sha=x_auth_body_sha,
+        nonce=x_auth_nonce,
     )
     if principal is None:
         raise HTTPException(status_code=401, detail="missing or invalid proxy-signed identity")
@@ -246,15 +296,16 @@ async def principal_for_tool_call(
             roles = frozenset({r.strip().lower() for r in raw.split(",") if r.strip()})
         return Principal(user="dev", roles=roles)
 
-    principal = verify_proxy_identity(
+    principal = await _verify_once(
+        request,
         user=x_auth_user,
         roles=x_auth_roles,
         timestamp=x_auth_timestamp,
         signature=x_auth_signature,
-        method=x_auth_method or "",
-        path=x_auth_path or "",
-        body_sha=x_auth_body_sha or "",
-        nonce=x_auth_nonce or "",
+        method=x_auth_method,
+        path=x_auth_path,
+        body_sha=x_auth_body_sha,
+        nonce=x_auth_nonce,
     )
     if principal is None:
         raise HTTPException(status_code=401, detail="missing or invalid proxy-signed identity")
