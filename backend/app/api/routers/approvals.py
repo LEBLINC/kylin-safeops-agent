@@ -14,10 +14,9 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from backend.app.agent.ports import AuditSink
 from backend.app.agent.state_machine import State
 from backend.app.api import schemas
-from backend.app.api.app import get_audit, get_bus, get_registry
+from backend.app.api.app import get_bus, get_registry
 from backend.app.api.auth import Principal
 from backend.app.api.deps import require_proxy_identity
 from backend.app.api.event_bus import EventBus
@@ -288,7 +287,6 @@ async def escalate_approval(
     body: schemas.EscalateRequest,
     principal: Principal = Depends(require_proxy_identity),
     registry: SessionRegistry = Depends(get_registry),
-    audit: AuditSink = Depends(get_audit),
 ) -> schemas.ApprovalResolveResponse:
     """admin-only 转交：把 trace 重生为新 trace_id + 把 user_intent 复制过去。
 
@@ -304,37 +302,31 @@ async def escalate_approval(
     if src is None:
         raise HTTPException(status_code=404, detail=f"unknown trace_id: {trace_id}")
     new_trace_id = f"{trace_id}-esc-{int.from_bytes(os.urandom(4), 'big'):08x}"
-    # 最小实现：emit 一条 escalation audit（orchestrator 自身用 _append_audit 写；
-    # 本端点写 audit sink 时按已落库链的 last_hash 续接，符合 S7 字节级 hash 不破）。
-    # B6 L-M1 修真：移除 except:pass → 让 audit.append IntegrityError 真 raise (S8 fail-closed 不吞)
-    last_hash = audit.last_hash(trace_id) if hasattr(audit, "last_hash") else ""
-    from backend.app.contracts.audit import (
-        GENESIS_HASH,
-        AuditRecord,
-        compute_curr_hash,
-    )
-
-    payload_dict = {
-        "event": "approval_escalated",
-        "by": principal.user,
-        "from_trace": trace_id,
-        "new_trace": new_trace_id,
-        "to_user": body.to_user,
-        "to_role": body.to_role,
-    }
-    seq = 0  # audit sink 内部接管 seq 续写 (本端点不重排)
-    # compute_curr_hash: prev_hash ∥ canonical_json(payload) → 字节级守门
-    # (不动 compute_curr_hash 实现, 仅用)
-    curr_hash = compute_curr_hash(prev_hash=last_hash or GENESIS_HASH, payload=payload_dict)
-    audit.append(
-        AuditRecord(
-            trace_id=trace_id,
-            seq=seq,
-            phase="approval_escalated",
-            payload=payload_dict,
-            prev_hash=last_hash or GENESIS_HASH,
-            curr_hash=curr_hash,
-        )
+    # 转交审计走**该 trace 的唯一写者** src.orchestrator._append_audit（与 SoD 违规
+    # 审计同一条路径，见本文件 approve 分支）。
+    #
+    # 修前是本端点自己构造 AuditRecord：`seq = 0` + 注释"audit sink 内部接管 seq 续写"
+    # ——与实现直接矛盾。audit_logger.py 明写"只落库，绝不重算/覆盖 hash"，且
+    # (trace_id, seq) 有 UNIQUE 约束。审批 trace 必然已有记录（orchestrator 自 seq=0
+    # 起写到 WAIT_APPROVAL），于是 append 撞 UNIQUE；B6 L-M1 移除 except:pass 之后
+    # 异常真透传 → **escalate 在生产上恒 500**。既有用例用 MagicMock 且
+    # last_hash.return_value=""，结构上观察不到这个差异（mock-only 结论那一类）。
+    #
+    # 刻意**不**改成 `seq = last_seq + 1`：实测那只是把 500 挪个位置。
+    # Orchestrator._seq 是纯内存计数（构造置 0、逐次 +1，从不从 DB 重同步），
+    # 本端点抢占 seq=N 之后，orchestrator 下一次 _append_audit 仍然领 N → 再撞
+    # UNIQUE；而 escalate 不解决审批，该 trace 必然还会被 approve/reject/SoD 继续写。
+    # 根因是"一条链两个写者"，seq 只是症状——单写者从根上取消竞争，比对齐 seq 更强。
+    await src.orchestrator._append_audit(  # type: ignore[attr-defined]
+        payload={
+            "event": "approval_escalated",
+            "by": principal.user,
+            "from_trace": trace_id,
+            "new_trace": new_trace_id,
+            "to_user": body.to_user,
+            "to_role": body.to_role,
+        },
+        phase="approval_escalated",
     )
     return schemas.ApprovalResolveResponse(
         trace_id=trace_id,
