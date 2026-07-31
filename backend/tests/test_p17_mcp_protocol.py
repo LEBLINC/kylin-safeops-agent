@@ -28,8 +28,11 @@ import pytest
 
 from mcp_servers.os_ops import all_specs
 
+#: MCP 端点路径（随 router.prefix；M-0 钉住它必须在 /api/ 下）
+_MCP_PATH = "/api/mcp"
 
-def _post(payload: dict | str) -> dict:
+
+def _post(payload: dict | str, *, role: str = "admin") -> dict:
     """向 MCP 端点发一条 JSON-RPC 请求，返回响应 JSON。"""
     from backend.app.api._fakes import build_gateway
     from backend.app.api.app import create_app, get_gateway, lifespan
@@ -40,12 +43,15 @@ def _post(payload: dict | str) -> dict:
         async with lifespan(app):
             transport = httpx.ASGITransport(app=app)  # type: ignore[arg-type]
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                headers = {"X-User-Role": role}
                 if isinstance(payload, str):
                     resp = await client.post(
-                        "/mcp", content=payload, headers={"Content-Type": "application/json"}
+                        _MCP_PATH,
+                        content=payload,
+                        headers={**headers, "Content-Type": "application/json"},
                     )
                 else:
-                    resp = await client.post("/mcp", json=payload)
+                    resp = await client.post(_MCP_PATH, json=payload, headers=headers)
                 return resp.json()
 
     old = os.environ.get("KYLIN_AUTH_MODE")
@@ -57,6 +63,133 @@ def _post(payload: dict | str) -> dict:
             os.environ.pop("KYLIN_AUTH_MODE", None)
         else:
             os.environ["KYLIN_AUTH_MODE"] = old
+
+
+def test_m0_route_must_live_under_api_prefix() -> None:
+    """M-0: MCP 路由必须落在 /api/ 前缀下——否则生产拓扑不可达。
+
+    nginx 只有两个 location：/api/ 转 sidecar，/ 是 SPA 静态回退
+    （try_files，无 proxy_pass）。挂在 /api/ 之外的路由，评委
+    curl -X POST https://host/... 会命中静态回退拿到 index.html 或 405，
+    永远到不了后端——本轮全部 ASGI 直连用例都测不出这一层。
+
+    刻意钉前缀而非字面量 /api/mcp：路由名可以再改，"必须在 /api/ 下"
+    是部署拓扑决定的硬约束。
+    """
+    from backend.app.api.routers.mcp import router
+
+    assert router.prefix.startswith("/api/"), (
+        f"M-0: MCP 路由前缀是 {router.prefix!r}，不在 /api/ 下——"
+        f"nginx 的 / location 是 SPA 静态回退，该路由在生产不可达"
+    )
+
+
+def test_m10_rbac_parity_with_tools_call() -> None:
+    """M-10: MCP tools/call 必须与 /api/tools/call 挂同一道工具级 RBAC。
+
+    P1-6 给人工直调路径接上工具级 RBAC 后，MCP 是第二条人工直调路径。
+    若只有只读门，"只读⟹viewer可调"只是当前 15 个工具的数据巧合
+    （R0/R1 恰好全含 viewer），加一个只读但限 operator 的工具即分叉：
+    /api/tools/call 403、/mcp 放行。此处钉住两条路径挂的是同一个依赖。
+    """
+    import inspect
+
+    from backend.app.api.deps import principal_for_tool_call
+    from backend.app.api.routers import mcp as mcp_mod
+    from backend.app.api.routers import tools as tools_mod
+
+    def _deps(fn) -> set:  # noqa: ANN001
+        return {
+            p.default.dependency
+            for p in inspect.signature(fn).parameters.values()
+            if hasattr(p.default, "dependency")
+        }
+
+    mcp_deps = _deps(mcp_mod.mcp_endpoint)
+    tools_deps = _deps(tools_mod.post_tool_call)
+    assert principal_for_tool_call in mcp_deps, (
+        "M-10: MCP 端点未挂 principal_for_tool_call——缺工具级 RBAC，" "与 /api/tools/call 不同口径"
+    )
+    assert principal_for_tool_call in tools_deps, "M-10 前提：/api/tools/call 应挂该依赖"
+
+
+def test_m11_rbac_actually_denies_insufficient_role() -> None:
+    """M-11: RBAC 闸必须真的拦人——结构断言只证明"挂了"，这条证明"拦得住"。
+
+    构造一个只读但要求 operator 的工具（现实里如"读敏感配置"），
+    用 viewer 身份调：只读门放行，必须由 RBAC 闸拒。
+    这正是 M-10 注释里说的分叉场景，此处让它可执行。
+    """
+    from backend.app.contracts.intent import CandidateTool
+    from backend.app.contracts.policy import PolicyVerdict
+    from backend.app.contracts.tool import ToolSpec
+    from backend.app.contracts.untrusted import ToolResult
+    from backend.app.mcp.gateway import MCPGateway
+    from backend.app.mcp.registry import ToolRegistry
+
+    spec = ToolSpec(
+        name="config.read_secret",
+        description="只读但限 operator 的敏感配置读取",
+        risk="R0",  # 只读 → 只读门放行
+        input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        requires_roles=["operator", "admin"],  # 不含 viewer
+        reversible=True,
+    )
+
+    class _Policy:
+        def evaluate(self, tool: CandidateTool) -> PolicyVerdict:
+            return PolicyVerdict(
+                decision="allow",
+                final_risk="R0",
+                matched_rules=[],
+                reason="ok",
+                approval_required=False,
+            )
+
+    class _Executor:
+        async def execute(self, tool: CandidateTool) -> ToolResult:
+            return ToolResult(tool=tool.name, args=tool.args, exit_code=0, stdout_truncated="ok")
+
+    def _gw() -> MCPGateway:
+        return MCPGateway(ToolRegistry([spec]), _Policy(), _Executor())
+
+    from backend.app.api.app import create_app, get_gateway, lifespan
+
+    async def _call(role: str) -> dict:
+        app = create_app()
+        app.dependency_overrides[get_gateway] = _gw
+        async with lifespan(app):
+            transport = httpx.ASGITransport(app=app)  # type: ignore[arg-type]
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post(
+                    _MCP_PATH,
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 11,
+                        "method": "tools/call",
+                        "params": {"name": "config.read_secret", "arguments": {}},
+                    },
+                    headers={"X-User-Role": role},
+                )
+                return resp.json()
+
+    old = os.environ.get("KYLIN_AUTH_MODE")
+    os.environ["KYLIN_AUTH_MODE"] = "dev"
+    try:
+        denied = asyncio.run(_call("viewer"))
+        allowed = asyncio.run(_call("operator"))
+    finally:
+        if old is None:
+            os.environ.pop("KYLIN_AUTH_MODE", None)
+        else:
+            os.environ["KYLIN_AUTH_MODE"] = old
+
+    assert "error" in denied, (
+        f"M-11: viewer 调 requires_roles=[operator,admin] 的只读工具未被拒——"
+        f"只读门放行了它，RBAC 闸没接上：{denied}"
+    )
+    assert denied["error"]["code"] == -32000, f"M-11: 应为策略拒绝码：{denied}"
+    assert "result" in allowed, f"M-11: operator 有权调用却被拒：{allowed}"
 
 
 def test_m1_initialize() -> None:

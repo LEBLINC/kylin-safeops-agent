@@ -56,9 +56,13 @@ export function getToolCallDetail(callId: string) {
   return request.get<ToolCallLog, ToolCallLog>(`/api/tools/calls/${callId}`)
 }
 
-/** 按工具名查历史调用列表。 */
+/** 按工具名查历史调用列表。
+ *
+ * 路径是 /api/tools/ 而非 /api/tools/calls：后端列表端点是 @router.get("/")；
+ * /api/tools/calls 会去匹配 /api/tools/calls/{call_id}（少一段路径）→ 404。
+ */
 export function listToolCalls(tool: string, limit = 10) {
-  return request.get('/api/tools/calls', { params: { tool, limit } })
+  return request.get('/api/tools/', { params: { tool, limit } })
 }
 
 /**

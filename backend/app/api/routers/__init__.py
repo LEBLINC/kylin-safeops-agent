@@ -36,5 +36,3 @@ api_router.include_router(policy_router)
 api_router.include_router(demo_router)
 
 __all__ = ["api_router"]
-
-__all__ = ["api_router"]

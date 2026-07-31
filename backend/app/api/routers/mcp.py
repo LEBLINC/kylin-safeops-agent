@@ -6,10 +6,18 @@
 调用复用 gateway.call()（完整三道闸 + 结果闸，不绕过任何安全边界）。
 
 安全边界（与 /api/tools/call 同口径，见 routers/tools.py）：
+- 工具级 RBAC：挂 principal_for_tool_call，按 spec.requires_roles 与调用者角色
+  求交集，空集即拒。P1-6 给 /api/tools/call 接上这道闸后，本端点是第二条
+  "人工直调"路径，必须挂同一道——否则"只读⟹viewer可调"只是当前数据的巧合
+  （15 个工具恰好 R0/R1 全含 viewer），加一个只读但限 operator 的工具就会分叉。
 - 只读门：非只读工具在此端点一律拒（变更类必须走 chat→审批链路）。
   MCP 客户端是外部程序，给它变更能力等于绕开人工确认闸。
 - 错误一律回标准 JSON-RPC error 对象，不裸抛 500：协议面必须自洽，
   客户端靠 error.code 分支，拿到 HTML 500 页面只能当作服务挂了。
+
+路由前缀必须在 /api/ 下：nginx 只有 /api/ 与 / 两个 location，后者是 SPA
+静态回退（try_files，无 proxy_pass）。挂 /api/ 还能自动继承该 location 已有的
+limit_req 限流与 9 个伪造头剥离——新开 location 得手工同步这两组，早晚走样。
 
 JSON-RPC 错误码（遵循规范 + MCP 惯例）：
   -32700 解析错误 / -32600 非法请求 / -32601 方法不存在
@@ -26,14 +34,15 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 
 from backend.app.api.app import get_gateway
-from backend.app.api.deps import verify_token
+from backend.app.api.auth import Principal
+from backend.app.api.deps import principal_for_tool_call, verify_token
 from backend.app.contracts.intent import CandidateTool
 from backend.app.mcp.gateway import MCPGateway
 from backend.app.mcp.protocol import to_mcp_tool
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/mcp", tags=["mcp"])
+router = APIRouter(prefix="/api/mcp", tags=["mcp"])
 
 #: 本服务实现的 MCP 协议版本（date-based，MCP 规范惯例）。
 PROTOCOL_VERSION = "2024-11-05"
@@ -74,6 +83,7 @@ def _tool_to_dict(tool) -> dict:  # noqa: ANN001
 async def mcp_endpoint(
     request: Request,
     _user: str = Depends(verify_token),  # noqa: ARG001
+    principal: Principal = Depends(principal_for_tool_call),
     gateway: MCPGateway = Depends(get_gateway),
 ) -> dict:
     """MCP JSON-RPC 2.0 单端点分发。
@@ -113,13 +123,15 @@ async def mcp_endpoint(
         return _result(req_id, {"tools": tools})
 
     if method == "tools/call":
-        return await _handle_tools_call(req_id, params, gateway)
+        return await _handle_tools_call(req_id, params, gateway, principal)
 
     return _error(req_id, _METHOD_NOT_FOUND, f"Method not found: {method}")
 
 
-async def _handle_tools_call(req_id: Any, params: dict, gateway: MCPGateway) -> dict:
-    """tools/call：只读门 + gateway 三道闸；任何拒绝都回 JSON-RPC error。"""
+async def _handle_tools_call(
+    req_id: Any, params: dict, gateway: MCPGateway, principal: Principal
+) -> dict:
+    """tools/call：工具级 RBAC + 只读门 + gateway 三道闸；任何拒绝都回 JSON-RPC error。"""
     name = params.get("name")
     arguments = params.get("arguments") or {}
     if not isinstance(name, str) or not name:
@@ -127,9 +139,20 @@ async def _handle_tools_call(req_id: Any, params: dict, gateway: MCPGateway) -> 
     if not isinstance(arguments, dict):
         return _error(req_id, _INVALID_PARAMS, "Invalid params: 'arguments' must be an object")
 
-    known = {spec.name for spec in gateway.list_tools()}
+    known = {spec.name: spec for spec in gateway.list_tools()}
     if name not in known:
         return _error(req_id, _INVALID_PARAMS, f"Unknown tool: {name}")
+
+    # 工具级 RBAC（与 /api/tools/call 同一道闸）：requires_roles 与调用者角色求交集，
+    # 空集即拒。放在只读门之前——无权访问是授权问题，应先于"这工具不给外部调"作答。
+    spec = known[name]
+    if not (set(spec.requires_roles) & set(principal.roles)):
+        return _error(
+            req_id,
+            _POLICY_DENIED,
+            f"roles {sorted(principal.roles)} cannot call tool '{name}'",
+            {"tool": name, "requires_one_of": sorted(spec.requires_roles)},
+        )
 
     candidate = CandidateTool(name=name, args=arguments)
 

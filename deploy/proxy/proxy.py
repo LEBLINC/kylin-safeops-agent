@@ -142,12 +142,15 @@ async def proxy_route(request: Request, path: str):
     # aclose(resp) → aclose(client)（顺序不能颠倒：先关 client 会掐断 resp 的流）。
     client = httpx.AsyncClient(timeout=None)
     try:
+        # URL 直接带上原始 query（full_path 已含 ?query），不用 params=：
+        # params=dict(request.query_params) 会把多值同名键塌陷（?a=1&a=2 只剩一个），
+        # httpx 还会重新编码、可能改序——而 X-Auth-Path 签的是原始串，
+        # 重编码差异会让上游等值断言看到一批"看似随机"的 401。原样透传语义最直白。
         req = client.build_request(
             request.method,
-            f"{UPSTREAM}/{path}",
+            f"{UPSTREAM}{full_path}",
             headers=headers,
             content=body,
-            params=dict(request.query_params),
         )
         resp = await client.send(req, stream=True)
     except BaseException:

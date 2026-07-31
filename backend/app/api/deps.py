@@ -59,8 +59,16 @@ async def _assert_request_binding(
     if _auth_mode() != "proxy":
         return
     actual_method = request.method.upper()
-    actual_path = request.url.path
-    # body_sha: SHA-256 of actual request body; request.body() is cached by Starlette
+    # 必须与签名方口径字节级一致：proxy.py 把 f"/{path}?{query}" 写进 X-Auth-Path
+    # （见 deploy/proxy/proxy.py 的 full_path 构造）。此处若只取 request.url.path，
+    # 带 query 的请求两边永远不等 → 生产模式下审批页/工具历史/策略命中等全部 401；
+    # 反向也错：签名时无 query、请求时补一个 query，两边又都等于裸 path → 篡改放行。
+    # 用 raw scope["query_string"] 而非 dict(query_params)：后者会把多值同名键
+    # 塌陷（?a=1&a=2 只剩一个）并可能改序，重编码差异会造出一批看似随机的 401。
+    raw_query = request.scope.get("query_string", b"")
+    if isinstance(raw_query, bytes):
+        raw_query = raw_query.decode("latin-1")
+    actual_path = request.url.path + (f"?{raw_query}" if raw_query else "")
     actual_body = await request.body()
     actual_body_sha = hashlib.sha256(actual_body).hexdigest()
 

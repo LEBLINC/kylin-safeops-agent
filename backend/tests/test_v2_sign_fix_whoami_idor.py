@@ -104,12 +104,23 @@ def test_t2_principal_for_idor_roles_nonempty_admin_can_continue_others_session(
 
     async def _call_dep() -> None:
         headers = _v2_headers("bob-admin", "admin", "POST", "/api/chat", "t2-nonce")
-        from unittest.mock import AsyncMock, MagicMock
+        # 用真 Request 而非 MagicMock：P0-D1 后等值断言要读 scope["query_string"]，
+        # MagicMock 的 .get() 返回 Mock 对象而非 bytes，会拼出错误 path 导致假红。
+        from starlette.requests import Request as _Req
 
-        mock_req = MagicMock()
-        mock_req.method = "POST"
-        mock_req.url.path = "/api/chat"
-        mock_req.body = AsyncMock(return_value=b"")
+        async def _empty_receive() -> dict:
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        mock_req = _Req(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/api/chat",
+                "query_string": b"",
+                "headers": [],
+            },
+            receive=_empty_receive,
+        )
         principal = await principal_for_idor(
             request=mock_req,
             x_auth_user=headers["X-Auth-User"],
