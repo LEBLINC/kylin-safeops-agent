@@ -486,9 +486,10 @@ class RCAAnalyzeRequest(BaseModel):
         default_factory=list,
         description=(
             "可选证据列表（X 联调新增）。每条 dict 含 tool_name / stdout / exit_code / "
-            "tool_result 键；传非空 → 真接 DefaultRCAEngine.analyze 走完整 playbook；"
-            "空/不传 → 兜底只按 problem_type/description 产 '采集建议' 模板壳子"
-            "（evidence_count=0）。防御纵深：evidence 仅供 RCA 分析，不触发执行。"
+            "tool_result 键；与本端点按场景模板采到的只读证据同列喂 "
+            "DefaultRCAEngine.analyze 走完整 playbook。"
+            "防御纵深：请求体 evidence 只是数据，**本字段本身绝不触发任何执行**——"
+            "端点的采证工具集由服务端场景模板决定，且只跑 R0/R1（G-2）。"
         ),
     )
 
@@ -500,8 +501,8 @@ class RCAAnalyzeResponse(BaseModel):
     evidence_count: int = Field(
         default=0,
         description=(
-            "本次喂给 RCA 引擎的证据条数（X 联调新增）。>0 表示真接 LLM/真分析；"
-            "=0 表示走 problem_type/description 模板壳子（前端可在不传 evidence 时拿空模板）"
+            "本次喂给 RCA 引擎的证据条数 = 请求体 evidence + 本端点场景模板采到的"
+            "只读证据（G-2）。=0 表示两者皆空，走 problem_type/description 模板壳子"
         ),
     )
 

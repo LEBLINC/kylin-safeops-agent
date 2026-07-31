@@ -15,8 +15,10 @@ purpose/required/expected_signal).本模块提供 collect_rca_evidence: 在 RCA 
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+import time
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
@@ -89,6 +91,7 @@ async def collect_rca_evidence(
     user_intent: str,
     *,
     problem_type: str | None = None,
+    budget_s: float | None = None,
 ) -> list[ToolResult]:
     """按 RCA 场景模板驱动 evidence 采集.
 
@@ -98,7 +101,15 @@ async def collect_rca_evidence(
     4. 失败/非只读/未注册/schema 不匹配 → 跳过该 step,不抛错不中断.
 
     返回 collected ToolResult 列表(可能为空,此时调用方应 fallback 到已有 evidence 不变).
+
+    budget_s: 整轮采证的时间上界(秒)。None = 无上界(默认，chat 主链路行为不变)。
+        非 None 时：每步 wait_for 剩余预算，预算耗尽即停止启动新步骤，
+        **按已采到的部分返回**——不抛 TimeoutError、不返回空列表。
+        存在理由：HTTP 同步请求里跑 N 个只读工具，真机上 find 无 -xdev/-size
+        约束时单步可达 30s(P2-7)，没有上界会把一次 RCA 查询挂死。
+        用界限而不是用"默认关的开关"来约束，能力仍然默认可用。
     """
+    deadline = None if budget_s is None else time.monotonic() + budget_s
     resolved = resolve_problem_type(rca_engine, user_intent, problem_type)
     if not resolved:
         log.debug("collect_rca_evidence: no problem_type resolvable, skip")
@@ -116,6 +127,12 @@ async def collect_rca_evidence(
 
     collected: list[ToolResult] = []
     for step in steps:
+        if deadline is not None and time.monotonic() >= deadline:
+            log.warning(
+                "collect_rca_evidence: 采证预算耗尽，按已采到的 %d 条出报告（剩余步骤跳过）",
+                len(collected),
+            )
+            break
         tool_name = str(step.get("tool", ""))
         step_args = dict(step.get("args") or {})
         if not tool_name:
@@ -143,7 +160,22 @@ async def collect_rca_evidence(
             continue
 
         try:
-            outcome = await gateway.call(candidate, approved=False)
+            if deadline is None:
+                outcome = await gateway.call(candidate, approved=False)
+            else:
+                outcome = await asyncio.wait_for(
+                    gateway.call(candidate, approved=False),
+                    timeout=max(0.0, deadline - time.monotonic()),
+                )
+        except asyncio.TimeoutError:
+            # 用 asyncio.TimeoutError 而非内建 TimeoutError：3.10 上两者不是同一个类
+            # （3.11 起才别名统一），本仓 3.10/3.11 双跑。
+            log.warning(
+                "collect_rca_evidence: step %s 超出采证预算 — skip（已采 %d 条）",
+                tool_name,
+                len(collected),
+            )
+            continue
         except Exception as exc:
             log.warning(
                 "collect_rca_evidence: gateway.call(%s) failed: %s — skip (S8 兜底)",
