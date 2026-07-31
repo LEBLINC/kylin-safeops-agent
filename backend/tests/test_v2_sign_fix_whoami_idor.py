@@ -104,7 +104,14 @@ def test_t2_principal_for_idor_roles_nonempty_admin_can_continue_others_session(
 
     async def _call_dep() -> None:
         headers = _v2_headers("bob-admin", "admin", "POST", "/api/chat", "t2-nonce")
+        from unittest.mock import AsyncMock, MagicMock
+
+        mock_req = MagicMock()
+        mock_req.method = "POST"
+        mock_req.url.path = "/api/chat"
+        mock_req.body = AsyncMock(return_value=b"")
         principal = await principal_for_idor(
+            request=mock_req,
             x_auth_user=headers["X-Auth-User"],
             x_auth_roles=headers["X-Auth-Roles"],
             x_auth_timestamp=headers["X-Auth-Timestamp"],

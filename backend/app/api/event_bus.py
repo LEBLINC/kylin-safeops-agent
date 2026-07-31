@@ -93,10 +93,23 @@ class EventBus:
             ) from exc
 
     def close(self, trace_id: str) -> None:
-        """向 trace_id 投递终止哨兵（None），通知 SSE 端正常结束。"""
+        """向 trace_id 投递终止哨兵（None），通知 SSE 端正常结束。
+
+        P1-3 修复：若队列已满，先弹出一条事件腾出槽位再投哨兵。
+        哨兵必须送达——丢一条业务事件好过 SSE 永久挂死。
+        """
         queue = self._queues.get(trace_id)
         if queue is not None:
+            if queue.full():
+                try:
+                    queue.get_nowait()  # 腾一个槽给哨兵
+                except asyncio.QueueEmpty:
+                    pass
             queue.put_nowait(None)
+
+    def all_trace_ids(self) -> list[str]:
+        """返回当前所有存活队列的 trace_id（用于 probe-watch fan-out）。"""
+        return list(self._queues.keys())
 
     def remove(self, trace_id: str) -> None:
         """移除 trace_id 队列（清理资源）。"""
@@ -133,8 +146,16 @@ class SSEEventSink:
         self._trace_id = trace_id
 
     def emit(self, event: StreamEvent) -> None:
-        """实现 EventSink.emit：投递到总线。"""
-        self._bus.put(self._trace_id, event)
+        """实现 EventSink.emit：投递到总线。
+
+        P1-3 修复：QueueFull 吞掉并计数，丢一条业务事件优于杀整条链路。
+        emit() 在 orchestrator._emit 里是无可奈何的最后推送；若这里抛出，
+        上层没有任何 try/except，会直接逃逸出 _append_audit 后的正常流程。
+        """
+        try:
+            self._bus.put(self._trace_id, event)
+        except EventBusQueueFull:
+            get_metrics().inc("sse.dropped_events")
 
 
 async def sse_stream(bus: EventBus, trace_id: str) -> AsyncIterator[str]:

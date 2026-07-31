@@ -148,6 +148,8 @@ export const useChatStore = defineStore('chat', {
     currentUserRole: (import.meta.env.VITE_CURRENT_USER_ROLE || 'viewer') as string,
     currentUser: '' as string,
     currentUserRoles: [] as string[],
+    /** whoami 加载失败标志：true 时前端以只读权限展示，但用户应收到提示。 */
+    whoamiError: false as boolean,
     /**
      * 打字机定时器。
      * key=trace_id，value=window.setInterval 返回值。
@@ -697,7 +699,9 @@ export const useChatStore = defineStore('chat', {
           (top: string, r: string) => (rank[r] ?? 0) > (rank[top] ?? 0) ? r : top,
           'viewer'
         )
-      } catch { /* silent: whoami unavailable, remain viewer */ }
+      } catch { /* whoami unavailable: fail-closed to viewer (correct), but not silent */
+        this.whoamiError = true
+      }
     },
 
 async sendMessage(content: string) {

@@ -181,8 +181,16 @@ export interface ToolResultData {
 export interface AwaitApprovalTool {
   /** 待审批工具名，例如 service.restart / log.compress_rotate。 */
   tool: string
+  /** 调用参数，审批者据此判断操作对象（如 {path: "/var/log/mysql-bin.001"}）。 */
+  args?: Record<string, unknown>
   /** 该工具要求的最低审批角色；为空表示无需特定角色。 */
   approval_role?: string | null
+  /** 最终风险等级（R0-R4）。 */
+  risk_level?: string | null
+  /** 命中的策略规则 ID 列表，前端可展示"命中 DBLOG001"。 */
+  matched_rules?: string[]
+  /** 更安全的替代建议，有则显示。 */
+  safer_alternative?: string | null
 }
 
 /** await_approval 事件 data 结构。 */

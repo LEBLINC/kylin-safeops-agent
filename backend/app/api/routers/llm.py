@@ -20,10 +20,10 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from backend.app.agent.ports import AuditSink, EventSink
+from backend.app.agent.ports import AuditSink
 from backend.app.api.app import get_audit, get_bus
 from backend.app.api.deps import verify_token
-from backend.app.api.event_bus import EventBus, SSEEventSink, sse_stream
+from backend.app.api.event_bus import EventBus, sse_stream
 from backend.app.api.schemas import LLMHealth, LLMHealthProbe
 from backend.app.contracts.stream import StreamEvent
 
@@ -33,28 +33,33 @@ router = APIRouter(prefix="/api/llm", tags=["llm"])
 
 
 def _emit_probe_audit_appended(bus: EventBus | None, trace_id: str, curr_hash: str) -> None:
-    """同步 emit audit_appended 事件到 EventBus 固定 channel（前端 SSE 订阅可见）。
+    """probe 事件广播至所有活跃的 probe-watch-* 消费者（fan-out）。
 
-    路由设计：probe 失败时 SSE 推到固定 channel "probe-watch"（聚合所有 probe 事件），
-    与 /api/audit/traces/{trace_id} 一一对应——客户端 SSE 收到 trace_id 后再拉详情。
-    原始 trace_id 写进 StreamEvent.data['trace_id'] 字段透传给前端。
+    P1-3 修复前：固定 "probe-watch" 单队列，多 SSE 连接竞争消费（每条事件
+    只有一个连接能读到）。修复后：每连接独立 trace_id，此处遍历广播。
+    EventBusQueueFull 静默跳过——慢消费者丢事件优于阻塞广播。
     """
     if bus is None:
         return
-    sink: EventSink = SSEEventSink(bus, "probe-watch")
-    sink.emit(
-        StreamEvent(
-            trace_id="probe-watch",
-            type="audit_appended",
-            ts=time.time(),
-            data={
-                "seq": 0,
-                "curr_hash": curr_hash,
-                "phase": "probe_failed",
-                "trace_id": trace_id,  # 真实 trace_id（用于查 audit/traces/{id}）
-            },
-        )
+    event = StreamEvent(
+        trace_id="probe-watch",
+        type="audit_appended",
+        ts=time.time(),
+        data={
+            "seq": 0,
+            "curr_hash": curr_hash,
+            "phase": "probe_failed",
+            "trace_id": trace_id,
+        },
     )
+    from backend.app.api.event_bus import EventBusQueueFull
+
+    for tid in bus.all_trace_ids():
+        if tid.startswith("probe-watch"):
+            try:
+                bus.put(tid, event)
+            except EventBusQueueFull:
+                pass
 
 
 @router.get(
@@ -153,13 +158,13 @@ async def health_events(
             status_code=503,
             content={"detail": "SSE connection limit reached", "active_count": bus.active_count},
         )
-    # probe 事件统一 trace_id 前缀，方便客户端订阅过滤
-    # 但当前 SSEEventSink(bus, trace_id) 是单 trace 单队列，运维 dashboard 要收所有
-    # probe 事件，需要新建一个聚合队列。简化：用固定 trace_id "probe-watch" 作 channel。
-    trace_id = "probe-watch"
-    # bug fix：缺 bus.create() 导致 SSE 一直断开；同时去掉 finally bus.remove() —
-    # probe-watch 是 long-life channel（多 SSE 客户端共享），lifespan shutdown 由 drain_all()
-    # 统一清理（avoid 连接互踢）。
+    # probe-watch 改 fan-out：每条 SSE 连接独立 trace_id + queue，
+    # 彼此互不抢事件（旧的固定 "probe-watch" 所有连接共享一个 queue，
+    # 每条事件只有一个消费者能读到，其他连接静默丢失）。
+    # 广播由 _emit_probe_audit_appended 遍历 all_trace_ids("probe-watch-") 前缀实现。
+    import uuid as _uuid
+
+    trace_id = f"probe-watch-{_uuid.uuid4().hex[:8]}"
     bus.create(trace_id)
 
     async def _event_source() -> AsyncIterator[str]:
@@ -169,9 +174,7 @@ async def health_events(
                     break
                 yield chunk
         finally:
-            # long-life channel：lifespan shutdown 由 drain_all() 统一清理；本 finally 不
-            # remove，避免多 SSE 客户端共享一个 queue 时第一个断开把第二个踢走。
-            pass
+            bus.remove(trace_id)  # 每连接独立 queue，断开时立即清理（无并发踢走问题）
 
     return StreamingResponse(
         _event_source(),

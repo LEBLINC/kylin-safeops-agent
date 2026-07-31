@@ -10,6 +10,17 @@
   页面路径由 src/router/index.ts 管理。
 -->
 <template>
+  <!-- whoami 失败提示：fail-closed 到 viewer 是正确的，但不能静默
+       让用户看到按钮变灰却不知为何。banner 不阻断操作，给出说明即可。-->
+  <el-alert
+    v-if="chat.whoamiError"
+    type="warning"
+    show-icon
+    :closable="true"
+    style="position:fixed;top:0;left:0;right:0;z-index:9999;"
+  >
+    身份获取失败，当前按只读权限展示。请检查网络或联系管理员，刷新页面后重试。
+  </el-alert>
   <router-view v-if="!appError" />
   <div v-else class="app-error-fallback">
     <h2>页面加载异常</h2>

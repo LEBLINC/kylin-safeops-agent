@@ -68,6 +68,19 @@ const roleLabel = computed(() => {
         <div v-for="tool in inline.tools" :key="tool.tool" class="tool-item">
           <code>{{ tool.tool }}</code>
           <span>所需角色：{{ tool.approval_role || '无' }}</span>
+          <span v-if="tool.risk_level">风险：{{ tool.risk_level }}</span>
+          <div v-if="tool.args && Object.keys(tool.args).length" class="tool-args">
+            <span class="args-label">参数：</span>
+            <code v-for="(v, k) in tool.args" :key="String(k)" class="arg-pair">
+              {{ k }}={{ JSON.stringify(v) }}
+            </code>
+          </div>
+          <div v-if="tool.matched_rules && tool.matched_rules.length" class="matched-rules">
+            命中规则：{{ tool.matched_rules.join('、') }}
+          </div>
+          <div v-if="tool.safer_alternative" class="safer-alt">
+            建议替代：{{ tool.safer_alternative }}
+          </div>
         </div>
       </div>
 

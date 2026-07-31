@@ -46,8 +46,9 @@ class RedisNonceStore:
     def seen(self, nonce: str, now: float) -> bool:
         return bool(self._client.exists(nonce))
 
-    def record(self, nonce: str, now: float) -> None:
+    def record(self, nonce: str, now: float) -> bool:
         self._client.setex(nonce, _TTL_SECONDS, str(now))
+        return True
 
     def gc(self, now: float) -> None:
         """Redis TTL 自动过期已覆盖清理语义，此处 no-op（保留 Protocol 接口一致）。"""

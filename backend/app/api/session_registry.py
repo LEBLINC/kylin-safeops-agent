@@ -20,6 +20,9 @@ from backend.app.agent.state_machine import State, is_terminal
 
 # 终态会话保留时间（秒）：前端可能延迟拉取最后几条事件
 _RETENTION_SECONDS: float = 300.0
+# 非终态孤儿超时（秒）：WAIT_APPROVAL 等待审批上限（4 小时）。
+# 超时后不论状态如何强制回收，防会话永驻。WAIT_APPROVAL 审批窗应远小于此值。
+_ORPHAN_TIMEOUT_SECONDS: float = 14400.0
 
 
 @dataclass
@@ -88,6 +91,11 @@ class SessionRegistry:
 
         调用方（app._periodic_cleanup）据此同步移除 EventBus 队列，
         保证 session 与 queue 同生命周期，防 queue 永驻泄漏。
+
+        P1-3 增补"非终态孤儿超时"分支：WAIT_APPROVAL 等非终态会话在审批窗
+        （_ORPHAN_TIMEOUT_SECONDS = 4 小时）到期后同样强制回收，防会话永驻。
+        此前 cleanup_expired 只清理 finished_at is not None 的终态会话，
+        非终态会话（含 P1-9 修复前残存的 RECEIVED 卡住会话）永不回收。
         """
         now = time.time()
         expired = [
@@ -95,9 +103,14 @@ class SessionRegistry:
             for tid, s in self._sessions.items()
             if s.finished_at is not None and (now - s.finished_at) > _RETENTION_SECONDS
         ]
-        for tid in expired:
-            del self._sessions[tid]
-        return expired
+        orphans = [
+            tid
+            for tid, s in self._sessions.items()
+            if s.finished_at is None and (now - s.created_at) > _ORPHAN_TIMEOUT_SECONDS
+        ]
+        for tid in expired + orphans:
+            self._sessions.pop(tid, None)
+        return expired + orphans
 
     @property
     def active_count(self) -> int:

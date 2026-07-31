@@ -85,7 +85,9 @@ def test_h4_llm_health_events_limit_returns_503(monkeypatch) -> None:
 
     resp = asyncio.run(_run())
     assert resp.status_code == 503, f"H-4 期望 503, got {resp.status_code}"
-    assert "probe-watch" not in bus._queues, "H-4: 达上限不应建 probe-watch 队列"
+    assert not any(
+        k.startswith("probe-watch") for k in bus._queues
+    ), "H-4: 达上限不应建 probe-watch 队列"
 
 
 def test_h4_llm_health_events_ok_below_limit(monkeypatch) -> None:
@@ -105,7 +107,9 @@ def test_h4_llm_health_events_ok_below_limit(monkeypatch) -> None:
 
     resp = asyncio.run(_run())
     assert resp.status_code != 503, f"H-4 未达上限应受理, got {resp.status_code}"
-    assert "probe-watch" in bus._queues, "H-4: 未达上限应建立 probe-watch 队列"
+    assert any(
+        k.startswith("probe-watch") for k in bus._queues
+    ), "H-4: 未达上限应建立 probe-watch 队列"
 
 
 def test_h4_same_env_var_as_chat_endpoint() -> None:

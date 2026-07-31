@@ -12,10 +12,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 
-from fastapi import Header, HTTPException
+from fastapi import Header, HTTPException, Request
 
 from backend.app.api.auth import Principal, verify_proxy_identity
 
@@ -40,7 +41,39 @@ def _auth_mode() -> str:
     return os.environ.get(_AUTH_MODE_ENV, "proxy").strip().lower()
 
 
+async def _assert_request_binding(
+    request: Request,
+    x_auth_method: str | None,
+    x_auth_path: str | None,
+    x_auth_body_sha: str | None,
+) -> None:
+    """P1-5 等值断言：签名头声明的 method/path/body_sha 必须与实际请求匹配。
+
+    全量签名头防中途篡改的语义要求此检验：当前实现只验证 HMAC 本身（签名链合法），
+    但 method/path/body_sha 均取自请求头——反代签名的是头里的值，而不是真实请求的值。
+    攻击者可把一次已签请求的全部 8 个头搬到任意特权调用上（replaying signed headers
+    to a different endpoint/method/body），完全绕过"防中途篡改"语义。
+
+    仅在 proxy 模式且三个头均非空时校验（dev 联调模式无签名头）。
+    """
+    if _auth_mode() != "proxy":
+        return
+    actual_method = request.method.upper()
+    actual_path = request.url.path
+    # body_sha: SHA-256 of actual request body; request.body() is cached by Starlette
+    actual_body = await request.body()
+    actual_body_sha = hashlib.sha256(actual_body).hexdigest()
+
+    if x_auth_method and x_auth_method.upper() != actual_method:
+        raise HTTPException(status_code=401, detail="proxy signature: method mismatch")
+    if x_auth_path and x_auth_path != actual_path:
+        raise HTTPException(status_code=401, detail="proxy signature: path mismatch")
+    if x_auth_body_sha and x_auth_body_sha != actual_body_sha:
+        raise HTTPException(status_code=401, detail="proxy signature: body_sha mismatch")
+
+
 async def verify_token(
+    request: Request,
     authorization: str | None = Header(default=None),
     x_auth_user: str | None = Header(default=None),
     x_auth_roles: str | None = Header(default=None),
@@ -82,10 +115,12 @@ async def verify_token(
     )
     if principal is None:
         raise HTTPException(status_code=401, detail="missing or invalid proxy-signed identity")
+    await _assert_request_binding(request, x_auth_method, x_auth_path, x_auth_body_sha)
     return principal.user
 
 
 async def require_proxy_identity(
+    request: Request,
     x_auth_user: str | None = Header(default=None),
     x_auth_roles: str | None = Header(default=None),
     x_auth_timestamp: str | None = Header(default=None),
@@ -128,10 +163,12 @@ async def require_proxy_identity(
     )
     if principal is None:
         raise HTTPException(status_code=401, detail="missing or invalid proxy-signed identity")
+    await _assert_request_binding(request, x_auth_method, x_auth_path, x_auth_body_sha)
     return principal
 
 
 async def principal_for_idor(
+    request: Request,
     x_auth_user: str | None = Header(default=None),
     x_auth_roles: str | None = Header(default=None),
     x_auth_timestamp: str | None = Header(default=None),
@@ -171,10 +208,12 @@ async def principal_for_idor(
     )
     if principal is None:
         raise HTTPException(status_code=401, detail="missing or invalid proxy-signed identity")
+    await _assert_request_binding(request, x_auth_method, x_auth_path, x_auth_body_sha)
     return principal
 
 
 async def principal_for_tool_call(
+    request: Request,
     x_auth_user: str | None = Header(default=None),
     x_auth_roles: str | None = Header(default=None),
     x_auth_timestamp: str | None = Header(default=None),
@@ -211,4 +250,5 @@ async def principal_for_tool_call(
     )
     if principal is None:
         raise HTTPException(status_code=401, detail="missing or invalid proxy-signed identity")
+    await _assert_request_binding(request, x_auth_method, x_auth_path, x_auth_body_sha)
     return principal

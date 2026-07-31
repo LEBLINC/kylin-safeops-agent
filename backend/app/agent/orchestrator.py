@@ -448,7 +448,14 @@ class Orchestrator:
 
         if batch_verdict.decision == "confirm":
             confirm_tools = [
-                {"tool": t.name, "approval_role": v.approval_role}
+                {
+                    "tool": t.name,
+                    "args": t.args,
+                    "approval_role": v.approval_role,
+                    "risk_level": v.final_risk,
+                    "matched_rules": v.matched_rules,
+                    "safer_alternative": v.safer_alternative,
+                }
                 for t, v in per_tool
                 if v.decision == "confirm"
             ]

@@ -79,7 +79,7 @@ class NonceStore(Protocol):
 
     def seen(self, nonce: str, now: float) -> bool: ...  # noqa: D102
 
-    def record(self, nonce: str, now: float) -> None: ...  # noqa: D102
+    def record(self, nonce: str, now: float) -> bool: ...  # noqa: D102
 
     def gc(self, now: float) -> None: ...  # noqa: D102
 
@@ -97,11 +97,20 @@ class InMemoryNonceStore:
     def seen(self, nonce: str, now: float) -> bool:
         return nonce in self._seen
 
-    def record(self, nonce: str, now: float) -> None:
+    def record(self, nonce: str, now: float) -> bool:
+        """记录 nonce；先 gc() 清理过期项，仍满则 fail-closed 返回 False。
+
+        P1-5：原实现在满时 FIFO 淘汰最旧项——会把还在有效窗口内的 nonce 踢掉，
+        让同一 nonce 可被重新接受（防重放出现漏洞）。修正逻辑：
+        ① 超上限时先 gc()（清已过期的）；② 清后仍满 → 拒绝记录（fail-closed）。
+        返回 True=已记录；False=fail-closed。
+        """
+        if len(self._seen) >= self._max:
+            self.gc(now)
+        if len(self._seen) >= self._max:
+            return False  # 有效 nonce 把池填满 → 拒绝（可能的重放洪泛）
         self._seen[nonce] = now
-        while len(self._seen) > self._max:
-            oldest = next(iter(self._seen))
-            self._seen.pop(oldest, None)
+        return True
 
     def gc(self, now: float) -> None:
         """清理超出 _MAX_CLOCK_SKEW_SECONDS 窗口的 nonce (防内存泄漏)."""
@@ -263,7 +272,8 @@ def verify_proxy_identity(
     role_set = frozenset(r.strip().lower() for r in roles.split(",") if r.strip())
     # 验签通过 → 记录 nonce (仅当 nonce 非空; v1 fixture 测空 nonce 仍 PASS)
     if nonce:
-        store.record(nonce, current)
+        if not store.record(nonce, current):
+            return None  # nonce 池已满（可能重放洪泛）→ fail-closed
     if record_nonce is not None:
         record_nonce(nonce)
     return Principal(user=user, roles=role_set)

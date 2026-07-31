@@ -53,13 +53,20 @@ async def drive_run(
     registry: SessionRegistry,
     trace_id: str,
 ) -> None:
-    """后台执行 orchestrator.run，兜底异常并收尾。"""
+    """后台执行 orchestrator.run，兜底异常并收尾。
+
+    P1-3 修复：mark_done + bus.close 必须在 finally 块执行，
+    否则 _emit_error 本身抛 EventBusQueueFull 时 SSE 会永久挂死，
+    且会话永远算 in-flight → cleanup_expired 无界增长。
+    """
     try:
         state = await orchestrator.run(messages, user_intent)
     except Exception as exc:  # noqa: BLE001 系统级故障最后兜底，防 SSE 挂死
-        _emit_error(bus, trace_id, orchestrator.state.value, str(exc))
-        registry.mark_done(trace_id)
-        bus.close(trace_id)
+        try:
+            _emit_error(bus, trace_id, orchestrator.state.value, str(exc))
+        finally:
+            registry.mark_done(trace_id)
+            bus.close(trace_id)
         return
     _finalize(state, bus, registry, trace_id)
 
@@ -72,12 +79,17 @@ async def drive_resume(
     registry: SessionRegistry,
     trace_id: str,
 ) -> None:
-    """后台执行 orchestrator.resume，兜底异常并收尾。"""
+    """后台执行 orchestrator.resume，兜底异常并收尾。
+
+    P1-3 修复：与 drive_run 同款 try/finally 保证收尾必执行。
+    """
     try:
         state = await orchestrator.resume(approved)
     except Exception as exc:  # noqa: BLE001 系统级故障最后兜底，防 SSE 挂死
-        _emit_error(bus, trace_id, orchestrator.state.value, str(exc))
-        registry.mark_done(trace_id)
-        bus.close(trace_id)
+        try:
+            _emit_error(bus, trace_id, orchestrator.state.value, str(exc))
+        finally:
+            registry.mark_done(trace_id)
+            bus.close(trace_id)
         return
     _finalize(state, bus, registry, trace_id)
