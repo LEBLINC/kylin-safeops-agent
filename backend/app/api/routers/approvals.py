@@ -181,6 +181,30 @@ def _to_item(session: object) -> schemas.ApprovalItem:
     )
 
 
+#: 终态 → 审批列表分桶。显式穷举，不留兜底分支。
+#: FAILED 归 approved：审批动作本身已完成，失败发生在执行期，属于"已批准单的
+#: 执行结果"。归 rejected 会污染安全叙事——REJECTED 语义是安全决策拒绝，
+#: 与系统故障严格区分（见 state_machine.py 的 FAILED/REJECTED 语义分界）。
+_STATE_BUCKET: dict[str, str] = {
+    "WAIT_APPROVAL": "pending",
+    "FINISHED": "approved",
+    "FAILED": "approved",
+    "REJECTED": "rejected",
+}
+
+
+def _classify_state(state: str) -> str:
+    """把 orchestrator 状态归入审批列表分桶（pending/approved/rejected）。
+
+    显式查表而非 if/elif + 兜底 return：原实现末尾是
+    `return item.state == "REJECTED"`，任何新增终态都会静默落进兜底并被判
+    False，导致该单在 pending/approved/rejected 三个列表里同时查不到
+    （FAILED 终态上线后即复现）。查表让"漏归类"变成可断言的事实。
+    未知状态返回 "" —— 调用方按不匹配处理，由用例 A-6 钉死不得出现。
+    """
+    return _STATE_BUCKET.get(state, "")
+
+
 @router.get("", response_model=schemas.ApprovalListResponse)
 async def list_approvals(
     status: str = "pending",
@@ -189,8 +213,8 @@ async def list_approvals(
 ) -> schemas.ApprovalListResponse:
     """列审批单。status=pending|approved|rejected|all（内存视角，audit 派生视角见 /api/audit/*）。
 
-    当前实现只暴露 SessionRegistry 内存视图；WAIT_APPROVAL=pending，其他=DONE/REJECTED
-    归入 status=approved/rejected。S9：绝不返 api_key 类字段。
+    当前实现只暴露 SessionRegistry 内存视图；WAIT_APPROVAL=pending，
+    FINISHED/FAILED=approved，REJECTED=rejected。S9：绝不返 api_key 类字段。
     """
     wanted = status.lower()
     if wanted not in {"pending", "approved", "rejected", "all"}:
@@ -199,11 +223,7 @@ async def list_approvals(
     def _match(item: schemas.ApprovalItem) -> bool:
         if wanted == "all":
             return True
-        if wanted == "pending":
-            return item.state == "WAIT_APPROVAL"
-        if wanted == "approved":
-            return item.state == "FINISHED"
-        return item.state == "REJECTED"
+        return _classify_state(item.state) == wanted
 
     items = [_to_item(s) for s in registry.snapshot() if _match(_to_item(s))]
     return schemas.ApprovalListResponse(items=items, total=len(items))

@@ -13,6 +13,7 @@ from backend.app.api.routers.auth import router as auth_router
 from backend.app.api.routers.chat import router as chat_router
 from backend.app.api.routers.demo import router as demo_router
 from backend.app.api.routers.llm import router as llm_router
+from backend.app.api.routers.mcp import router as mcp_router
 from backend.app.api.routers.policy import router as policy_router
 from backend.app.api.routers.rca import router as rca_router
 from backend.app.api.routers.sessions import router as sessions_router
@@ -25,6 +26,7 @@ api_router.include_router(sessions_router)
 api_router.include_router(chat_router)
 api_router.include_router(approvals_router)
 api_router.include_router(tools_router)
+api_router.include_router(mcp_router)
 api_router.include_router(system_router)
 api_router.include_router(rca_router)
 api_router.include_router(auth_router)
