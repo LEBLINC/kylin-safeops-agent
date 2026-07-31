@@ -41,8 +41,9 @@ def _auth_mode() -> str:
     return os.environ.get(_AUTH_MODE_ENV, "proxy").strip().lower()
 
 
-#: request.state 上缓存验签结果的键。值是 (Principal | None,) 单元素元组——
-#: 用元组包一层是为了把"验过且失败(None)"与"还没验"区分开。
+#: request.state 上缓存验签结果的键。值是 (入参指纹, Principal | None) 二元组——
+#: 用元组包一层是为了把"验过且失败(None)"与"还没验"区分开；
+#: 带上入参指纹是为了让缓存**以凭据为键**而不只是以请求为键（O-1）。
 _VERIFY_CACHE_ATTR = "_kylin_proxy_identity"
 
 
@@ -70,10 +71,18 @@ async def _verify_once(
 
     跨请求语义不变：缓存挂在 request.state，请求结束即销毁，
     nonce 的一次性防重放对**不同请求**照常生效。
+
+    O-1：缓存**以入参指纹为键**，不只以请求为键。当前四个依赖都从同一 request
+    读同一组头，入参必然相同——但那是巧合不是不变量。若日后有依赖改从别处取
+    凭据（如某个头的备用别名、或先做一次归一化），只按 request 缓存就会把
+    A 凭据的裁决结果返回给 B 凭据的调用方，等于用错误的身份授权。
+    带指纹后：同凭据 → 命中缓存（P0-D6 的修复不变）；异凭据 → 各自真验一次
+    （语义正确；若两者共用同一 nonce，第二次本就该按重放拒掉）。
     """
+    key = (user, roles, timestamp, signature, method, path, body_sha, nonce)
     cached = getattr(request.state, _VERIFY_CACHE_ATTR, None)
-    if cached is not None:
-        return cached[0]
+    if cached is not None and cached[0] == key:
+        return cached[1]
     principal = verify_proxy_identity(
         user=user,
         roles=roles,
@@ -84,7 +93,7 @@ async def _verify_once(
         body_sha=body_sha or "",
         nonce=nonce or "",
     )
-    setattr(request.state, _VERIFY_CACHE_ATTR, (principal,))
+    setattr(request.state, _VERIFY_CACHE_ATTR, (key, principal))
     return principal
 
 

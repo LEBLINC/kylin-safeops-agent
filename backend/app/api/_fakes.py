@@ -244,6 +244,39 @@ def _convo_has_observation(messages: list[Message]) -> bool:
     return any(_UNTRUSTED_BEGIN in str(msg.get("content", "")) for msg in messages)
 
 
+def _original_user_turn(messages: list[Message]) -> str:
+    """取**真实用户轮**正文：首条不含观测定界符的 user 消息。
+
+    观测反馈也是以 role="user" 追加进 convo 的，故不能靠 role 区分；
+    含 BEGIN 标记的那些是机器生成的观测块，不是用户说的话。
+    """
+    for msg in messages:
+        if msg.get("role") != "user":
+            continue
+        content = str(msg.get("content", ""))
+        if _UNTRUSTED_BEGIN not in content:
+            return content
+    return ""
+
+
+def _should_upgrade_after_observation(messages: list[Message]) -> bool:
+    """是否该在观测后升级为变更处置计划。
+
+    两个条件都必须满足，且都是**结构判据**（不看观测正文一个字）：
+      ① convo 里已有观测块 —— "已观测过"
+      ② 原始用户轮是清理类意图 —— "用户本来就要清理"
+
+    加②的理由（AR-2）：只有①时，任何意图只要走过观测就会被改写成
+    "提议压缩日志"——"重启 sshd"观测后变成压缩日志，意图保真度丢失。
+    现网不可达（chat.py 每次只传单条 user 消息，观测块出不了 run()），
+    但那是巧合而非不变量：谁给别的分支加 need_observation=True，
+    那条流程就会静默变成提议压缩日志。②让升级只发生在它本来就该发生的意图上。
+    """
+    return _convo_has_observation(messages) and any(
+        kw in _original_user_turn(messages) for kw in _CLEANUP_KEYWORDS
+    )
+
+
 # service_name 提取：取首个空白分词后、直到结尾或下一个非字母数字字符
 _SERVICE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@-]*")
 # path 提取：取首个 ^/... 形式的绝对路径
@@ -421,7 +454,7 @@ def build_fake_llm(intent_json: str | None = None) -> LLMAdapter:
         # 已观测过 → 确定性升级为变更处置计划（进人工确认闸）。
         # 判据是"convo 里有没有观测块"这个结构事实，不是"观测正文里有没有某个词"——
         # 后者会让不可信输出决定工具选择（Linux 上 find /var 的输出必然含 "rotate"）。
-        if _convo_has_observation(messages):
+        if _should_upgrade_after_observation(messages):
             return _FAKE_INTENT_AFTER_OBSERVATION
         return _intent_for_message(_last_user_content(messages))
 

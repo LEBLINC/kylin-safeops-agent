@@ -16,7 +16,10 @@
   Z-4 五套场景的中文触发词逐个可达
   Z-5 英文推断不回归（原有能力不得被中文分支挤掉）
   Z-6 无关文本仍返回 None（防"含中文即判故障"的过宽实现）
-  Z-7 端到端：该句真走出观测→再规划闭环并抵达终态
+  Z-7 端到端：该句真走出观测→再规划闭环，停在 WAIT_APPROVAL
+  Z-8 根因：不可信观测正文不得决定选哪个工具（路由层 + 规划层 + guard-collision）
+  Z-9 把 Linux 观测输出形态搬到本地，任何平台都能复现当初那个 CI 红
+  Z-10 观测后的升级只作用于清理类意图，不覆盖其它意图（AR-2 意图保真）
 """
 
 from __future__ import annotations
@@ -315,6 +318,55 @@ def test_z8_untrusted_output_must_not_decide_tool_choice() -> None:
         f"Z-8/guard: GUARD 前置句撞上路由关键词 {collided}——"
         f"剥离不可信块后它仍会参与匹配，路由会被非用户文本影响"
     )
+
+
+def test_z10_upgrade_does_not_override_unrelated_intents() -> None:
+    """Z-10 (AR-2): 观测后的升级只作用于清理类意图，不得覆盖其它意图。
+
+    修前：升级判据只有"convo 里有观测块"，于是任何意图走过观测都会被改写成
+    "提议压缩日志"——"重启 sshd"观测后变成 log.compress_rotate，意图保真度丢失。
+
+    现网不可达（chat.py 每次只传单条 user 消息，观测块出不了 run() 的局部 convo），
+    但这是巧合而非不变量：当前只有 cleanup 分支置 need_observation=True，
+    谁给别的分支加观测，那条流程就会静默变成提议压缩日志。
+
+    判据仍是纯结构的：①有观测块 ②原始用户轮命中清理关键词——
+    两者都不看观测正文一个字，故 Z-8 的不变量不受影响。
+    """
+    import asyncio
+
+    from backend.app.api._fakes import build_fake_llm
+    from backend.app.contracts.untrusted import ToolResult
+    from backend.app.llm.feedback import wrap_many_for_feedback
+
+    observation = wrap_many_for_feedback(
+        [ToolResult(tool="disk.usage", args={}, exit_code=0, stdout_truncated="/dev/sda1 96% /")]
+    )
+    llm = build_fake_llm()
+
+    def _tools_after_observation(user_text: str) -> list[str]:
+        convo = [
+            {"role": "user", "content": user_text},
+            {"role": "user", "content": observation},
+        ]
+        return [t.name for t in asyncio.run(llm.plan(convo)).candidate_tools]
+
+    # 清理类：应升级为变更处置（这是 Z-7/Z-9 依赖的行为）
+    assert _tools_after_observation("帮我清理系统垃圾") == [
+        "log.compress_rotate"
+    ], "Z-10: 清理类意图观测后未升级——Z-7/Z-9 的前提被破坏"
+
+    # 非清理类：观测后不得被改写成压缩日志
+    for user_text, forbidden in (
+        ("重启 sshd", "log.compress_rotate"),
+        ("查看磁盘占用", "log.compress_rotate"),
+        ("今天天气不错", "log.compress_rotate"),
+    ):
+        tools = _tools_after_observation(user_text)
+        assert forbidden not in tools, (
+            f"Z-10: {user_text!r} 观测后被改写成 {tools}——"
+            f"升级短路覆盖了不相干意图，意图保真度丢失"
+        )
 
 
 def test_z6_unrelated_text_still_returns_none() -> None:

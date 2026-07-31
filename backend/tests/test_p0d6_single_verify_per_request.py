@@ -246,6 +246,65 @@ def test_v4_failure_is_cached_too() -> None:
     )
 
 
+def test_v5_cache_is_keyed_by_credentials_not_just_request() -> None:
+    """V-5 (O-1): 缓存必须以**入参指纹**为键，不能只以请求为键。
+
+    当前四个依赖都从同一 request 读同一组头，入参必然相同——但那是巧合不是
+    不变量。若日后某个依赖改从别处取凭据（备用头别名、先做一次归一化），
+    只按 request 缓存就会把 A 凭据的裁决结果返回给 B 凭据的调用方，
+    等于用错误的身份授权——这是安全问题，不是性能问题。
+
+    断言：同一 request 内换一组入参，必须真的重新验一次（不吃上一次的缓存）。
+    """
+    from starlette.requests import Request
+
+    from backend.app.api import deps
+
+    seen_users: list[str | None] = []
+
+    def _recording_verify(**kwargs):  # noqa: ANN003, ANN202
+        seen_users.append(kwargs.get("user"))
+        return None
+
+    async def _empty_receive() -> dict:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/x",
+            "query_string": b"",
+            "headers": [],
+        },
+        receive=_empty_receive,
+    )
+
+    base = {
+        "roles": "operator",
+        "timestamp": "1",
+        "signature": "sig",
+        "method": "POST",
+        "path": "/api/x",
+        "body_sha": "x",
+        "nonce": "n",
+    }
+
+    original = deps.verify_proxy_identity
+    deps.verify_proxy_identity = _recording_verify  # type: ignore[assignment]
+    try:
+        asyncio.run(deps._verify_once(request, user="alice", **base))  # type: ignore[arg-type]
+        asyncio.run(deps._verify_once(request, user="alice", **base))  # type: ignore[arg-type]
+        asyncio.run(deps._verify_once(request, user="mallory", **base))  # type: ignore[arg-type]
+    finally:
+        deps.verify_proxy_identity = original  # type: ignore[assignment]
+
+    assert seen_users == ["alice", "mallory"], (
+        f"V-5: 实际验签入参序列 {seen_users}——"
+        f"同凭据应命中缓存（alice 只验一次），换凭据必须重验（mallory 不能吃 alice 的缓存）"
+    )
+
+
 def test_v3_nonce_still_single_use_across_requests() -> None:
     """V-3: 缓存是 per-request 的，跨请求的 nonce 一次性防重放不得被破坏。
 
